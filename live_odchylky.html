@@ -169,6 +169,26 @@ canvas { max-width: 100%; display: block; }
     </div>
   </div>
 
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title">aFRR Capacity Bids · ČR (denní trh, ENTSO-E)</div>
+        <div class="panel-sub">dnes celý den · kontraktované kapacity (MW) a ceny procurementu (EUR/MW/h)</div>
+      </div>
+      <div id="afrrStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#888;display:flex;gap:14px;flex-wrap:wrap;"></div>
+    </div>
+    <div style="background:#f7f9fc; position:relative; overflow:hidden; width:100%;" id="afrrWrap">
+      <canvas id="afrrCanvas" height="380" style="width:100%;height:380px;display:block;"></canvas>
+      <div id="afrrTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);line-height:1.4;"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#2e7d32;"></span>Capacity UP (MW, levá osa)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#c62828;"></span>Capacity DOWN (MW, levá osa)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#1565c0;border:1px dashed #1565c0;"></span>Price UP (EUR/MW/h, pravá osa)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#ff8f00;border:1px dashed #ff8f00;"></span>Price DOWN (EUR/MW/h, pravá osa)</span>
+    </div>
+  </div>
+
     <div class="panel-hdr"><div class="panel-title">Odhadovaná cena odchylky · Kč/MWh</div></div>
     <div style="overflow-x:auto;">
       <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;min-width:100%;"></table>
@@ -885,6 +905,160 @@ async function loadFreq() {
   } catch(e) {}
 }
 
+// ============================================================
+// aFRR Capacity Bids (procurement na denním trhu) z ENTSO-E
+// ============================================================
+async function loadAfrr() {
+  try {
+    const r = await fetch(`${API_URL}/entsoe/afrr`);
+    if (!r.ok) return;
+    const data = await r.json();
+    const canvas = document.getElementById('afrrCanvas');
+    if (!canvas) return;
+    drawAfrrChart(canvas, data);
+    renderAfrrStats(data);
+  } catch(e) { console.warn('afrr:', e); }
+}
+
+function renderAfrrStats(data) {
+  const el = document.getElementById('afrrStats');
+  if (!el) return;
+  const fmtMax = (arr, unit) => {
+    if (!arr || !arr.length) return '—';
+    const peak = Math.max(...arr.map(p => Math.abs(p.value || 0)));
+    return peak.toFixed(0) + ' ' + unit;
+  };
+  el.innerHTML = `
+    <span>UP peak: ${fmtMax(data.volumes_up, 'MW')}</span>
+    <span>DOWN peak: ${fmtMax(data.volumes_down, 'MW')}</span>
+    <span>Price UP max: ${fmtMax(data.prices_up, 'EUR')}</span>
+    <span>Price DOWN max: ${fmtMax(data.prices_down, 'EUR')}</span>
+  `;
+}
+
+function drawAfrrChart(canvas, data) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth;
+  const H = canvas.clientHeight;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const PAD_L = 50, PAD_R = 55, PAD_T = 14, PAD_B = 28;
+  const w = W - PAD_L - PAD_R;
+  const h = H - PAD_T - PAD_B;
+
+  // X osa = celý den 0-23h
+  const day = data.day; // YYYY-MM-DD
+  const xStart = new Date(day + 'T00:00:00').getTime();
+  const xEnd   = xStart + 24 * 60 * 60 * 1000;
+
+  // Sebrat všechny hodnoty pro Y rozsah
+  const allVols = [
+    ...(data.volumes_up || []).map(p => p.value || 0),
+    ...(data.volumes_down || []).map(p => p.value || 0),
+  ];
+  const allPrices = [
+    ...(data.prices_up || []).map(p => p.value || 0),
+    ...(data.prices_down || []).map(p => p.value || 0),
+  ];
+
+  // Pokud nemáme žádná data, vykreslit jen prázdné osy s notice
+  const hasAnyData = allVols.length > 0 || allPrices.length > 0;
+
+  const yVolMax   = allVols.length   ? Math.max(...allVols, 50) : 100;
+  const yPriceMax = allPrices.length ? Math.max(...allPrices.map(Math.abs), 50) : 100;
+  const yPriceMin = allPrices.length ? Math.min(0, ...allPrices) : 0;
+
+  const xToPx = ts => PAD_L + ((ts - xStart) / (xEnd - xStart)) * w;
+  const yVolToPx   = v => PAD_T + h - (v / yVolMax) * h;
+  const yPriceToPx = v => PAD_T + h - ((v - yPriceMin) / (yPriceMax - yPriceMin)) * h;
+
+  // Mřížka
+  ctx.strokeStyle = '#e0e4ef';
+  ctx.lineWidth = 1;
+  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.fillStyle = '#888';
+
+  // X osa - hodiny
+  for (let hh = 0; hh <= 24; hh += 3) {
+    const ts = xStart + hh * 60 * 60 * 1000;
+    const x = xToPx(ts);
+    ctx.beginPath(); ctx.moveTo(x, PAD_T); ctx.lineTo(x, PAD_T + h); ctx.stroke();
+    ctx.fillText(`${String(hh).padStart(2,'0')}:00`, x - 12, PAD_T + h + 14);
+  }
+  // Y osa levá - objemy MW
+  ctx.fillStyle = '#2e7d32';
+  for (let i = 0; i <= 4; i++) {
+    const v = (yVolMax / 4) * i;
+    const y = yVolToPx(v);
+    ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + w, y);
+    ctx.strokeStyle = '#eef0f7';
+    ctx.stroke();
+    ctx.fillText(v.toFixed(0), 4, y + 3);
+  }
+  // Y osa pravá - cena EUR
+  ctx.fillStyle = '#1565c0';
+  for (let i = 0; i <= 4; i++) {
+    const v = yPriceMin + ((yPriceMax - yPriceMin) / 4) * i;
+    const y = yPriceToPx(v);
+    ctx.fillText(v.toFixed(0), PAD_L + w + 4, y + 3);
+  }
+  // Popisky os
+  ctx.fillStyle = '#aaa';
+  ctx.font = '9px JetBrains Mono, monospace';
+  ctx.fillText('MW', 4, PAD_T - 2);
+  ctx.fillText('EUR', PAD_L + w + 4, PAD_T - 2);
+
+  if (!hasAnyData) {
+    ctx.fillStyle = '#aaa';
+    ctx.font = '12px Inter, sans-serif';
+    ctx.fillText('Pro dnešní den ENTSO-E zatím nepublikovala aFRR capacity bids', PAD_L + 30, PAD_T + h/2);
+    return;
+  }
+
+  // Funkce pro vykreslení čáry
+  function drawLine(points, color, dashed, isPrice) {
+    if (!points || !points.length) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.6;
+    ctx.setLineDash(dashed ? [4, 3] : []);
+    ctx.beginPath();
+    let first = true;
+    points.forEach(p => {
+      const ts = new Date(p.ts).getTime();
+      if (ts < xStart || ts > xEnd) return;
+      const x = xToPx(ts);
+      const v = p.value || 0;
+      const y = isPrice ? yPriceToPx(v) : yVolToPx(v);
+      if (first) { ctx.moveTo(x, y); first = false; }
+      else       { ctx.lineTo(x, y); }
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Objemy plné čáry
+  drawLine(data.volumes_up,   '#2e7d32', false, false);
+  drawLine(data.volumes_down, '#c62828', false, false);
+  // Ceny přerušované
+  drawLine(data.prices_up,    '#1565c0', true,  true);
+  drawLine(data.prices_down,  '#ff8f00', true,  true);
+
+  // Aktualni cas linka
+  const nowTs = Date.now();
+  if (nowTs >= xStart && nowTs <= xEnd) {
+    const x = xToPx(nowTs);
+    ctx.strokeStyle = 'rgba(21,101,192,0.4)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 2]);
+    ctx.beginPath(); ctx.moveTo(x, PAD_T); ctx.lineTo(x, PAD_T + h); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
 async function loadCenaTable() {
   try {
     const now = new Date();
@@ -969,8 +1143,10 @@ async function loadCena() {
 // Throttling pro pomale endpointy - update jen jednou za N ms
 let _lastResLoad = 0;
 let _lastCenaTableLoad = 0;
-const RES_THROTTLE_MS = 60 * 1000;       // OZE + Solar forecast: 1 min
+let _lastAfrrLoad = 0;
+const RES_THROTTLE_MS  = 60 * 1000;       // OZE + Solar forecast: 1 min
 const CENA_TABLE_THROTTLE_MS = 60 * 1000; // Tabulka cen: 1 min (counts per 15min slot)
+const AFRR_THROTTLE_MS = 5 * 60 * 1000;   // aFRR: 5 min (data jsou 15min sloty)
 
 async function loadAll() {
   if (!API_URL) return;
@@ -989,6 +1165,11 @@ async function loadAll() {
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
+    }
+    // aFRR - jednou za 5 minut (15min sloty se nemění tak často)
+    if (now - _lastAfrrLoad > AFRR_THROTTLE_MS) {
+      _lastAfrrLoad = now;
+      tasks.push(loadAfrr());
     }
 
     await Promise.allSettled(tasks);
