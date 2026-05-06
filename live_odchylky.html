@@ -45,7 +45,7 @@ header { background: #fff; border-bottom: 1px solid #e0e4ef; display: flex; alig
 main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .err-bar { background: #fff0f0; border: 1px solid #ffb3b3; border-radius: 6px; padding: 8px 12px; color: #c0392b; font-size: 11px; display: none; }
 .err-bar code { background: #ffe0e0; padding: 1px 4px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
-.kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+.kpi-row { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; }
 .kpi { background: #fff; border: 1px solid #e0e4ef; border-radius: 7px; padding: 10px 12px; border-left: 3px solid #ccc; transition: border-left-color .4s; }
 .kpi.pos { border-left-color: #43a047; }
 .kpi.neg { border-left-color: #e53935; }
@@ -105,7 +105,8 @@ main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .rl-slot-zone:hover { background: rgba(21,101,192,0.04); }
 #rlChartTip { position: absolute; display: none; pointer-events: none; background: #1a1a2e; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 5px 8px; border-radius: 4px; white-space: nowrap; z-index: 10; box-shadow: 0 2px 6px rgba(0,0,0,.2); line-height: 1.4; }
 
-@media(max-width:700px){ .kpi-row{grid-template-columns:1fr 1fr;} .two-col{grid-template-columns:1fr;} }
+@media(max-width:900px){ .kpi-row{grid-template-columns:repeat(3,1fr);} }
+@media(max-width:700px){ .kpi-row{grid-template-columns:repeat(2,1fr);} .two-col{grid-template-columns:1fr;} }
 @media(max-width:400px){ .kpi-row{grid-template-columns:1fr;} }
 canvas { max-width: 100%; display: block; }
 </style>
@@ -147,6 +148,7 @@ canvas { max-width: 100%; display: block; }
     <div class="kpi" id="crd-O"><div class="kpi-l">Systémová odchylka</div><div class="kpi-v" id="dv-O">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-O">—</div></div>
     <div class="kpi" id="crd-C"><div class="kpi-l">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">Kč/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
     <div class="kpi" id="crd-F"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
+    <div class="kpi" id="crd-P"><div class="kpi-l">Spot OTE</div><div class="kpi-v" id="dv-P">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-P">—</div></div>
     <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
   </div>
 
@@ -1550,12 +1552,35 @@ let _lastCenaTableLoad = 0;
 const RES_THROTTLE_MS  = 60 * 1000;
 const CENA_TABLE_THROTTLE_MS = 60 * 1000;
 
+async function loadOteSpot() {
+  // OTE day-ahead spotová cena - cache 5min na backendu
+  try {
+    const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error || d.price_eur == null) return;
+    const eur = parseFloat(d.price_eur);
+    const czk = parseFloat(d.price_czk);
+    const hour = d.hour != null ? `h${d.hour}` : '';
+    // Vlastní renderer (setKPI nepouzivam protoze ma zelena/cervena logiku)
+    document.getElementById('dv-P').innerHTML =
+      `${eur.toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
+    document.getElementById('ds-P').textContent =
+      `${Math.round(czk).toLocaleString('cs')} Kč/MWh · ${hour}`;
+    // Barevné zvýraznění: < 50 EUR = levné (zelená), > 150 EUR = drahé (červená)
+    const card = document.getElementById('crd-P');
+    if (eur < 50)       { card.className = 'kpi pos'; document.getElementById('dv-P').className = 'kpi-v pos'; }
+    else if (eur > 150) { card.className = 'kpi neg'; document.getElementById('dv-P').className = 'kpi-v neg'; }
+    else                { card.className = 'kpi';     document.getElementById('dv-P').className = 'kpi-v'; }
+  } catch (e) { console.warn('OTE spot:', e); }
+}
+
 async function loadAll() {
   if (!API_URL) return;
   setDot('idle', 'Načítám…');
   document.getElementById('err').style.display = 'none';
   try {
-    const tasks = [loadMain(), loadFreq(), loadCena()];
+    const tasks = [loadMain(), loadFreq(), loadCena(), loadOteSpot()];
 
     const now = Date.now();
     if (now - _lastCenaTableLoad > CENA_TABLE_THROTTLE_MS) {
