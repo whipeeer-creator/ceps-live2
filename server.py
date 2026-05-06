@@ -169,7 +169,7 @@ def call_claude(snapshot_text):
     }
     body = {
         "model": CLAUDE_MODEL,
-        "max_tokens": 600,
+        "max_tokens": 1200,
         "messages": [{"role": "user", "content": snapshot_text}],
     }
     r = _request_with_retry(
