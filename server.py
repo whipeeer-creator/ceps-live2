@@ -382,5 +382,23 @@ window.addEventListener('DOMContentLoaded', () => {
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8765))
+    # Self-ping pro Render Free - aby sluzba neusla po 15 min necinnosti
+    # Render automaticky nastavi RENDER_EXTERNAL_URL na verejnou URL sluzby
+    public_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+    if public_url:
+        import threading
+        def keepalive():
+            time.sleep(60)  # pockat nez server nastartuje
+            while True:
+                try:
+                    r = requests.get(f"{public_url}/health", timeout=10)
+                    print(f"[keepalive] ping {public_url}/health -> {r.status_code}", flush=True)
+                except Exception as e:
+                    print(f"[keepalive] FAIL: {e}", flush=True)
+                time.sleep(10 * 60)  # ping kazdych 10 minut
+        threading.Thread(target=keepalive, daemon=True).start()
+        print(f"[keepalive] thread started, pinging {public_url}/health every 10 min", flush=True)
+    else:
+        print("[keepalive] RENDER_EXTERNAL_URL not set - keepalive disabled", flush=True)
     print(f"CEPS API server -> port {port}", flush=True)
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
