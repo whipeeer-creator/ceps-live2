@@ -33,8 +33,9 @@ CZ_DOMAIN    = "10YCZ-CEPS-----N"
 
 # Regelleistung.net (DE+AT) aFRR ENERGY market
 RL_BASE_URL = "https://www.regelleistung.net/apps/crds/api/v2/tenders/results/anonymous"
-RL_CACHE_TTL_SEC = 10 * 60   # 10 minut
-RL_REQUEST_TIMEOUT = 45      # XLSX muze byt vetsi soubor
+RL_CACHE_TTL_SEC = 30 * 60   # 30 minut - data se aktualizuji pomalu, mensi cache = vic loadu
+RL_REQUEST_TIMEOUT = 60      # XLSX muze byt vetsi soubor
+RL_BACKGROUND_REFRESH = True # Pri kazdem cache hitu spustit i background refresh
 _RL_CACHE = {}               # {(productType, market, date): (timestamp, data)}
 
 
@@ -157,19 +158,63 @@ def fmt_entsoe_period(d):
 
 
 # ============================================================
-# Regelleistung.net (DE+AT) aFRR ENERGY bidy
+# Regelleistung.net (DE) aFRR ENERGY bidy
 # ============================================================
+import threading
 
-def _rl_cache_get(key):
+# Lock pro background refresh - aby se nestahovalo paralelne nekolikrat
+_RL_REFRESH_LOCK = threading.Lock()
+_RL_REFRESH_INFLIGHT = set()   # set kluci ktere se prave refreshuji
+
+
+def _rl_cache_get(key, allow_stale=False):
     entry = _RL_CACHE.get(key)
     if not entry: return None
     ts, data = entry
-    if time.time() - ts > RL_CACHE_TTL_SEC: return None
+    age = time.time() - ts
+    if age > RL_CACHE_TTL_SEC and not allow_stale:
+        return None
     return data
+
+
+def _rl_cache_age(key):
+    entry = _RL_CACHE.get(key)
+    if not entry: return None
+    return time.time() - entry[0]
 
 
 def _rl_cache_set(key, data):
     _RL_CACHE[key] = (time.time(), data)
+
+
+def _rl_refresh_in_background(delivery_date):
+    """Stahne a naparsuje XLSX v background threadu. Idempotent."""
+    key = ("aFRR", "ENERGY", delivery_date)
+    with _RL_REFRESH_LOCK:
+        if key in _RL_REFRESH_INFLIGHT:
+            return  # uz se to refreshuje
+        _RL_REFRESH_INFLIGHT.add(key)
+
+    def worker():
+        try:
+            print(f"  -> [bg] Regelleistung refresh: {delivery_date}", flush=True)
+            t0 = time.time()
+            xlsx_bytes = fetch_regelleistung_xlsx("aFRR", "ENERGY", delivery_date)
+            t_fetch = time.time() - t0
+            parsed = parse_afrr_energy_xlsx(xlsx_bytes)
+            parsed["date"] = delivery_date
+            parsed["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            _rl_cache_set(key, parsed)
+            print(f"  -> [bg] OK fetched={t_fetch:.1f}s "
+                  f"total={time.time()-t0:.1f}s slots={len(parsed.get('slots', {}))}",
+                  flush=True)
+        except Exception as e:
+            print(f"  -> [bg] FAIL: {e}", flush=True)
+        finally:
+            with _RL_REFRESH_LOCK:
+                _RL_REFRESH_INFLIGHT.discard(key)
+
+    threading.Thread(target=worker, daemon=True).start()
 
 
 def fetch_regelleistung_xlsx(product_type, market, delivery_date):
@@ -208,18 +253,29 @@ def parse_afrr_energy_xlsx(xlsx_bytes):
     headers_lower = [h.lower() for h in headers]
 
     def find_col(*candidates):
+        """Hledame fuzzy: nejdriv exact, pak substring (case-insensitive)."""
         for cand in candidates:
             cand_l = cand.lower()
             for i, h in enumerate(headers_lower):
                 if h == cand_l: return i
+        for cand in candidates:
+            cand_l = cand.lower()
             for i, h in enumerate(headers_lower):
                 if cand_l in h: return i
         return -1
 
-    idx_product = find_col("PRODUCT", "PRODUCT_NAME")
-    idx_volume  = find_col("OFFERED_ENERGY_VOLUME_MW", "VOLUME_MW", "OFFERED_VOLUME")
-    idx_price   = find_col("OFFERED_ENERGY_PRICE_EUR_MWH", "PRICE_EUR_MWH",
-                           "OFFERED_PRICE", "ENERGY_PRICE")
+    # Realne nazvy sloupcu z regelleistung.net (zjisteno z odpovedi):
+    #   PRODUCT, ENERGY_PRICE_[EUR/MWh], ENERGY_PRICE_PAYMENT_DIRECTION,
+    #   OFFERED_CAPACITY_[MW], ALLOCATED_CAPACITY_[MW], COUNTRY, TYPE_OF_RESERVES, NOTE
+    idx_product   = find_col("PRODUCT", "PRODUCT_NAME")
+    idx_volume    = find_col("OFFERED_CAPACITY_[MW]", "OFFERED_CAPACITY",
+                             "OFFERED_ENERGY_VOLUME_MW", "VOLUME_MW", "OFFERED_VOLUME")
+    idx_price     = find_col("ENERGY_PRICE_[EUR/MWh]", "ENERGY_PRICE",
+                             "OFFERED_ENERGY_PRICE_EUR_MWH", "PRICE_EUR_MWH")
+    idx_payment   = find_col("ENERGY_PRICE_PAYMENT_DIRECTION", "PAYMENT_DIRECTION")
+    idx_country   = find_col("COUNTRY")
+    idx_reserves  = find_col("TYPE_OF_RESERVES", "RESERVE_TYPE")
+    idx_allocated = find_col("ALLOCATED_CAPACITY_[MW]", "ALLOCATED_CAPACITY")
 
     if idx_product < 0 or idx_volume < 0 or idx_price < 0:
         return {
@@ -231,8 +287,13 @@ def parse_afrr_energy_xlsx(xlsx_bytes):
 
     slots = {}
     directions_seen = set()
+    sample_products = []      # debug - prvnich 5 unikatnich produktovych nazvu
+    seen_products = set()
+    skipped_reasons = {"non_afrr": 0, "bad_product": 0, "bad_qh": 0, "bad_value": 0}
+    total_rows = 0
 
     for row in rows_iter:
+        total_rows += 1
         if row is None or len(row) <= max(idx_product, idx_volume, idx_price):
             continue
         product = row[idx_product]
@@ -240,20 +301,66 @@ def parse_afrr_energy_xlsx(xlsx_bytes):
         price   = row[idx_price]
         if product is None or volume is None or price is None: continue
 
-        product_str = str(product)
-        if product_str.startswith("POS_QH_"):
-            direction = "POS"; qh_part = product_str[7:]
-        elif product_str.startswith("NEG_QH_"):
-            direction = "NEG"; qh_part = product_str[7:]
-        else:
+        # Filter jen aFRR (TYPE_OF_RESERVES muze byt aFRR/mFRR/FCR)
+        if idx_reserves >= 0 and len(row) > idx_reserves:
+            rtype = str(row[idx_reserves] or "").strip().lower()
+            if rtype and "afrr" not in rtype:
+                skipped_reasons["non_afrr"] += 1
+                continue
+
+        # Filter jen Nemecko (regelleistung publikuje DE+AT joint, my chceme jen DE)
+        if idx_country >= 0 and len(row) > idx_country:
+            ctry = str(row[idx_country] or "").strip().upper()
+            if ctry and ctry != "DE":
+                skipped_reasons.setdefault("non_de", 0)
+                skipped_reasons["non_de"] += 1
+                continue
+
+        product_str = str(product).strip()
+        if product_str not in seen_products and len(sample_products) < 5:
+            sample_products.append(product_str)
+            seen_products.add(product_str)
+
+        # Smer odvodime z PAYMENT_DIRECTION sloupce nebo z prefixu PRODUCT
+        direction = None
+        if idx_payment >= 0 and len(row) > idx_payment:
+            pay = str(row[idx_payment] or "").strip().upper()
+            # GRID_TO_PROVIDER = TSO plati providerovi za UP energy (POS)
+            # PROVIDER_TO_GRID = provider plati TSO za moznost dodat DOWN (NEG)
+            if "GRID_TO_PROVIDER" in pay or pay == "POS" or pay == "POSITIVE":
+                direction = "POS"
+            elif "PROVIDER_TO_GRID" in pay or pay == "NEG" or pay == "NEGATIVE":
+                direction = "NEG"
+
+        # Fallback: prefix v PRODUCT
+        if direction is None:
+            pu = product_str.upper()
+            if pu.startswith("POS_") or "_POS_" in pu or pu.startswith("POS"):
+                direction = "POS"
+            elif pu.startswith("NEG_") or "_NEG_" in pu or pu.startswith("NEG"):
+                direction = "NEG"
+
+        if direction is None:
+            skipped_reasons["bad_product"] += 1
             continue
 
-        qh_idx_str = qh_part.split("_")[0]
-        try:
-            qh_idx = int(qh_idx_str)
-        except ValueError:
+        # QH index - hledame "QH_NNN" v product nazvu, nebo "_NNN_" jako 3-cifernou cast
+        qh_idx = None
+        import re as _re
+        m = _re.search(r"QH[_\-]?(\d{1,3})", product_str, _re.IGNORECASE)
+        if not m:
+            m = _re.search(r"_(\d{3})_", product_str)
+        if not m:
+            m = _re.search(r"_(\d{1,3})$", product_str)
+        if m:
+            try:
+                qh_idx = int(m.group(1))
+            except ValueError:
+                pass
+
+        if qh_idx is None or qh_idx < 0 or qh_idx > 95:
+            skipped_reasons["bad_qh"] += 1
             continue
-        if qh_idx < 0 or qh_idx > 95: continue
 
         start_min = qh_idx * 15
         sh, sm = divmod(start_min, 60)
@@ -264,7 +371,12 @@ def parse_afrr_energy_xlsx(xlsx_bytes):
         try:
             vol_f = float(volume); price_f = float(price)
         except (ValueError, TypeError):
+            skipped_reasons["bad_value"] += 1
             continue
+
+        # Pro NEG bidy je cena "kolik provider plati TSO" - v balancing.services
+        # vizualizaci jsou ukazany jako kladne hodnoty na merit-order curve.
+        # Necham puvodni znamenko, frontend si poradi.
 
         slots.setdefault(slot_key, []).append({
             "volume_mw": vol_f, "price": price_f, "direction": direction,
@@ -275,30 +387,59 @@ def parse_afrr_energy_xlsx(xlsx_bytes):
         "slots": slots,
         "directions_available": sorted(directions_seen),
         "raw_columns": headers,
+        "_debug": {
+            "total_rows": total_rows,
+            "sample_products": sample_products,
+            "skipped": skipped_reasons,
+            "col_indices": {
+                "product": idx_product, "volume": idx_volume, "price": idx_price,
+                "payment": idx_payment, "country": idx_country,
+                "reserves": idx_reserves, "allocated": idx_allocated,
+            },
+        },
     }
 
 
 def get_afrr_energy_data(delivery_date):
-    """Hlavni funkce s cache."""
+    """Stale-while-revalidate cache:
+    1. Cache hit + fresh        -> vrat hned
+    2. Cache hit + expired      -> vrat hned (stale) + spust bg refresh
+    3. Cache miss               -> stahni synchronne (uzivatel pocka)
+    """
     key = ("aFRR", "ENERGY", delivery_date)
-    cached = _rl_cache_get(key)
-    if cached is not None:
-        out = dict(cached); out["_cache"] = "hit"
+
+    # 1. Fresh cache
+    fresh = _rl_cache_get(key, allow_stale=False)
+    if fresh is not None:
+        out = dict(fresh); out["_cache"] = "hit"; out["_age_sec"] = int(_rl_cache_age(key) or 0)
         return out
 
-    print(f"  -> Regelleistung XLSX fetch: aFRR ENERGY {delivery_date}", flush=True)
+    # 2. Stale cache (expired) - vrat hned ale spust bg refresh
+    stale = _rl_cache_get(key, allow_stale=True)
+    if stale is not None:
+        age = _rl_cache_age(key) or 0
+        print(f"  -> Regelleistung: cache stale (age={int(age)}s), bg refresh + vracim stale", flush=True)
+        _rl_refresh_in_background(delivery_date)
+        out = dict(stale); out["_cache"] = "stale"; out["_age_sec"] = int(age)
+        return out
+
+    # 3. Cache miss - synchronni fetch (uzivatel pocka)
+    print(f"  -> Regelleistung XLSX fetch (sync): aFRR ENERGY {delivery_date}", flush=True)
+    t0 = time.time()
     xlsx_bytes = fetch_regelleistung_xlsx("aFRR", "ENERGY", delivery_date)
-    print(f"     downloaded {len(xlsx_bytes)} bytes", flush=True)
+    t_fetch = time.time() - t0
+    print(f"     downloaded {len(xlsx_bytes)} bytes in {t_fetch:.1f}s", flush=True)
 
     parsed = parse_afrr_energy_xlsx(xlsx_bytes)
     parsed["date"] = delivery_date
     parsed["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    print(f"     parsed: {len(parsed.get('slots', {}))} slots, "
+    print(f"     parsed in {time.time()-t0:.1f}s total: "
+          f"{len(parsed.get('slots', {}))} slots, "
           f"directions={parsed.get('directions_available')}", flush=True)
 
     _rl_cache_set(key, parsed)
-    out = dict(parsed); out["_cache"] = "miss"
+    out = dict(parsed); out["_cache"] = "miss"; out["_age_sec"] = 0
     return out
 
 
@@ -439,16 +580,11 @@ class Handler(BaseHTTPRequestHandler):
     def _regelleistung_afrr_energy(self, qs):
         """Vraci aFRR energy bidy pro DE+AT pro dany den.
         Optional ?date=YYYY-MM-DD (default: dnesek v Berlin tz).
-        Vystup: {
-          "date": "YYYY-MM-DD",
-          "fetched_at": "...Z",
-          "slots": {"HH:MM-HH:MM": [{volume_mw, price, direction}, ...]},
-          "directions_available": ["POS","NEG"],
-          "_cache": "hit"|"miss"
-        }
+        Optional ?nocache=1 pro vynucene znovustazeni (preskoci cache).
         """
         try:
             date_str = qs.get("date", [None])[0]
+            nocache = qs.get("nocache", ["0"])[0] in ("1", "true", "yes")
             if not date_str:
                 # Default: dnesni datum v Berlin tz (kde se aFRR aukce dela)
                 now_utc = datetime.now(timezone.utc)
@@ -463,6 +599,13 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 self._json({"error": f"Invalid date format: {date_str}, use YYYY-MM-DD"}, 400)
                 return
+
+            if nocache:
+                # Vyhod cache pro tento klic, takze get_afrr_energy_data
+                # bude muset stahnout cerstva data
+                key = ("aFRR", "ENERGY", date_str)
+                _RL_CACHE.pop(key, None)
+                print(f"  -> Regelleistung: cache invalidated for {date_str}", flush=True)
 
             data = get_afrr_energy_data(date_str)
             self._json(data)
@@ -517,8 +660,26 @@ window.addEventListener('DOMContentLoaded', () => {
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8765))
     public_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+
+    # Warmup: stahni dnesni Regelleistung data hned po startu, aby prvni uzivatel
+    # nemusel cekat. Bezi v background threadu, server startuje okamzite.
+    def _warmup_regelleistung():
+        time.sleep(3)  # mala pauza aby server stihl naslouchat
+        try:
+            now_utc = datetime.now(timezone.utc)
+            month = now_utc.month
+            berlin_offset = 2 if 4 <= month <= 10 else 1
+            berlin_now = now_utc + timedelta(hours=berlin_offset)
+            today = berlin_now.strftime("%Y-%m-%d")
+            print(f"[warmup] Pre-fetching Regelleistung aFRR ENERGY for {today}", flush=True)
+            t0 = time.time()
+            get_afrr_energy_data(today)
+            print(f"[warmup] Done in {time.time()-t0:.1f}s", flush=True)
+        except Exception as e:
+            print(f"[warmup] FAIL: {e}", flush=True)
+    threading.Thread(target=_warmup_regelleistung, daemon=True).start()
+
     if public_url:
-        import threading
         def keepalive():
             time.sleep(60)
             while True:
