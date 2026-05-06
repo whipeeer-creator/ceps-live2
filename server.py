@@ -318,39 +318,38 @@ class Handler(BaseHTTPRequestHandler):
                 return pts, st, xml, reason
 
             # Kombinace parametru pro CZ aFRR upward capacity bids
+            # Spravne dle ENTSO-E dokumentace (potvrzene NL example):
+            # documentType=A81 + businessType=A95(B95) + psrType=A04 + type_MarketAgreement.Type=A01
+            #   + processType (A51=aFRR, A52=FCR, A47=mFRR, A46=RR)
             combos = [
-                # ENTSO-E REST API guide: Procurement of balancing capacity (4.5.A.A)
-                {"label": "A81+A95+A52+A04", "documentType": "A81", "businessType": "A95",
-                 "processType": "A52", "psrType": "A04",
+                # aFRR (A51) - upward (defaultne) - sirsi
+                {"label": "A81+A95+aFRR-A51+A04", "documentType": "A81", "businessType": "A95",
+                 "psrType": "A04", "processType": "A51",
                  "controlArea_Domain": CZ_DOMAIN,
                  "type_MarketAgreement.Type": "A01"},
-                # Bez psrType
-                {"label": "A81+A95+A52", "documentType": "A81", "businessType": "A95",
-                 "processType": "A52",
+                # B95 (Procured capacity) misto A95
+                {"label": "A81+B95+aFRR-A51+A04", "documentType": "A81", "businessType": "B95",
+                 "psrType": "A04", "processType": "A51",
                  "controlArea_Domain": CZ_DOMAIN,
                  "type_MarketAgreement.Type": "A01"},
-                # Bez processType
-                {"label": "A81+A96", "documentType": "A81", "businessType": "A96",
+                # mFRR
+                {"label": "A81+A95+mFRR-A47+A04", "documentType": "A81", "businessType": "A95",
+                 "psrType": "A04", "processType": "A47",
                  "controlArea_Domain": CZ_DOMAIN,
                  "type_MarketAgreement.Type": "A01"},
-                # in_Domain misto controlArea
-                {"label": "A81+A96+inDomain", "documentType": "A81", "businessType": "A96",
-                 "in_Domain": CZ_DOMAIN,
-                 "type_MarketAgreement.Type": "A01"},
-                # Procured balancing capacity
-                {"label": "A89+B95+A52", "documentType": "A89", "businessType": "B95",
-                 "processType": "A52",
+                # FCR (A52) - sanity check ze CZ ma alespon neco
+                {"label": "A81+A95+FCR-A52+A04", "documentType": "A81", "businessType": "A95",
+                 "psrType": "A04", "processType": "A52",
                  "controlArea_Domain": CZ_DOMAIN,
                  "type_MarketAgreement.Type": "A01"},
-                # Aggregated bids (A37)
-                {"label": "A37+A51", "documentType": "A37", "processType": "A51",
-                 "in_Domain": CZ_DOMAIN},
-                # Activated balancing reserves
-                {"label": "A83+A96", "documentType": "A83", "businessType": "A96",
-                 "controlArea_Domain": CZ_DOMAIN},
-                # FCR procurement (sanity check ze ENTSO-E vraci alespon neco pro CZ)
-                {"label": "A81+A95-FCR", "documentType": "A81", "businessType": "A95",
-                 "processType": "A46",  # FCR
+                # Bez processType - vraci vsechny
+                {"label": "A81+A95+A04+noProc", "documentType": "A81", "businessType": "A95",
+                 "psrType": "A04",
+                 "controlArea_Domain": CZ_DOMAIN,
+                 "type_MarketAgreement.Type": "A01"},
+                # A89 = Contracted reserve prices (jiny doctype, pro ceny)
+                {"label": "A89+B95+aFRR+A04", "documentType": "A89", "businessType": "B95",
+                 "psrType": "A04", "processType": "A51",
                  "controlArea_Domain": CZ_DOMAIN,
                  "type_MarketAgreement.Type": "A01"},
             ]
