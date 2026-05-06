@@ -569,7 +569,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/health":
             self._json({"status": "ok", "time": datetime.now().isoformat(),
-                        "version": "regelleistung-xlsx-v8-ote-stats"}); return
+                        "version": "regelleistung-xlsx-v10-fetched-at"}); return
 
         if parsed.path in ("/", "/index.html", "/live_odchylky.html"):
             self._html(); return
@@ -629,6 +629,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": f"CEPS {status}: {msg}"}, 502); return
 
         data = parse_ceps(xml_text)
+        # Pridame fetched_at = cas kdy server zavolal CEPS API
+        data["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         print(f"  -> {method}: {len(data['rows'])} radku, cols={data['columns']}", flush=True)
         self._json(data)
 
@@ -712,16 +714,17 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 if r2.status_code == 200:
                     day_data = r2.json()
-                    # Format: {"hoursToday": [{"hour": 0, "priceCZK":..., "priceEUR":...}, ...]}
+                    # Format: {"hoursToday": [{"hour": 0, "priceCZK":..., "priceEur":...}, ...]}
+                    # POZOR: API vraci "priceEur" (male r), ne "priceEUR"!
                     hours_today = day_data.get("hoursToday", [])
                     if hours_today:
-                        prices_eur = [h.get("priceEUR") for h in hours_today if h.get("priceEUR") is not None]
+                        prices_eur = [h.get("priceEur") for h in hours_today if h.get("priceEur") is not None]
                         if prices_eur:
                             min_eur = min(prices_eur)
                             max_eur = max(prices_eur)
                             avg_eur = sum(prices_eur) / len(prices_eur)
-                            min_hour = next((h["hour"] for h in hours_today if h.get("priceEUR") == min_eur), None)
-                            max_hour = next((h["hour"] for h in hours_today if h.get("priceEUR") == max_eur), None)
+                            min_hour = next((h["hour"] for h in hours_today if h.get("priceEur") == min_eur), None)
+                            max_hour = next((h["hour"] for h in hours_today if h.get("priceEur") == max_eur), None)
                             spread = max_eur - min_eur
                             # Vs prumer pro aktualni hodinu
                             vs_avg_pct = None
@@ -862,5 +865,5 @@ if __name__ == "__main__":
     else:
         print("[keepalive] RENDER_EXTERNAL_URL not set - keepalive disabled", flush=True)
     print(f"CEPS API server -> port {port}", flush=True)
-    print(f"VERSION: regelleistung-xlsx-v8-ote-stats", flush=True)
+    print(f"VERSION: regelleistung-xlsx-v10-fetched-at", flush=True)
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
