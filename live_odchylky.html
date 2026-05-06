@@ -46,6 +46,7 @@ main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .err-bar { background: #fff0f0; border: 1px solid #ffb3b3; border-radius: 6px; padding: 8px 12px; color: #c0392b; font-size: 11px; display: none; }
 .err-bar code { background: #ffe0e0; padding: 1px 4px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
 .kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 0; }
+.kpi-row.kpi-row-wide { grid-template-columns: repeat(2,1fr); }
 .kpi-row + .kpi-row { margin-top: -2px; }
 .kpi { background: #fff; border: 1px solid #e0e4ef; border-radius: 7px; padding: 10px 12px; border-left: 3px solid #ccc; transition: border-left-color .4s; }
 .kpi.pos { border-left-color: #43a047; }
@@ -106,8 +107,8 @@ main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .rl-slot-zone:hover { background: rgba(21,101,192,0.04); }
 #rlChartTip { position: absolute; display: none; pointer-events: none; background: #1a1a2e; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 5px 8px; border-radius: 4px; white-space: nowrap; z-index: 10; box-shadow: 0 2px 6px rgba(0,0,0,.2); line-height: 1.4; }
 
-@media(max-width:700px){ .kpi-row{grid-template-columns:repeat(2,1fr);} .two-col{grid-template-columns:1fr;} }
-@media(max-width:400px){ .kpi-row{grid-template-columns:1fr;} }
+@media(max-width:700px){ .kpi-row{grid-template-columns:repeat(2,1fr);} .kpi-row.kpi-row-wide{grid-template-columns:repeat(2,1fr);} .two-col{grid-template-columns:1fr;} }
+@media(max-width:400px){ .kpi-row{grid-template-columns:1fr;} .kpi-row.kpi-row-wide{grid-template-columns:1fr;} }
 canvas { max-width: 100%; display: block; }
 </style>
 </head>
@@ -155,6 +156,10 @@ canvas { max-width: 100%; display: block; }
     <div class="kpi" id="crd-MM"><div class="kpi-l">Min / Max dne</div><div class="kpi-v" id="dv-MM">—<span class="kpi-u">EUR</span></div><div class="kpi-s" id="ds-MM">—</div></div>
     <div class="kpi" id="crd-SP"><div class="kpi-l">Spread dne</div><div class="kpi-v" id="dv-SP">—<span class="kpi-u">EUR</span></div><div class="kpi-s" id="ds-SP">—</div></div>
     <div class="kpi" id="crd-VA"><div class="kpi-l">Vs průměr dne</div><div class="kpi-v" id="dv-VA">—<span class="kpi-u">%</span></div><div class="kpi-s" id="ds-VA">—</div></div>
+  </div>
+  <div class="kpi-row kpi-row-wide">
+    <div class="kpi" id="crd-W"><div class="kpi-l">Počasí · Praha</div><div class="kpi-v" id="dv-W">—</div><div class="kpi-s" id="ds-W">—</div></div>
+    <div class="kpi" id="crd-T"><div class="kpi-l">Zítra · OTE day-ahead</div><div class="kpi-v" id="dv-T">—</div><div class="kpi-s" id="ds-T">—</div></div>
   </div>
 
   <div class="chart-panel">
@@ -313,13 +318,28 @@ function nowCet() {
   }).format(new Date());
 }
 
-function setKPI(id, val, unit, sub) {
+function fmtCet(isoTs) {
+  // Konvertuj ISO UTC timestamp (napr. "2026-05-07T01:35:12Z") na CET HH:MM
+  // Vrati prazdny string pokud je vstup neplatny
+  if (!isoTs) return '';
+  try {
+    const dt = new Date(isoTs);
+    if (isNaN(dt.getTime())) return '';
+    return new Intl.DateTimeFormat('cs-CZ', {
+      timeZone: 'Europe/Prague',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(dt);
+  } catch(e) { return ''; }
+}
+
+function setKPI(id, val, unit, sub, fetchedAt) {
   const v = parseFloat(val);
   const isHz = unit === 'Hz';
   const d = isNaN(v) ? '—' : isHz ? v.toFixed(4) : sign(v)+Math.abs(v).toFixed(1);
   document.getElementById('dv-'+id).innerHTML = `${d}<span class="kpi-u">${unit}</span>`;
-  // Na konec podtitulku pridame cas aktualizace v CET
-  const subText = sub ? `${sub} · upd ${nowCet()}` : `upd ${nowCet()}`;
+  // Cas aktualizace - prednostne ze serveru, jinak z prohlizece
+  const updTime = fmtCet(fetchedAt) || nowCet();
+  const subText = sub ? `${sub} · upd ${updTime}` : `upd ${updTime}`;
   document.getElementById('ds-'+id).textContent = subText;
   const ok = isHz ? Math.abs(v-50)<=0.1 : v>=0;
   document.getElementById('crd-'+id).className = 'kpi '+(ok?'pos':'neg');
@@ -638,8 +658,8 @@ async function loadMain() {
   const lAm = colAm ? parseFloat(lastS[colAm])||0 : 0;
   const avg = dO.rows.reduce((a,r)=>a+(parseFloat(r[colO])||0),0)/dO.rows.length;
   document.getElementById('lastTime').textContent = ft(lastO.date);
-  setKPI('O', lO, 'MW', `prům. dne: ${sign(avg)}${avg.toFixed(1)} MW`);
-  setKPI('S', lAp||lAm, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`);
+  setKPI('O', lO, 'MW', `prům. dne: ${sign(avg)}${avg.toFixed(1)} MW`, dO.fetched_at);
+  setKPI('S', lAp||lAm, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at);
 
   drawTopChart(document.getElementById('topCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
 
@@ -934,7 +954,7 @@ async function loadFreq() {
     const col = 'aFRR [EUR/MWh]';
     const last = d.rows[d.rows.length-1];
     const v = parseFloat(last[col]) || 0;
-    setKPI('F', v, 'EUR/MWh', `aFRR · ${ft(last.date)}`);
+    setKPI('F', v, 'EUR/MWh', `aFRR · ${ft(last.date)}`, d.fetched_at);
   } catch(e) {}
 }
 
@@ -1558,7 +1578,7 @@ async function loadCena() {
   const priceCol = d.columns.find(c=>/price|estim/i.test(c))||d.columns[0];
   const intCol   = d.columns.find(c=>c==='Interval')||'';
   const last     = fRows[fRows.length-1];
-  setKPI('C', parseFloat(last[priceCol])||0, 'Kč/MWh', `interval: ${last[intCol]||'—'}`);
+  setKPI('C', parseFloat(last[priceCol])||0, 'Kč/MWh', `interval: ${last[intCol]||'—'}`, d.fetched_at);
 }
 
 // Throttling pro pomalé endpointy
@@ -1580,10 +1600,14 @@ async function loadOteSpot() {
       const eur = parseFloat(d.price_eur);
       const czk = parseFloat(d.price_czk);
       const hour = d.hour != null ? `h${d.hour}` : '';
+      // Hodinovy interval napr. h14 -> "14:00-15:00"
+      const hourInterval = d.hour != null
+        ? `${String(d.hour).padStart(2,'0')}:00-${String((d.hour+1)%24).padStart(2,'0')}:00`
+        : '';
       document.getElementById('dv-P').innerHTML =
         `${eur.toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
       document.getElementById('ds-P').textContent =
-        `${Math.round(czk).toLocaleString('cs')} Kč/MWh · ${hour} · upd ${nowCet()}`;
+        `${Math.round(czk).toLocaleString('cs')} Kč · ${hourInterval} · upd ${fmtCet(d.fetched_at) || nowCet()}`;
       const card = document.getElementById('crd-P');
       if (eur < 50)       { card.className = 'kpi pos'; document.getElementById('dv-P').className = 'kpi-v pos'; }
       else if (eur > 150) { card.className = 'kpi neg'; document.getElementById('dv-P').className = 'kpi-v neg'; }
@@ -1595,12 +1619,16 @@ async function loadOteSpot() {
     if (stats) {
       // 1) Min / Max dne
       const minE = stats.min_eur, maxE = stats.max_eur;
-      const minH = stats.min_hour != null ? `h${stats.min_hour}` : '';
-      const maxH = stats.max_hour != null ? `h${stats.max_hour}` : '';
+      // Hodinove intervaly (napr. 14 -> "14-15h")
+      const fmtHourInt = h => h != null
+        ? `${String(h).padStart(2,'0')}-${String((h+1)%24).padStart(2,'0')}h`
+        : '—';
+      const minInt = fmtHourInt(stats.min_hour);
+      const maxInt = fmtHourInt(stats.max_hour);
       document.getElementById('dv-MM').innerHTML =
         `${Math.round(minE)} / ${Math.round(maxE)}<span class="kpi-u">EUR</span>`;
       document.getElementById('ds-MM').textContent =
-        `min: ${minH} · max: ${maxH} · upd ${nowCet()}`;
+        `min: ${minInt} · max: ${maxInt}`;
       // Vždy neutrální — toto je informativní KPI
       document.getElementById('crd-MM').className = 'kpi';
       document.getElementById('dv-MM').className = 'kpi-v';
@@ -1614,7 +1642,7 @@ async function loadOteSpot() {
       if (spread >= 200) spreadLabel = '⭐ výborný pro arbitráž';
       else if (spread >= 100) spreadLabel = '✓ dobrý pro arbitráž';
       else if (spread >= 50) spreadLabel = 'průměrný';
-      document.getElementById('ds-SP').textContent = `${spreadLabel} · upd ${nowCet()}`;
+      document.getElementById('ds-SP').textContent = `${spreadLabel} · ${minInt}→${maxInt}`;
       const cardSP = document.getElementById('crd-SP');
       if (spread >= 100) { cardSP.className = 'kpi pos'; document.getElementById('dv-SP').className = 'kpi-v pos'; }
       else               { cardSP.className = 'kpi';     document.getElementById('dv-SP').className = 'kpi-v'; }
@@ -1626,10 +1654,10 @@ async function loadOteSpot() {
         document.getElementById('dv-VA').innerHTML =
           `${sign}${vsAvg.toFixed(0)}<span class="kpi-u">%</span>`;
         const avg = stats.avg_eur;
-        let label = `průměr: ${Math.round(avg)} EUR`;
-        if (vsAvg < -20)      label += ' · LEVNÉ teď ✓';
-        else if (vsAvg > 20)  label += ' · DRAHÉ teď ⚠';
-        document.getElementById('ds-VA').textContent = `${label} · upd ${nowCet()}`;
+        let label = `prům 24h: ${Math.round(avg)} EUR`;
+        if (vsAvg < -20)      label += ' · LEVNÉ ✓';
+        else if (vsAvg > 20)  label += ' · DRAHÉ ⚠';
+        document.getElementById('ds-VA').textContent = label;
         const cardVA = document.getElementById('crd-VA');
         // Pod průměrem = zelená (kupuj), nad průměrem = červená (prodávej)
         if (vsAvg < -10)      { cardVA.className = 'kpi pos'; document.getElementById('dv-VA').className = 'kpi-v pos'; }
@@ -1637,7 +1665,74 @@ async function loadOteSpot() {
         else                  { cardVA.className = 'kpi';     document.getElementById('dv-VA').className = 'kpi-v'; }
       }
     }
+    // === Zitrejsi OTE day-ahead (vola pomoc data z teze response) ===
+    loadTomorrow(d);
   } catch (e) { console.warn('OTE spot:', e); }
+}
+
+async function loadWeather() {
+  // Pocasi - Praha (Open-Meteo, cache 30min na backendu)
+  try {
+    const r = await fetch(`${API_URL}/weather`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) return;
+
+    const cur = d.current || {};
+    const today = d.today || {};
+    const tom = d.tomorrow || {};
+
+    const tNow = cur.temp_c != null ? `${cur.temp_c.toFixed(0)}°C` : '—';
+    const wNow = cur.wind_ms != null ? `${cur.wind_ms.toFixed(1)} m/s` : '';
+    const icon = today.icon || '';
+
+    document.getElementById('dv-W').innerHTML =
+      `${icon} ${tNow} <span style="font-size:13px;color:#888;">· vítr ${wNow}</span>`;
+
+    // Podtitulek: dnes range + zitra prediction
+    const dRange = (today.temp_min != null && today.temp_max != null)
+      ? `${today.temp_min.toFixed(0)}↔${today.temp_max.toFixed(0)}°C` : '—';
+    const tRange = (tom.temp_min != null && tom.temp_max != null)
+      ? `${tom.temp_min.toFixed(0)}↔${tom.temp_max.toFixed(0)}°C` : '—';
+    const tWind = tom.wind_max_ms != null ? `${tom.wind_max_ms.toFixed(0)}m/s` : '—';
+    const tDesc = tom.desc || '';
+    const tIcon = tom.icon || '';
+    document.getElementById('ds-W').textContent =
+      `dnes: ${dRange} · zítra: ${tIcon} ${tRange}, vítr ${tWind}, ${tDesc} · upd ${fmtCet(d.fetched_at) || nowCet()}`;
+
+    document.getElementById('crd-W').className = 'kpi';
+    document.getElementById('dv-W').className = 'kpi-v';
+  } catch (e) { console.warn('weather:', e); }
+}
+
+function loadTomorrow(d) {
+  // Zitrejsi OTE day-ahead - data z /ote/spot odpovedi (parametr d)
+  // Pokud OTE jeste nepublikovalo zitrejsi ceny, zobrazi placeholder.
+  const tom = d && d.tomorrow_stats;
+  if (!tom || !tom.published) {
+    document.getElementById('dv-T').innerHTML =
+      `<span style="font-size:18px;color:#aaa;">nepublikováno</span>`;
+    document.getElementById('ds-T').textContent =
+      'OTE publikuje cca 14:00 CET pro zítřek · upd ' + (fmtCet(d && d.fetched_at) || nowCet());
+    document.getElementById('crd-T').className = 'kpi';
+    document.getElementById('dv-T').className = 'kpi-v';
+    return;
+  }
+  const fmtH = h => h != null ? `${String(h).padStart(2,'0')}-${String((h+1)%24).padStart(2,'0')}h` : '—';
+  const minE = tom.min_eur, maxE = tom.max_eur;
+  const minH = fmtH(tom.min_hour), maxH = fmtH(tom.max_hour);
+  const spread = tom.spread_eur;
+  const avg = tom.avg_eur;
+
+  document.getElementById('dv-T').innerHTML =
+    `${Math.round(minE)} / ${Math.round(maxE)}<span class="kpi-u">EUR · spread ${Math.round(spread)}</span>`;
+  document.getElementById('ds-T').textContent =
+    `min: ${minH} · max: ${maxH} · prům ${Math.round(avg)} EUR · upd ${fmtCet(d.fetched_at) || nowCet()}`;
+
+  // Barevne podle spreadu (vetsi spread = vyhodnejsi den)
+  const card = document.getElementById('crd-T');
+  if (spread >= 100) { card.className = 'kpi pos'; document.getElementById('dv-T').className = 'kpi-v pos'; }
+  else               { card.className = 'kpi';     document.getElementById('dv-T').className = 'kpi-v'; }
 }
 
 async function loadAll() {
@@ -1645,7 +1740,7 @@ async function loadAll() {
   setDot('idle', 'Načítám…');
   document.getElementById('err').style.display = 'none';
   try {
-    const tasks = [loadMain(), loadFreq(), loadCena(), loadOteSpot()];
+    const tasks = [loadMain(), loadFreq(), loadCena(), loadOteSpot(), loadWeather()];
 
     const now = Date.now();
     if (now - _lastCenaTableLoad > CENA_TABLE_THROTTLE_MS) {
