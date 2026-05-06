@@ -45,7 +45,8 @@ header { background: #fff; border-bottom: 1px solid #e0e4ef; display: flex; alig
 main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .err-bar { background: #fff0f0; border: 1px solid #ffb3b3; border-radius: 6px; padding: 8px 12px; color: #c0392b; font-size: 11px; display: none; }
 .err-bar code { background: #ffe0e0; padding: 1px 4px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
-.kpi-row { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; }
+.kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 0; }
+.kpi-row + .kpi-row { margin-top: -2px; }
 .kpi { background: #fff; border: 1px solid #e0e4ef; border-radius: 7px; padding: 10px 12px; border-left: 3px solid #ccc; transition: border-left-color .4s; }
 .kpi.pos { border-left-color: #43a047; }
 .kpi.neg { border-left-color: #e53935; }
@@ -105,7 +106,6 @@ main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .rl-slot-zone:hover { background: rgba(21,101,192,0.04); }
 #rlChartTip { position: absolute; display: none; pointer-events: none; background: #1a1a2e; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 5px 8px; border-radius: 4px; white-space: nowrap; z-index: 10; box-shadow: 0 2px 6px rgba(0,0,0,.2); line-height: 1.4; }
 
-@media(max-width:900px){ .kpi-row{grid-template-columns:repeat(3,1fr);} }
 @media(max-width:700px){ .kpi-row{grid-template-columns:repeat(2,1fr);} .two-col{grid-template-columns:1fr;} }
 @media(max-width:400px){ .kpi-row{grid-template-columns:1fr;} }
 canvas { max-width: 100%; display: block; }
@@ -148,8 +148,13 @@ canvas { max-width: 100%; display: block; }
     <div class="kpi" id="crd-O"><div class="kpi-l">Systémová odchylka</div><div class="kpi-v" id="dv-O">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-O">—</div></div>
     <div class="kpi" id="crd-C"><div class="kpi-l">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">Kč/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
     <div class="kpi" id="crd-F"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
-    <div class="kpi" id="crd-P"><div class="kpi-l">Spot OTE</div><div class="kpi-v" id="dv-P">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-P">—</div></div>
     <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
+  </div>
+  <div class="kpi-row">
+    <div class="kpi" id="crd-P"><div class="kpi-l">Spot OTE</div><div class="kpi-v" id="dv-P">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-P">—</div></div>
+    <div class="kpi" id="crd-MM"><div class="kpi-l">Min / Max dne</div><div class="kpi-v" id="dv-MM">—<span class="kpi-u">EUR</span></div><div class="kpi-s" id="ds-MM">—</div></div>
+    <div class="kpi" id="crd-SP"><div class="kpi-l">Spread dne</div><div class="kpi-v" id="dv-SP">—<span class="kpi-u">EUR</span></div><div class="kpi-s" id="ds-SP">—</div></div>
+    <div class="kpi" id="crd-VA"><div class="kpi-l">Vs průměr dne</div><div class="kpi-v" id="dv-VA">—<span class="kpi-u">%</span></div><div class="kpi-s" id="ds-VA">—</div></div>
   </div>
 
   <div class="chart-panel">
@@ -1553,25 +1558,75 @@ const RES_THROTTLE_MS  = 60 * 1000;
 const CENA_TABLE_THROTTLE_MS = 60 * 1000;
 
 async function loadOteSpot() {
-  // OTE day-ahead spotová cena - cache 5min na backendu
+  // OTE day-ahead spotová cena + denní statistiky (cache 5min na backendu)
   try {
     const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
     if (!r.ok) return;
     const d = await r.json();
-    if (d.error || d.price_eur == null) return;
-    const eur = parseFloat(d.price_eur);
-    const czk = parseFloat(d.price_czk);
-    const hour = d.hour != null ? `h${d.hour}` : '';
-    // Vlastní renderer (setKPI nepouzivam protoze ma zelena/cervena logiku)
-    document.getElementById('dv-P').innerHTML =
-      `${eur.toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
-    document.getElementById('ds-P').textContent =
-      `${Math.round(czk).toLocaleString('cs')} Kč/MWh · ${hour}`;
-    // Barevné zvýraznění: < 50 EUR = levné (zelená), > 150 EUR = drahé (červená)
-    const card = document.getElementById('crd-P');
-    if (eur < 50)       { card.className = 'kpi pos'; document.getElementById('dv-P').className = 'kpi-v pos'; }
-    else if (eur > 150) { card.className = 'kpi neg'; document.getElementById('dv-P').className = 'kpi-v neg'; }
-    else                { card.className = 'kpi';     document.getElementById('dv-P').className = 'kpi-v'; }
+    if (d.error) return;
+
+    // === Spot OTE (aktuální cena) ===
+    if (d.price_eur != null) {
+      const eur = parseFloat(d.price_eur);
+      const czk = parseFloat(d.price_czk);
+      const hour = d.hour != null ? `h${d.hour}` : '';
+      document.getElementById('dv-P').innerHTML =
+        `${eur.toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
+      document.getElementById('ds-P').textContent =
+        `${Math.round(czk).toLocaleString('cs')} Kč/MWh · ${hour}`;
+      const card = document.getElementById('crd-P');
+      if (eur < 50)       { card.className = 'kpi pos'; document.getElementById('dv-P').className = 'kpi-v pos'; }
+      else if (eur > 150) { card.className = 'kpi neg'; document.getElementById('dv-P').className = 'kpi-v neg'; }
+      else                { card.className = 'kpi';     document.getElementById('dv-P').className = 'kpi-v'; }
+    }
+
+    // === Min / Max dne, Spread, Vs průměr ===
+    const stats = d.day_stats;
+    if (stats) {
+      // 1) Min / Max dne
+      const minE = stats.min_eur, maxE = stats.max_eur;
+      const minH = stats.min_hour != null ? `h${stats.min_hour}` : '';
+      const maxH = stats.max_hour != null ? `h${stats.max_hour}` : '';
+      document.getElementById('dv-MM').innerHTML =
+        `${Math.round(minE)} / ${Math.round(maxE)}<span class="kpi-u">EUR</span>`;
+      document.getElementById('ds-MM').textContent =
+        `min: ${minH} · max: ${maxH}`;
+      // Vždy neutrální — toto je informativní KPI
+      document.getElementById('crd-MM').className = 'kpi';
+      document.getElementById('dv-MM').className = 'kpi-v';
+
+      // 2) Spread dne
+      const spread = stats.spread_eur;
+      document.getElementById('dv-SP').innerHTML =
+        `${Math.round(spread)}<span class="kpi-u">EUR</span>`;
+      // Spread > 100 EUR = výhodný den pro arbitráž
+      let spreadLabel = 'malý spread';
+      if (spread >= 200) spreadLabel = '⭐ výborný pro arbitráž';
+      else if (spread >= 100) spreadLabel = '✓ dobrý pro arbitráž';
+      else if (spread >= 50) spreadLabel = 'průměrný';
+      document.getElementById('ds-SP').textContent = spreadLabel;
+      const cardSP = document.getElementById('crd-SP');
+      if (spread >= 100) { cardSP.className = 'kpi pos'; document.getElementById('dv-SP').className = 'kpi-v pos'; }
+      else               { cardSP.className = 'kpi';     document.getElementById('dv-SP').className = 'kpi-v'; }
+
+      // 3) Vs průměr dne (kolik % nad/pod průměrem aktuální hodina)
+      const vsAvg = stats.current_vs_avg_pct;
+      if (vsAvg != null) {
+        const sign = vsAvg > 0 ? '+' : '';
+        document.getElementById('dv-VA').innerHTML =
+          `${sign}${vsAvg.toFixed(0)}<span class="kpi-u">%</span>`;
+        const avg = stats.avg_eur;
+        let label = `průměr: ${Math.round(avg)} EUR`;
+        if (vsAvg < -20)      label += ' · LEVNÉ teď ✓';
+        else if (vsAvg > 20)  label += ' · DRAHÉ teď ⚠';
+        document.getElementById('ds-VA').textContent = label;
+        const cardVA = document.getElementById('crd-VA');
+        // Pod průměrem = zelená (kupuj), nad průměrem = červená (prodávej)
+        if (vsAvg < -10)      { cardVA.className = 'kpi pos'; document.getElementById('dv-VA').className = 'kpi-v pos'; }
+        else if (vsAvg > 10)  { cardVA.className = 'kpi neg'; document.getElementById('dv-VA').className = 'kpi-v neg'; }
+        else                  { cardVA.className = 'kpi';     document.getElementById('dv-VA').className = 'kpi-v'; }
+      }
+    }
   } catch (e) { console.warn('OTE spot:', e); }
 }
 
