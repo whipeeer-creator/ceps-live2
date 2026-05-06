@@ -340,7 +340,9 @@ window.addEventListener('DOMContentLoaded', () => {
   API_URL = apiUrl;
   document.getElementById('setupModal').style.display = 'none';
   loadAll();
-  setRefresh(30);
+  setRefresh(15);
+  // Auto-trigger AI analyzy
+  if (typeof triggerAIWhenReady === 'function') triggerAIWhenReady();
 });
 </script>"""
             html = html.replace("</body>", inject + "\n</body>")
