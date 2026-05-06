@@ -308,6 +308,12 @@ class Handler(BaseHTTPRequestHandler):
             da_xml, da_st = call_entsoe({**base, "processType": "A01"})
             da_points = parse_entsoe_xml(da_xml, ps) if da_st == 200 else []
             print(f"  -> ENTSO-E Solar DA: status={da_st}, points={len(da_points)}", flush=True)
+            if da_st != 200:
+                # Vypsat prvnich 300 znaku odpovedi a delku tokenu pro debug
+                tok_len = len(ENTSOE_TOKEN) if ENTSOE_TOKEN else 0
+                tok_preview = (ENTSOE_TOKEN[:6] + "..." + ENTSOE_TOKEN[-4:]) if tok_len > 12 else "(empty)"
+                print(f"     token_len={tok_len}, token={tok_preview}", flush=True)
+                print(f"     response[:300]: {da_xml[:300]}", flush=True)
 
             # Intraday: processType=A40 (Intraday Process) - obnovuje se pres den
             id_xml, id_st = call_entsoe({**base, "processType": "A40"})
@@ -349,11 +355,22 @@ window.addEventListener('DOMContentLoaded', () => {
 
     def _json(self, data, code=200):
         body = json.dumps(data, ensure_ascii=False).encode("utf-8")
-        self.send_response(code)
-        self.send_header("Content-Type", "application/json; charset=utf-8")
-        self.send_header("Content-Length", str(len(body)))
-        self._cors(); self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.send_response(code)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self._cors(); self.end_headers()
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            # Client zavrel spojeni drive nez stihl server odpovedet - normalni
+            pass
+
+    def handle_one_request(self):
+        """Override pro tichy handling BrokenPipe."""
+        try:
+            super().handle_one_request()
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8765))
