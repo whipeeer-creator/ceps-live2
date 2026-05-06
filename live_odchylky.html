@@ -305,12 +305,22 @@ function ft(ds) {
 function sign(v) { return v > 0 ? '+' : ''; }
 function vc(v)   { return v > 0.05 ? 'vp' : v < -0.05 ? 'vn' : 'v0'; }
 
+function nowCet() {
+  // Aktualni cas v CET formatu HH:MM (Europe/Prague)
+  return new Intl.DateTimeFormat('cs-CZ', {
+    timeZone: 'Europe/Prague',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date());
+}
+
 function setKPI(id, val, unit, sub) {
   const v = parseFloat(val);
   const isHz = unit === 'Hz';
   const d = isNaN(v) ? '—' : isHz ? v.toFixed(4) : sign(v)+Math.abs(v).toFixed(1);
   document.getElementById('dv-'+id).innerHTML = `${d}<span class="kpi-u">${unit}</span>`;
-  document.getElementById('ds-'+id).textContent = sub||'';
+  // Na konec podtitulku pridame cas aktualizace v CET
+  const subText = sub ? `${sub} · upd ${nowCet()}` : `upd ${nowCet()}`;
+  document.getElementById('ds-'+id).textContent = subText;
   const ok = isHz ? Math.abs(v-50)<=0.1 : v>=0;
   document.getElementById('crd-'+id).className = 'kpi '+(ok?'pos':'neg');
   document.getElementById('dv-'+id).className  = 'kpi-v '+(ok?'pos':'neg');
@@ -1573,7 +1583,7 @@ async function loadOteSpot() {
       document.getElementById('dv-P').innerHTML =
         `${eur.toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
       document.getElementById('ds-P').textContent =
-        `${Math.round(czk).toLocaleString('cs')} Kč/MWh · ${hour}`;
+        `${Math.round(czk).toLocaleString('cs')} Kč/MWh · ${hour} · upd ${nowCet()}`;
       const card = document.getElementById('crd-P');
       if (eur < 50)       { card.className = 'kpi pos'; document.getElementById('dv-P').className = 'kpi-v pos'; }
       else if (eur > 150) { card.className = 'kpi neg'; document.getElementById('dv-P').className = 'kpi-v neg'; }
@@ -1590,7 +1600,7 @@ async function loadOteSpot() {
       document.getElementById('dv-MM').innerHTML =
         `${Math.round(minE)} / ${Math.round(maxE)}<span class="kpi-u">EUR</span>`;
       document.getElementById('ds-MM').textContent =
-        `min: ${minH} · max: ${maxH}`;
+        `min: ${minH} · max: ${maxH} · upd ${nowCet()}`;
       // Vždy neutrální — toto je informativní KPI
       document.getElementById('crd-MM').className = 'kpi';
       document.getElementById('dv-MM').className = 'kpi-v';
@@ -1604,7 +1614,7 @@ async function loadOteSpot() {
       if (spread >= 200) spreadLabel = '⭐ výborný pro arbitráž';
       else if (spread >= 100) spreadLabel = '✓ dobrý pro arbitráž';
       else if (spread >= 50) spreadLabel = 'průměrný';
-      document.getElementById('ds-SP').textContent = spreadLabel;
+      document.getElementById('ds-SP').textContent = `${spreadLabel} · upd ${nowCet()}`;
       const cardSP = document.getElementById('crd-SP');
       if (spread >= 100) { cardSP.className = 'kpi pos'; document.getElementById('dv-SP').className = 'kpi-v pos'; }
       else               { cardSP.className = 'kpi';     document.getElementById('dv-SP').className = 'kpi-v'; }
@@ -1619,7 +1629,7 @@ async function loadOteSpot() {
         let label = `průměr: ${Math.round(avg)} EUR`;
         if (vsAvg < -20)      label += ' · LEVNÉ teď ✓';
         else if (vsAvg > 20)  label += ' · DRAHÉ teď ⚠';
-        document.getElementById('ds-VA').textContent = label;
+        document.getElementById('ds-VA').textContent = `${label} · upd ${nowCet()}`;
         const cardVA = document.getElementById('crd-VA');
         // Pod průměrem = zelená (kupuj), nad průměrem = červená (prodávej)
         if (vsAvg < -10)      { cardVA.className = 'kpi pos'; document.getElementById('dv-VA').className = 'kpi-v pos'; }
