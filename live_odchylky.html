@@ -992,6 +992,7 @@ function initRegelleistungAfrr() {
           .forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
         rlCurrentDir = btn.dataset.dir;
+        console.log('[regelleistung] toggle direction ->', rlCurrentDir);
         rlRender();
       });
     });
@@ -1209,6 +1210,9 @@ function rlRender() {
     if (slot[dirKey] && slot[dirKey].bids) {
       ladder = slot[dirKey].bids;
     }
+    console.log('[regelleistung] render', slotKey, rlCurrentDir,
+                '- avail:', Object.keys(slot),
+                'ladder len:', ladder ? ladder.length : 0);
   } else if (Array.isArray(slot)) {
     // Stary format - merit-order na klientu (fallback pokud server jeste nema novy parser)
     const filtered = slot.filter(b => b.direction === rlCurrentDir);
