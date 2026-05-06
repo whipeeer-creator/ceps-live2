@@ -4,9 +4,10 @@ Lokalne: python server.py
 Railway: automaticky pres Procfile
 """
 from http.server import HTTPServer, BaseHTTPRequestHandler
-import json, requests, xml.etree.ElementTree as ET, os, time
+import json, requests, xml.etree.ElementTree as ET, os, time, io
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta, timezone
+from openpyxl import load_workbook  # pip install openpyxl
 
 # Nacti .env soubor (pokud existuje)
 def _load_env():
@@ -29,6 +30,13 @@ DATA_NS   = "https://www.ceps.cz/CepsData/StructuredData/1.0"
 ENTSOE_URL   = "https://web-api.tp.entsoe.eu/api"
 ENTSOE_TOKEN = os.environ.get("ENTSOE_TOKEN", "")
 CZ_DOMAIN    = "10YCZ-CEPS-----N"
+
+# Regelleistung.net (DE+AT) aFRR ENERGY market
+RL_BASE_URL = "https://www.regelleistung.net/apps/crds/api/v2/tenders/results/anonymous"
+RL_CACHE_TTL_SEC = 10 * 60   # 10 minut
+RL_REQUEST_TIMEOUT = 45      # XLSX muze byt vetsi soubor
+_RL_CACHE = {}               # {(productType, market, date): (timestamp, data)}
+
 
 def _request_with_retry(func, *args, retries=3, delay=1.5, **kwargs):
     """Retry wrapper kvuli obcasnym SSL EOF chybam."""
@@ -105,11 +113,8 @@ def call_entsoe(params):
 def parse_entsoe_xml(xml_text, period_start_utc):
     """Parser pro ENTSO-E XML s TimeSeries. Vraci list bodu se sloupci:
     [{ts: "2026-05-06T09:30Z", value: 1234.5}, ...]
-    period_start_utc: datetime pro pripad chybejicich timestampu na pointech.
     """
-    # Strip namespace pro snadny xpath
     body = xml_text
-    # ENTSO-E XML pouziva default namespace, odstrani ho ze stringu
     import re
     body_no_ns = re.sub(r'\sxmlns="[^"]+"', '', body, count=1)
 
@@ -124,13 +129,11 @@ def parse_entsoe_xml(xml_text, period_start_utc):
         if period is None: continue
         time_interval = period.find("timeInterval")
         if time_interval is None: continue
-        start_text = time_interval.find("start").text  # "2026-05-06T00:00Z"
-        # Resolution: PT15M, PT30M, PT60M
+        start_text = time_interval.find("start").text
         res_text = period.find("resolution").text
         res_min = 15
         m = re.match(r"PT(\d+)M", res_text)
         if m: res_min = int(m.group(1))
-        # Start timestamp
         try:
             start_dt = datetime.strptime(start_text.replace("Z", ""), "%Y-%m-%dT%H:%M")
         except Exception:
@@ -144,7 +147,6 @@ def parse_entsoe_xml(xml_text, period_start_utc):
                 qty = float(qty_el.text)
             except Exception:
                 continue
-            # ENTSO-E pozice je 1-based, kazdy bod = (start + (pos-1)*resolution)
             ts = start_dt + timedelta(minutes=(pos-1) * res_min)
             points.append({"ts": ts.strftime("%Y-%m-%dT%H:%MZ"), "value": qty})
     return points
@@ -152,6 +154,157 @@ def parse_entsoe_xml(xml_text, period_start_utc):
 def fmt_entsoe_period(d):
     """Format datetime -> 'YYYYMMDDhhmm' pro ENTSO-E."""
     return d.strftime("%Y%m%d%H%M")
+
+
+# ============================================================
+# Regelleistung.net (DE+AT) aFRR ENERGY bidy
+# ============================================================
+
+def _rl_cache_get(key):
+    entry = _RL_CACHE.get(key)
+    if not entry: return None
+    ts, data = entry
+    if time.time() - ts > RL_CACHE_TTL_SEC: return None
+    return data
+
+
+def _rl_cache_set(key, data):
+    _RL_CACHE[key] = (time.time(), data)
+
+
+def fetch_regelleistung_xlsx(product_type, market, delivery_date):
+    """Stahne XLSX z regelleistung.net cpp-publisher API. Vraci bytes."""
+    params = {
+        "productType":  product_type,   # 'aFRR', 'mFRR', 'FCR'
+        "market":       market,         # 'ENERGY' nebo 'CAPACITY'
+        "exportFormat": "xlsx",
+        "deliveryDate": delivery_date,  # 'YYYY-MM-DD'
+    }
+    r = _request_with_retry(
+        requests.get, RL_BASE_URL,
+        params=params, timeout=RL_REQUEST_TIMEOUT,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; afrr-dashboard)"}
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"Regelleistung HTTP {r.status_code}: {r.text[:200]}")
+    if not r.content or len(r.content) < 100:
+        raise RuntimeError(f"Regelleistung returned empty response ({len(r.content)} bytes)")
+    return r.content
+
+
+def parse_afrr_energy_xlsx(xlsx_bytes):
+    """Parser RESULT_LIST_ANONYMOUS pro aFRR ENERGY market.
+    Format produktu: 'POS_QH_064_2026-05-06' (POS/NEG, QH index 0-95).
+    """
+    wb = load_workbook(io.BytesIO(xlsx_bytes), data_only=True, read_only=True)
+    ws = wb.active
+    rows_iter = ws.iter_rows(values_only=True)
+    try:
+        header_row = next(rows_iter)
+    except StopIteration:
+        return {"slots": {}, "directions_available": [], "raw_columns": []}
+
+    headers = [str(h).strip() if h is not None else "" for h in header_row]
+    headers_lower = [h.lower() for h in headers]
+
+    def find_col(*candidates):
+        for cand in candidates:
+            cand_l = cand.lower()
+            for i, h in enumerate(headers_lower):
+                if h == cand_l: return i
+            for i, h in enumerate(headers_lower):
+                if cand_l in h: return i
+        return -1
+
+    idx_product = find_col("PRODUCT", "PRODUCT_NAME")
+    idx_volume  = find_col("OFFERED_ENERGY_VOLUME_MW", "VOLUME_MW", "OFFERED_VOLUME")
+    idx_price   = find_col("OFFERED_ENERGY_PRICE_EUR_MWH", "PRICE_EUR_MWH",
+                           "OFFERED_PRICE", "ENERGY_PRICE")
+
+    if idx_product < 0 or idx_volume < 0 or idx_price < 0:
+        return {
+            "slots": {}, "directions_available": [], "raw_columns": headers,
+            "_error": (f"Pozadovane sloupce nenalezeny. "
+                       f"product_idx={idx_product}, vol_idx={idx_volume}, "
+                       f"price_idx={idx_price}")
+        }
+
+    slots = {}
+    directions_seen = set()
+
+    for row in rows_iter:
+        if row is None or len(row) <= max(idx_product, idx_volume, idx_price):
+            continue
+        product = row[idx_product]
+        volume  = row[idx_volume]
+        price   = row[idx_price]
+        if product is None or volume is None or price is None: continue
+
+        product_str = str(product)
+        if product_str.startswith("POS_QH_"):
+            direction = "POS"; qh_part = product_str[7:]
+        elif product_str.startswith("NEG_QH_"):
+            direction = "NEG"; qh_part = product_str[7:]
+        else:
+            continue
+
+        qh_idx_str = qh_part.split("_")[0]
+        try:
+            qh_idx = int(qh_idx_str)
+        except ValueError:
+            continue
+        if qh_idx < 0 or qh_idx > 95: continue
+
+        start_min = qh_idx * 15
+        sh, sm = divmod(start_min, 60)
+        eh, em = divmod(start_min + 15, 60)
+        if eh == 24: eh, em = 0, 0
+        slot_key = f"{sh:02d}:{sm:02d}-{eh:02d}:{em:02d}"
+
+        try:
+            vol_f = float(volume); price_f = float(price)
+        except (ValueError, TypeError):
+            continue
+
+        slots.setdefault(slot_key, []).append({
+            "volume_mw": vol_f, "price": price_f, "direction": direction,
+        })
+        directions_seen.add(direction)
+
+    return {
+        "slots": slots,
+        "directions_available": sorted(directions_seen),
+        "raw_columns": headers,
+    }
+
+
+def get_afrr_energy_data(delivery_date):
+    """Hlavni funkce s cache."""
+    key = ("aFRR", "ENERGY", delivery_date)
+    cached = _rl_cache_get(key)
+    if cached is not None:
+        out = dict(cached); out["_cache"] = "hit"
+        return out
+
+    print(f"  -> Regelleistung XLSX fetch: aFRR ENERGY {delivery_date}", flush=True)
+    xlsx_bytes = fetch_regelleistung_xlsx("aFRR", "ENERGY", delivery_date)
+    print(f"     downloaded {len(xlsx_bytes)} bytes", flush=True)
+
+    parsed = parse_afrr_energy_xlsx(xlsx_bytes)
+    parsed["date"] = delivery_date
+    parsed["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    print(f"     parsed: {len(parsed.get('slots', {}))} slots, "
+          f"directions={parsed.get('directions_available')}", flush=True)
+
+    _rl_cache_set(key, parsed)
+    out = dict(parsed); out["_cache"] = "miss"
+    return out
+
+
+# ============================================================
+# HTTP Handler
+# ============================================================
 
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
@@ -187,9 +340,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/entsoe/solar":
             self._entsoe_solar(qs); return
 
-        # ENTSO-E aFRR aktivace + ceny (z PICASSO/CZ)
-        if parsed.path == "/entsoe/afrr":
-            self._entsoe_afrr(qs); return
+        # Regelleistung.net DE+AT aFRR energy bids (merit-order ladder)
+        if parsed.path == "/regelleistung/afrr-energy":
+            self._regelleistung_afrr_energy(qs); return
 
         if parsed.path != "/api":
             self._json({"error": "use /api"}, 404); return
@@ -243,7 +396,6 @@ class Handler(BaseHTTPRequestHandler):
     def _entsoe_solar(self, qs):
         """Solar Forecast pro CR - vraci Day-ahead a Intraday serie pro dnesek.
         Optional ?day=YYYY-MM-DD pro jiny den.
-        Vystup: {"day_ahead": [{ts, value}], "intraday": [{ts, value}]}
         """
         try:
             day_str = qs.get("day", [None])[0]
@@ -251,30 +403,26 @@ class Handler(BaseHTTPRequestHandler):
                 day = datetime.strptime(day_str, "%Y-%m-%d")
             else:
                 day = datetime.now(timezone.utc).replace(tzinfo=None)
-            # Cely den 00:00-23:00 UTC
             ps = day.replace(hour=0, minute=0, second=0, microsecond=0)
             pe = ps + timedelta(hours=23)
 
             base = {
-                "documentType": "A69",   # Wind and Solar Forecast
-                "psrType":      "B16",   # Solar
+                "documentType": "A69",
+                "psrType":      "B16",
                 "in_Domain":    CZ_DOMAIN,
                 "periodStart":  fmt_entsoe_period(ps),
                 "periodEnd":    fmt_entsoe_period(pe),
             }
 
-            # Day-ahead: processType=A01
             da_xml, da_st = call_entsoe({**base, "processType": "A01"})
             da_points = parse_entsoe_xml(da_xml, ps) if da_st == 200 else []
             print(f"  -> ENTSO-E Solar DA: status={da_st}, points={len(da_points)}", flush=True)
             if da_st != 200:
-                # Vypsat prvnich 300 znaku odpovedi a delku tokenu pro debug
                 tok_len = len(ENTSOE_TOKEN) if ENTSOE_TOKEN else 0
                 tok_preview = (ENTSOE_TOKEN[:6] + "..." + ENTSOE_TOKEN[-4:]) if tok_len > 12 else "(empty)"
                 print(f"     token_len={tok_len}, token={tok_preview}", flush=True)
                 print(f"     response[:300]: {da_xml[:300]}", flush=True)
 
-            # Intraday: processType=A40 (Intraday Process) - obnovuje se pres den
             id_xml, id_st = call_entsoe({**base, "processType": "A40"})
             id_points = parse_entsoe_xml(id_xml, ps) if id_st == 200 else []
             print(f"  -> ENTSO-E Solar ID: status={id_st}, points={len(id_points)}", flush=True)
@@ -288,102 +436,40 @@ class Handler(BaseHTTPRequestHandler):
             print(f"  -> ENTSO-E Solar ERROR: {e}", flush=True)
             self._json({"error": str(e)}, 502)
 
-    def _entsoe_afrr(self, qs):
-        """ENTSO-E aFRR Capacity Bids - zkousi vice kombinaci parametru pro CZ.
-        Vraci JSON vcetne debug info aby slo videt jaka kombinace zafungovala.
+    def _regelleistung_afrr_energy(self, qs):
+        """Vraci aFRR energy bidy pro DE+AT pro dany den.
+        Optional ?date=YYYY-MM-DD (default: dnesek v Berlin tz).
+        Vystup: {
+          "date": "YYYY-MM-DD",
+          "fetched_at": "...Z",
+          "slots": {"HH:MM-HH:MM": [{volume_mw, price, direction}, ...]},
+          "directions_available": ["POS","NEG"],
+          "_cache": "hit"|"miss"
+        }
         """
         try:
-            day_str = qs.get("day", [None])[0]
-            if day_str:
-                day = datetime.strptime(day_str, "%Y-%m-%d")
-            else:
-                day = datetime.now(timezone.utc).replace(tzinfo=None)
-            ps = day.replace(hour=0, minute=0, second=0, microsecond=0)
-            pe = ps + timedelta(hours=23)
+            date_str = qs.get("date", [None])[0]
+            if not date_str:
+                # Default: dnesni datum v Berlin tz (kde se aFRR aukce dela)
+                now_utc = datetime.now(timezone.utc)
+                month = now_utc.month
+                # Zjednodusene CEST/CET (4-10 = leto, jinak zima)
+                berlin_offset = 2 if 4 <= month <= 10 else 1
+                berlin_now = now_utc + timedelta(hours=berlin_offset)
+                date_str = berlin_now.strftime("%Y-%m-%d")
 
-            base_period = {
-                "periodStart": fmt_entsoe_period(ps),
-                "periodEnd":   fmt_entsoe_period(pe),
-            }
+            try:
+                datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                self._json({"error": f"Invalid date format: {date_str}, use YYYY-MM-DD"}, 400)
+                return
 
-            import re as _re
-            def fetch(extra):
-                params = {**base_period, **extra}
-                xml, st = call_entsoe(params)
-                pts = parse_entsoe_xml(xml, ps) if st == 200 else []
-                # Extract reason text z XML pokud je
-                reason = ""
-                rm = _re.search(r"<text>([^<]+)</text>", xml)
-                if rm: reason = rm.group(1)[:120]
-                return pts, st, xml, reason
-
-            # Kombinace parametru pro CZ aFRR upward capacity bids
-            # Spravne dle ENTSO-E dokumentace (potvrzene NL example):
-            # documentType=A81 + businessType=A95(B95) + psrType=A04 + type_MarketAgreement.Type=A01
-            #   + processType (A51=aFRR, A52=FCR, A47=mFRR, A46=RR)
-            combos = [
-                # aFRR (A51) - upward (defaultne) - sirsi
-                {"label": "A81+A95+aFRR-A51+A04", "documentType": "A81", "businessType": "A95",
-                 "psrType": "A04", "processType": "A51",
-                 "controlArea_Domain": CZ_DOMAIN,
-                 "type_MarketAgreement.Type": "A01"},
-                # B95 (Procured capacity) misto A95
-                {"label": "A81+B95+aFRR-A51+A04", "documentType": "A81", "businessType": "B95",
-                 "psrType": "A04", "processType": "A51",
-                 "controlArea_Domain": CZ_DOMAIN,
-                 "type_MarketAgreement.Type": "A01"},
-                # mFRR
-                {"label": "A81+A95+mFRR-A47+A04", "documentType": "A81", "businessType": "A95",
-                 "psrType": "A04", "processType": "A47",
-                 "controlArea_Domain": CZ_DOMAIN,
-                 "type_MarketAgreement.Type": "A01"},
-                # FCR (A52) - sanity check ze CZ ma alespon neco
-                {"label": "A81+A95+FCR-A52+A04", "documentType": "A81", "businessType": "A95",
-                 "psrType": "A04", "processType": "A52",
-                 "controlArea_Domain": CZ_DOMAIN,
-                 "type_MarketAgreement.Type": "A01"},
-                # Bez processType - vraci vsechny
-                {"label": "A81+A95+A04+noProc", "documentType": "A81", "businessType": "A95",
-                 "psrType": "A04",
-                 "controlArea_Domain": CZ_DOMAIN,
-                 "type_MarketAgreement.Type": "A01"},
-                # A89 = Contracted reserve prices (jiny doctype, pro ceny)
-                {"label": "A89+B95+aFRR+A04", "documentType": "A89", "businessType": "B95",
-                 "psrType": "A04", "processType": "A51",
-                 "controlArea_Domain": CZ_DOMAIN,
-                 "type_MarketAgreement.Type": "A01"},
-            ]
-
-            debug = []
-            best_pts = []
-            best_label = None
-            print(f"  -> ENTSO-E aFRR: {ps.strftime('%Y-%m-%d')} - zkousim {len(combos)} kombinaci...", flush=True)
-            for c in combos:
-                label = c.pop("label")
-                pts, st, xml, reason = fetch(c)
-                debug.append({
-                    "label":  label,
-                    "status": st,
-                    "points": len(pts),
-                    "reason": reason,
-                    "xml_preview": xml[:200] if (not pts and st == 200) else None,
-                })
-                print(f"     [{label}] status={st}, points={len(pts)}, reason={reason!r}", flush=True)
-                if pts and not best_pts:
-                    best_pts = pts
-                    best_label = label
-
-            self._json({
-                "day": ps.strftime("%Y-%m-%d"),
-                "volumes_up":    best_pts,
-                "volumes_down":  [],
-                "prices_up":     [],
-                "prices_down":   [],
-                "best_combo":    best_label,
-                "debug":         debug,
-            })
+            data = get_afrr_energy_data(date_str)
+            self._json(data)
         except Exception as e:
-            print(f"  -> ENTSO-E aFRR ERROR: {e}", flush=True)
+            print(f"  -> Regelleistung aFRR ENERGY ERROR: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
             self._json({"error": str(e)}, 502)
 
     def _html(self):
@@ -419,7 +505,6 @@ window.addEventListener('DOMContentLoaded', () => {
             self._cors(); self.end_headers()
             self.wfile.write(body)
         except (BrokenPipeError, ConnectionResetError):
-            # Client zavrel spojeni drive nez stihl server odpovedet - normalni
             pass
 
     def handle_one_request(self):
@@ -431,20 +516,18 @@ window.addEventListener('DOMContentLoaded', () => {
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8765))
-    # Self-ping pro Render Free - aby sluzba neusla po 15 min necinnosti
-    # Render automaticky nastavi RENDER_EXTERNAL_URL na verejnou URL sluzby
     public_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
     if public_url:
         import threading
         def keepalive():
-            time.sleep(60)  # pockat nez server nastartuje
+            time.sleep(60)
             while True:
                 try:
                     r = requests.get(f"{public_url}/health", timeout=10)
                     print(f"[keepalive] ping {public_url}/health -> {r.status_code}", flush=True)
                 except Exception as e:
                     print(f"[keepalive] FAIL: {e}", flush=True)
-                time.sleep(10 * 60)  # ping kazdych 10 minut
+                time.sleep(10 * 60)
         threading.Thread(target=keepalive, daemon=True).start()
         print(f"[keepalive] thread started, pinging {public_url}/health every 10 min", flush=True)
     else:
