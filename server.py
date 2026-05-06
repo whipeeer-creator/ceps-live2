@@ -6,7 +6,7 @@ Railway: automaticky pres Procfile
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json, requests, xml.etree.ElementTree as ET, os, time
 from urllib.parse import urlparse, parse_qs
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Nacti .env soubor (pokud existuje)
 def _load_env():
@@ -192,6 +192,12 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self._cors(); self.end_headers()
 
+    def do_HEAD(self):
+        # Render health check posila HEAD - vrat 200 OK
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain")
+        self._cors(); self.end_headers()
+
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
@@ -291,7 +297,7 @@ class Handler(BaseHTTPRequestHandler):
             if day_str:
                 day = datetime.strptime(day_str, "%Y-%m-%d")
             else:
-                day = datetime.utcnow()
+                day = datetime.now(timezone.utc).replace(tzinfo=None)
             # Cely den 00:00-23:00 UTC
             ps = day.replace(hour=0, minute=0, second=0, microsecond=0)
             pe = ps + timedelta(hours=23)
