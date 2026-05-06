@@ -220,28 +220,41 @@ function startDashboard(useLocal) {
 let _aiAutoTriggered = false;
 function triggerAIWhenReady(attempt = 0) {
   if (_aiAutoTriggered) return;
-  // Detailed logging do console
   if (attempt === 0) console.log('[AI auto-trigger] Cekam na nacteni dat...');
 
-  const hasData = _aiSnapshot.odch && _aiSnapshot.odch.rows && _aiSnapshot.odch.rows.length > 0;
-  if (hasData) {
+  // Cekej na obe: zakladni odchylku I OZE data (jinak Claude bude tvrdit ze data chybi)
+  const hasOdch  = _aiSnapshot.odch && _aiSnapshot.odch.rows && _aiSnapshot.odch.rows.length > 0;
+  const hasRes   = _aiSnapshot.res  && _aiSnapshot.res.rows  && _aiSnapshot.res.rows.length > 0;
+  // Solar je optional - pokud ENTSO-E selze, pokracuj i bez nej (jen po 15s cekani)
+  const hasSolar = (_aiSnapshot.solarDA && _aiSnapshot.solarDA.length > 0)
+                || (_aiSnapshot.solarID && _aiSnapshot.solarID.length > 0)
+                || attempt > 30; // po 15s vzdat se cekani na solar
+
+  if (hasOdch && hasRes && hasSolar) {
     _aiAutoTriggered = true;
-    console.log(`[AI auto-trigger] Data dorazila po ${attempt * 500}ms, spoustim analyzu`);
+    const elapsed = (attempt * 500 / 1000).toFixed(1);
+    console.log(`[AI auto-trigger] Data dorazila po ${elapsed}s, spoustim analyzu`,
+      {odch: hasOdch, res: hasRes, solar: hasSolar});
     refreshAIAnalysis();
     return;
   }
-  if (attempt >= 180) {  // max 90s (180 * 500ms)
-    console.warn('[AI auto-trigger] Timeout - data se nenacetla');
+  if (attempt >= 180) { // max 90s
+    console.warn('[AI auto-trigger] Timeout - data se nenacetla',
+      {odch: hasOdch, res: hasRes, solar: hasSolar});
     const out = document.getElementById('ai-output');
     if (out) out.innerHTML = '<span style="color:#c0392b;">⚠ Data se nepodařilo načíst pro analýzu. Klikni "↻ Aktualizovat analýzu".</span>';
     return;
   }
-  // Update placeholder kazdych 5s ať user vidi že se neco deje
+  // Update placeholder kazdych 5s
   if (attempt > 0 && attempt % 10 === 0) {
     const out = document.getElementById('ai-output');
     if (out && out.querySelector('span')) {
       const sec = Math.floor(attempt * 0.5);
-      out.innerHTML = `<span style="color:#aaa;font-style:italic;">⏳ Načítám data ze sítě (${sec}s)...</span>`;
+      const missing = [];
+      if (!hasOdch)  missing.push('odchylka');
+      if (!hasRes)   missing.push('OZE');
+      if (!hasSolar) missing.push('forecast');
+      out.innerHTML = `<span style="color:#aaa;font-style:italic;">⏳ Načítám data (${sec}s) - chybí: ${missing.join(', ')}</span>`;
     }
   }
   setTimeout(() => triggerAIWhenReady(attempt + 1), 500);
@@ -1114,33 +1127,41 @@ function buildAISnapshotText() {
     lines.push('');
   }
 
-  // Vyroba OZE
+  // Vyroba OZE - VZDY vypsat (i kdyz chybi data, at Claude vi)
+  lines.push('## Aktuální výroba OZE (ČEPS GenerationRES):');
   if (_aiSnapshot.res && _aiSnapshot.res.rows && _aiSnapshot.res.rows.length) {
     const lastRes = _aiSnapshot.res.rows[_aiSnapshot.res.rows.length-1];
     const cols = _aiSnapshot.res.columns.filter(c => c !== 'Date' && c !== 'Interval' && c !== 'date');
-    lines.push('## Aktuální výroba OZE (ČEPS):');
     cols.forEach(c => {
       const v = parseFloat(lastRes[c]) || 0;
-      lines.push(`  ${c}: ${v.toFixed(0)} MW`);
+      lines.push(`  - ${c} aktuálně: ${v.toFixed(0)} MW`);
     });
-    // Peak za den
     cols.forEach(c => {
       const peak = Math.max(...(_aiSnapshot.res.rows.map(r => parseFloat(r[c]) || 0)));
-      lines.push(`  ${c} dnešní peak: ${peak.toFixed(0)} MW`);
+      lines.push(`  - ${c} dnešní peak: ${peak.toFixed(0)} MW`);
     });
-    lines.push('');
+  } else {
+    lines.push('  - (data ČEPS GenerationRES dosud nedorazila, vynech tento detail v analýze)');
   }
+  lines.push('');
 
-  // Solar Forecast (ENTSO-E)
+  // Solar Forecast (ENTSO-E) - taky VZDY vypsat
+  lines.push('## Solar Forecast (ENTSO-E, dnešní den):');
   if (_aiSnapshot.solarDA && _aiSnapshot.solarDA.length) {
     const peakDA = Math.max(...(_aiSnapshot.solarDA.map(p => p.value || 0)));
     const peakIdx = _aiSnapshot.solarDA.findIndex(p => (p.value || 0) === peakDA);
     const peakTime = peakIdx >= 0 ? new Date(_aiSnapshot.solarDA[peakIdx].ts) : null;
-    lines.push(`## Solar Day-ahead forecast (ENTSO-E): peak ${peakDA.toFixed(0)} MW kolem ${peakTime ? fmt(peakTime) : '?'}`);
+    lines.push(`  - Day-ahead peak: ${peakDA.toFixed(0)} MW kolem ${peakTime ? fmt(peakTime) : '?'}`);
+  } else {
+    lines.push('  - Day-ahead forecast: nedostupný');
   }
   if (_aiSnapshot.solarID && _aiSnapshot.solarID.length) {
     const peakID = Math.max(...(_aiSnapshot.solarID.map(p => p.value || 0)));
-    lines.push(`## Solar Intraday forecast (ENTSO-E): peak ${peakID.toFixed(0)} MW`);
+    const peakIdx = _aiSnapshot.solarID.findIndex(p => (p.value || 0) === peakID);
+    const peakTime = peakIdx >= 0 ? new Date(_aiSnapshot.solarID[peakIdx].ts) : null;
+    lines.push(`  - Intraday peak: ${peakID.toFixed(0)} MW kolem ${peakTime ? fmt(peakTime) : '?'}`);
+  } else {
+    lines.push('  - Intraday forecast: nedostupný');
   }
   lines.push('');
 
