@@ -187,6 +187,10 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/entsoe/solar":
             self._entsoe_solar(qs); return
 
+        # ENTSO-E aFRR aktivace + ceny (z PICASSO/CZ)
+        if parsed.path == "/entsoe/afrr":
+            self._entsoe_afrr(qs); return
+
         if parsed.path != "/api":
             self._json({"error": "use /api"}, 404); return
 
@@ -284,6 +288,98 @@ class Handler(BaseHTTPRequestHandler):
             print(f"  -> ENTSO-E Solar ERROR: {e}", flush=True)
             self._json({"error": str(e)}, 502)
 
+    def _entsoe_afrr(self, qs):
+        """ENTSO-E aFRR Capacity Bids - kontraktovane (procurement) na dennim trhu pro CZ.
+        Vraci {day, volumes_up, volumes_down, prices_up, prices_down}.
+
+        Datum: ?day=YYYY-MM-DD (defaultne dnes UTC).
+
+        Documenty:
+        - A81 = Contracted reserve (volumes)  - kontraktovane objemy
+        - A89 = Procured balancing capacity (prices) - ceny procurementu
+        Type_MarketAgreement.Type:
+        - A01 = Daily (denni trh)
+        ProcessType:
+        - A52 = aFRR procurement (NE A51 - to je activation)
+        BusinessType:
+        - A95 = Frequency containment reserve (FCR)
+        - B95 = Procured capacity (procured balancing capacity)
+        - A96 = Automatic frequency restoration reserve (aFRR) - upward
+        - A97 = aFRR downward
+        """
+        try:
+            day_str = qs.get("day", [None])[0]
+            if day_str:
+                day = datetime.strptime(day_str, "%Y-%m-%d")
+            else:
+                day = datetime.now(timezone.utc).replace(tzinfo=None)
+            ps = day.replace(hour=0, minute=0, second=0, microsecond=0)
+            pe = ps + timedelta(hours=23)
+
+            base = {
+                "type_MarketAgreement.Type": "A01",  # daily
+                "controlArea_Domain":        CZ_DOMAIN,
+                "periodStart":               fmt_entsoe_period(ps),
+                "periodEnd":                 fmt_entsoe_period(pe),
+            }
+
+            def fetch(extra):
+                params = {**base, **extra}
+                xml, st = call_entsoe(params)
+                pts = parse_entsoe_xml(xml, ps) if st == 200 else []
+                return pts, st, xml
+
+            # A81 = Contracted reserves (volumes) - aFRR upward / downward
+            vol_up,   st_vu, xml_vu = fetch({
+                "documentType": "A81",
+                "businessType": "A96",  # aFRR upward
+                "psrType":      "A04",
+            })
+            print(f"  -> ENTSO-E aFRR capacity vol UP:   status={st_vu}, points={len(vol_up)}", flush=True)
+            if st_vu != 200 or not vol_up:
+                print(f"     resp[:200]: {xml_vu[:200]}", flush=True)
+
+            vol_down, st_vd, xml_vd = fetch({
+                "documentType": "A81",
+                "businessType": "A97",
+                "psrType":      "A04",
+            })
+            print(f"  -> ENTSO-E aFRR capacity vol DOWN: status={st_vd}, points={len(vol_down)}", flush=True)
+            if st_vd != 200 or not vol_down:
+                print(f"     resp[:200]: {xml_vd[:200]}", flush=True)
+
+            # A89 = Procured balancing capacity (prices)
+            price_up,   st_pu, xml_pu = fetch({
+                "documentType": "A89",
+                "processType":  "A52",   # aFRR
+                "businessType": "B95",   # Procured capacity
+                "psrType":      "A04",
+            })
+            print(f"  -> ENTSO-E aFRR capacity price UP:   status={st_pu}, points={len(price_up)}", flush=True)
+            if st_pu != 200 or not price_up:
+                print(f"     resp[:200]: {xml_pu[:200]}", flush=True)
+
+            # Pro DOWN ceny ENTSO-E nedava samostatny endpoint (procurement obvykle vraci jednu cenu na slot)
+            # Zkousime alternativu - procurement_volume jako bonus
+            price_down, st_pd, xml_pd = fetch({
+                "documentType": "A89",
+                "processType":  "A52",
+                "businessType": "B95",
+                "psrType":      "A05",  # Load (downward)
+            })
+            print(f"  -> ENTSO-E aFRR capacity price DOWN: status={st_pd}, points={len(price_down)}", flush=True)
+
+            self._json({
+                "day": ps.strftime("%Y-%m-%d"),
+                "volumes_up":   vol_up,
+                "volumes_down": vol_down,
+                "prices_up":    price_up,
+                "prices_down":  price_down,
+            })
+        except Exception as e:
+            print(f"  -> ENTSO-E aFRR ERROR: {e}", flush=True)
+            self._json({"error": str(e)}, 502)
+
     def _html(self):
         html_path = os.path.join(os.path.dirname(__file__), "live_odchylky.html")
         try:
@@ -296,8 +392,6 @@ window.addEventListener('DOMContentLoaded', () => {
   document.getElementById('setupModal').style.display = 'none';
   loadAll();
   setRefresh(15);
-  // Auto-trigger AI analyzy
-  if (typeof triggerAIWhenReady === 'function') triggerAIWhenReady();
 });
 </script>"""
             html = html.replace("</body>", inject + "\n</body>")
