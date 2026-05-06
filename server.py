@@ -175,6 +175,224 @@ def _rl_cache_set(key, data):
     _RL_CACHE[key] = (time.time(), data)
 
 
+def fetch_regelleistung_csv(product_type, market, delivery_date):
+    """Stahne CSV z regelleistung.net cpp-publisher API. Vraci bytes.
+    CSV je 10x rychlejsi nez XLSX (parsovani openpyxl je pomale)."""
+    params = {
+        "productType":  product_type,
+        "market":       market,
+        "exportFormat": "csv",
+        "deliveryDate": delivery_date,
+    }
+    r = _request_with_retry(
+        requests.get, RL_BASE_URL,
+        params=params, timeout=RL_REQUEST_TIMEOUT,
+        headers={"User-Agent": "Mozilla/5.0 (compatible; afrr-dashboard)"}
+    )
+    if r.status_code != 200:
+        raise RuntimeError(f"Regelleistung HTTP {r.status_code}: {r.text[:200]}")
+    if not r.content or len(r.content) < 100:
+        raise RuntimeError(f"Regelleistung returned empty response ({len(r.content)} bytes)")
+    return r.content
+
+
+def parse_afrr_energy_csv(csv_bytes):
+    """Parser RESULT_LIST_ANONYMOUS pro aFRR ENERGY market (CSV format).
+
+    Realne sloupce v CSV (semicolon-separated):
+        DELIVERY_DATE;TYPE_OF_RESERVES;PRODUCT;
+        ENERGY_PRICE_[EUR/MWh];ENERGY_PRICE_PAYMENT_DIRECTION;
+        OFFERED_CAPACITY_[MW];ALLOCATED_CAPACITY_[MW];COUNTRY;NOTE
+
+    Format produktu: 'POS_069' / 'NEG_069' (1-indexovane: POS_069 = 17:00-17:15).
+    """
+    import csv
+    import re as _re
+
+    # Detekuj encoding (regelleistung dava UTF-8, nekdy s BOM)
+    text = csv_bytes.decode("utf-8-sig", errors="replace")
+
+    # Detekuj separator (semicolon je standardni v EU CSV)
+    sample = text[:2000]
+    if sample.count(";") > sample.count(","):
+        delimiter = ";"
+    else:
+        delimiter = ","
+
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+    try:
+        headers = next(reader)
+    except StopIteration:
+        return {"slots": {}, "directions_available": [], "raw_columns": []}
+
+    headers = [h.strip() for h in headers]
+    headers_lower = [h.lower() for h in headers]
+
+    def find_col(*candidates):
+        for cand in candidates:
+            cand_l = cand.lower()
+            for i, h in enumerate(headers_lower):
+                if h == cand_l: return i
+        for cand in candidates:
+            cand_l = cand.lower()
+            for i, h in enumerate(headers_lower):
+                if cand_l in h: return i
+        return -1
+
+    idx_product   = find_col("PRODUCT", "PRODUCT_NAME")
+    idx_volume    = find_col("OFFERED_CAPACITY_[MW]", "OFFERED_CAPACITY",
+                             "OFFERED_ENERGY_VOLUME_MW", "VOLUME_MW")
+    idx_price     = find_col("ENERGY_PRICE_[EUR/MWh]", "ENERGY_PRICE",
+                             "OFFERED_ENERGY_PRICE_EUR_MWH", "PRICE_EUR_MWH")
+    idx_payment   = find_col("ENERGY_PRICE_PAYMENT_DIRECTION", "PAYMENT_DIRECTION")
+    idx_country   = find_col("COUNTRY")
+    idx_reserves  = find_col("TYPE_OF_RESERVES", "RESERVE_TYPE")
+    idx_allocated = find_col("ALLOCATED_CAPACITY_[MW]", "ALLOCATED_CAPACITY")
+
+    if idx_product < 0 or idx_volume < 0 or idx_price < 0:
+        return {
+            "slots": {}, "directions_available": [], "raw_columns": headers,
+            "_error": (f"Pozadovane sloupce nenalezeny. "
+                       f"product_idx={idx_product}, vol_idx={idx_volume}, "
+                       f"price_idx={idx_price}")
+        }
+
+    raw = {}
+    directions_seen = set()
+    sample_products = []
+    seen_products = set()
+    skipped = {"non_afrr": 0, "non_de": 0, "bad_product": 0, "bad_qh": 0,
+               "bad_value": 0, "bad_direction": 0}
+    total_rows = 0
+
+    for row in reader:
+        total_rows += 1
+        if not row or len(row) <= max(idx_product, idx_volume, idx_price):
+            continue
+        product = row[idx_product].strip()
+        volume_s = row[idx_volume].strip()
+        price_s  = row[idx_price].strip()
+        if not product or not volume_s or not price_s:
+            continue
+
+        # Filter aFRR
+        if idx_reserves >= 0 and len(row) > idx_reserves:
+            rtype = row[idx_reserves].strip().lower()
+            if rtype and "afrr" not in rtype:
+                skipped["non_afrr"] += 1
+                continue
+
+        # Filter DE only
+        if idx_country >= 0 and len(row) > idx_country:
+            ctry = row[idx_country].strip().upper()
+            if ctry and ctry != "DE":
+                skipped["non_de"] += 1
+                continue
+
+        if product not in seen_products and len(sample_products) < 8:
+            sample_products.append(product)
+            seen_products.add(product)
+
+        # Smer
+        direction = None
+        pu = product.upper()
+        if pu.startswith("POS"):
+            direction = "POS"
+        elif pu.startswith("NEG"):
+            direction = "NEG"
+        elif idx_payment >= 0 and len(row) > idx_payment:
+            pay = row[idx_payment].strip().upper()
+            if "GRID_TO_PROVIDER" in pay:
+                direction = "POS"
+            elif "PROVIDER_TO_GRID" in pay:
+                direction = "NEG"
+
+        if direction is None:
+            skipped["bad_direction"] += 1
+            continue
+
+        # QH index
+        qh_idx = None
+        m = _re.match(r"(?:POS|NEG)_(\d{1,3})", product, _re.IGNORECASE)
+        if not m:
+            m = _re.search(r"QH[_\-]?(\d{1,3})", product, _re.IGNORECASE)
+        if not m:
+            m = _re.search(r"(\d{1,3})(?!.*\d)", product)
+        if m:
+            try:
+                qh_idx = int(m.group(1))
+            except ValueError:
+                pass
+
+        if qh_idx is None or qh_idx < 1 or qh_idx > 96:
+            skipped["bad_qh"] += 1
+            continue
+
+        # 1-indexovani: POS_069 = 17:00-17:15
+        start_min = (qh_idx - 1) * 15
+        sh, sm = divmod(start_min, 60)
+        eh, em = divmod(start_min + 15, 60)
+        if eh == 24: eh, em = 0, 0
+        slot_key = f"{sh:02d}:{sm:02d}-{eh:02d}:{em:02d}"
+
+        # Parse cisla - CSV muze mit ',' jako desetinou carku v EU
+        try:
+            vol_f = float(volume_s.replace(",", "."))
+            price_f = float(price_s.replace(",", "."))
+        except (ValueError, TypeError):
+            skipped["bad_value"] += 1
+            continue
+
+        slot_data = raw.setdefault(slot_key, {"POS": [], "NEG": []})
+        slot_data[direction].append({"price": price_f, "volume_mw": vol_f})
+        directions_seen.add(direction)
+
+    # Merit-order sort + kumulativni MW
+    slots_processed = {}
+    for slot_key, dirs in raw.items():
+        slot_out = {}
+        for dir_key, bids in dirs.items():
+            if not bids:
+                continue
+            bids.sort(key=lambda x: x["price"])
+            cum = 0.0
+            ladder = []
+            for b in bids:
+                cum += b["volume_mw"]
+                ladder.append({
+                    "price":     round(b["price"], 4),
+                    "volume_mw": round(b["volume_mw"], 4),
+                    "cum_mw":    round(cum, 4),
+                })
+            slot_out[dir_key.lower()] = {
+                "bids":      ladder,
+                "total_mw":  round(cum, 4),
+                "min_price": ladder[0]["price"],
+                "max_price": ladder[-1]["price"],
+                "count":     len(ladder),
+            }
+        if slot_out:
+            slots_processed[slot_key] = slot_out
+
+    return {
+        "slots":     slots_processed,
+        "directions_available": sorted(directions_seen),
+        "raw_columns": headers,
+        "_debug": {
+            "total_rows": total_rows,
+            "sample_products": sample_products,
+            "skipped": skipped,
+            "csv_delimiter": delimiter,
+            "col_indices": {
+                "product": idx_product, "volume": idx_volume, "price": idx_price,
+                "payment": idx_payment, "country": idx_country,
+                "reserves": idx_reserves, "allocated": idx_allocated,
+            },
+        },
+    }
+
+
+# Stara XLSX implementace (zachovana ale jiz nepouzivana)
 def fetch_regelleistung_xlsx(product_type, market, delivery_date):
     params = {
         "productType":  product_type,
@@ -395,11 +613,11 @@ def _rl_refresh_in_background(delivery_date):
 
     def worker():
         try:
-            print(f"  -> [bg] Regelleistung refresh: {delivery_date}", flush=True)
+            print(f"  -> [bg] Regelleistung refresh (CSV): {delivery_date}", flush=True)
             t0 = time.time()
-            xlsx_bytes = fetch_regelleistung_xlsx("aFRR", "ENERGY", delivery_date)
+            csv_bytes = fetch_regelleistung_csv("aFRR", "ENERGY", delivery_date)
             t_fetch = time.time() - t0
-            parsed = parse_afrr_energy_xlsx(xlsx_bytes)
+            parsed = parse_afrr_energy_csv(csv_bytes)
             parsed["date"] = delivery_date
             parsed["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             _rl_cache_set(key, parsed)
@@ -432,13 +650,13 @@ def get_afrr_energy_data(delivery_date):
         out = dict(stale); out["_cache"] = "stale"; out["_age_sec"] = int(age)
         return out
 
-    print(f"  -> Regelleistung XLSX fetch (sync): aFRR ENERGY {delivery_date}", flush=True)
+    print(f"  -> Regelleistung CSV fetch (sync): aFRR ENERGY {delivery_date}", flush=True)
     t0 = time.time()
-    xlsx_bytes = fetch_regelleistung_xlsx("aFRR", "ENERGY", delivery_date)
+    csv_bytes = fetch_regelleistung_csv("aFRR", "ENERGY", delivery_date)
     t_fetch = time.time() - t0
-    print(f"     downloaded {len(xlsx_bytes)} bytes in {t_fetch:.1f}s", flush=True)
+    print(f"     downloaded {len(csv_bytes)} bytes in {t_fetch:.1f}s", flush=True)
 
-    parsed = parse_afrr_energy_xlsx(xlsx_bytes)
+    parsed = parse_afrr_energy_csv(csv_bytes)
     parsed["date"] = delivery_date
     parsed["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -480,7 +698,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/health":
             self._json({"status": "ok", "time": datetime.now().isoformat(),
-                        "version": "regelleistung-step-ladder-v3"}); return
+                        "version": "regelleistung-csv-v4"}); return
 
         if parsed.path in ("/", "/index.html", "/live_odchylky.html"):
             self._html(); return
@@ -687,5 +905,5 @@ if __name__ == "__main__":
     else:
         print("[keepalive] RENDER_EXTERNAL_URL not set - keepalive disabled", flush=True)
     print(f"CEPS API server -> port {port}", flush=True)
-    print(f"VERSION: regelleistung-step-ladder-v3", flush=True)
+    print(f"VERSION: regelleistung-csv-v4", flush=True)
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
