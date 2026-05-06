@@ -30,11 +30,6 @@ ENTSOE_URL   = "https://web-api.tp.entsoe.eu/api"
 ENTSOE_TOKEN = os.environ.get("ENTSOE_TOKEN", "")
 CZ_DOMAIN    = "10YCZ-CEPS-----N"
 
-# Anthropic Claude API
-ANTHROPIC_API_URL = "https://api.anthropic.com/v1/messages"
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-CLAUDE_MODEL      = "claude-sonnet-4-5"
-
 def _request_with_retry(func, *args, retries=3, delay=1.5, **kwargs):
     """Retry wrapper kvuli obcasnym SSL EOF chybam."""
     last_err = None
@@ -158,32 +153,6 @@ def fmt_entsoe_period(d):
     """Format datetime -> 'YYYYMMDDhhmm' pro ENTSO-E."""
     return d.strftime("%Y%m%d%H%M")
 
-def call_claude(snapshot_text):
-    """Pošle snapshot do Claude API a vrátí text odpovědi."""
-    if not ANTHROPIC_API_KEY:
-        raise RuntimeError("ANTHROPIC_API_KEY neni nastaveny")
-    headers = {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-    }
-    body = {
-        "model": CLAUDE_MODEL,
-        "max_tokens": 1200,
-        "messages": [{"role": "user", "content": snapshot_text}],
-    }
-    r = _request_with_retry(
-        requests.post, ANTHROPIC_API_URL,
-        headers=headers, json=body, timeout=45
-    )
-    if r.status_code != 200:
-        raise RuntimeError(f"Claude API {r.status_code}: {r.text[:300]}")
-    data = r.json()
-    # Extrahovat text z prvniho content bloku
-    parts = data.get("content", [])
-    text = "\n".join(p.get("text", "") for p in parts if p.get("type") == "text")
-    return text.strip()
-
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] {args[0]} {args[1]}", flush=True)
@@ -200,28 +169,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET,OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
-
-    def do_POST(self):
-        parsed = urlparse(self.path)
-        if parsed.path == "/ai/analyze":
-            try:
-                length = int(self.headers.get("Content-Length", "0"))
-                raw = self.rfile.read(length).decode("utf-8") if length else "{}"
-                payload = json.loads(raw)
-                snapshot = payload.get("snapshot", "")
-                if not snapshot:
-                    self._json({"error": "missing snapshot"}, 400); return
-                print(f"  -> Claude analyze: {len(snapshot)} chars input", flush=True)
-                analysis = call_claude(snapshot)
-                print(f"  -> Claude analyze: {len(analysis)} chars output", flush=True)
-                self._json({"analysis": analysis})
-            except Exception as e:
-                print(f"  -> Claude analyze ERROR: {e}", flush=True)
-                self._json({"error": str(e)}, 502)
-            return
-        self._json({"error": "use POST /ai/analyze"}, 404)
 
     def do_GET(self):
         parsed = urlparse(self.path)
