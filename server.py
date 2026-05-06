@@ -569,13 +569,16 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/health":
             self._json({"status": "ok", "time": datetime.now().isoformat(),
-                        "version": "regelleistung-xlsx-v6"}); return
+                        "version": "regelleistung-xlsx-v7-ote-spot"}); return
 
         if parsed.path in ("/", "/index.html", "/live_odchylky.html"):
             self._html(); return
 
         if parsed.path == "/entsoe/solar":
             self._entsoe_solar(qs); return
+
+        if parsed.path == "/ote/spot":
+            self._ote_spot(qs); return
 
         if parsed.path == "/regelleistung/afrr-energy":
             self._regelleistung_afrr_energy(qs); return
@@ -667,6 +670,49 @@ class Handler(BaseHTTPRequestHandler):
             })
         except Exception as e:
             print(f"  -> ENTSO-E Solar ERROR: {e}", flush=True)
+            self._json({"error": str(e)}, 502)
+
+    def _ote_spot(self, qs):
+        """Vraci aktualni spotovou cenu z OTE day-ahead trhu.
+        Cache 5 minut (cena se meni jednou za hodinu).
+        Vystup: {price_czk, price_eur, hour, source}
+        """
+        global _OTE_SPOT_CACHE
+        try:
+            # Cache - drzi se 5 minut
+            if "_OTE_SPOT_CACHE" not in globals():
+                globals()["_OTE_SPOT_CACHE"] = {"ts": 0, "data": None}
+            cache = globals()["_OTE_SPOT_CACHE"]
+            now = time.time()
+            if cache["data"] and (now - cache["ts"]) < 300:
+                out = dict(cache["data"]); out["_cache"] = "hit"
+                self._json(out); return
+
+            # Stahni z spotovaelektrina.cz (free API)
+            r = _request_with_retry(
+                requests.get,
+                "https://spotovaelektrina.cz/api/v1/price/get-actual-price-json",
+                timeout=15,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; ceps-dashboard)"}
+            )
+            if r.status_code != 200:
+                self._json({"error": f"OTE API HTTP {r.status_code}"}, 502); return
+
+            data = r.json()
+            # Format: {"priceCZK": 2792, "priceEUR": 113.5, "hour": 23, ...}
+            out = {
+                "price_czk": data.get("priceCZK"),
+                "price_eur": data.get("priceEUR"),
+                "hour": data.get("hour"),
+                "source": "spotovaelektrina.cz",
+                "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss",
+            }
+            cache["ts"] = now
+            cache["data"] = {k: v for k, v in out.items() if k != "_cache"}
+            self._json(out)
+        except Exception as e:
+            print(f"  -> OTE Spot ERROR: {e}", flush=True)
             self._json({"error": str(e)}, 502)
 
     def _regelleistung_afrr_energy(self, qs):
@@ -776,5 +822,5 @@ if __name__ == "__main__":
     else:
         print("[keepalive] RENDER_EXTERNAL_URL not set - keepalive disabled", flush=True)
     print(f"CEPS API server -> port {port}", flush=True)
-    print(f"VERSION: regelleistung-xlsx-v6", flush=True)
+    print(f"VERSION: regelleistung-xlsx-v7-ote-spot", flush=True)
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
