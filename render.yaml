@@ -7,5 +7,3 @@ services:
     envVars:
       - key: ENTSOE_TOKEN
         sync: false
-      - key: ANTHROPIC_API_KEY
-        sync: false
