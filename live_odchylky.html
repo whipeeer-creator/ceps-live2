@@ -987,7 +987,6 @@ function initRegelleistungAfrr() {
 
     document.querySelectorAll('#rlDirToggle button').forEach(btn => {
       btn.addEventListener('click', () => {
-        if (btn.disabled) return;
         document.querySelectorAll('#rlDirToggle button')
           .forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
@@ -1082,22 +1081,18 @@ async function loadRegelleistungAfrr(force) {
       `;
     }
 
-    // Auto-disable directions co nejsou v datech a auto-prepni pokud aktualni neni dostupny
-    const avail = j.directions_available || [];
+    // Tlacitka POS/NEG - vzdy aktivni. Pokud data v urcitem smeru nejsou,
+    // graf se vykresli prazdny (s textem "zadna data"), ale klik vzdy funguje.
     document.querySelectorAll('#rlDirToggle button').forEach(btn => {
-      const has = avail.includes(btn.dataset.dir);
-      btn.disabled = !has;
-      btn.style.opacity = has ? '1' : '0.35';
-      btn.style.cursor = has ? 'pointer' : 'not-allowed';
-      btn.title = has ? '' : 'V datech pro tento den nejsou bidy v tomto smeru';
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+      btn.title = '';
     });
-    if (avail.length && !avail.includes(rlCurrentDir)) {
-      // Aktualni smer neni v datech, prepnu na prvni dostupny
-      rlCurrentDir = avail[0];
-      document.querySelectorAll('#rlDirToggle button').forEach(b => {
-        b.classList.toggle('active', b.dataset.dir === rlCurrentDir);
-      });
-    }
+    const avail = j.directions_available || [];
+    console.log('[regelleistung] directions_available:', avail,
+                'current:', rlCurrentDir,
+                'slots:', Object.keys(j.slots || {}).length);
 
     rlBuildTimeline();
     rlRender();
