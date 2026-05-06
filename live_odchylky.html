@@ -675,14 +675,20 @@ async function loadGenerationRES() {
       para1: 'all',
     });
 
-    // Paralelni fetch CEPS GenerationRES + ENTSO-E Solar Forecast
-    const [cepsRes, entsoeRes] = await Promise.allSettled([
+    // Zitrejsi datum pro DA forecast vyhledu
+    const tomorrow = new Date(now.getTime() + 24*60*60*1000);
+    const ymdTom = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth()+1)}-${pad(tomorrow.getDate())}`;
+
+    // Paralelni fetch CEPS GenerationRES + ENTSO-E Solar Forecast (dnes + zitra)
+    const [cepsRes, entsoeRes, entsoeTomRes] = await Promise.allSettled([
       fetch(`${API_URL}/api?${p}`).then(r => r.ok ? r.json() : null),
       fetch(`${API_URL}/entsoe/solar`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_URL}/entsoe/solar?day=${ymdTom}`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
 
     const d = cepsRes.status === 'fulfilled' ? cepsRes.value : null;
     const sol = entsoeRes.status === 'fulfilled' ? entsoeRes.value : null;
+    const solTom = entsoeTomRes.status === 'fulfilled' ? entsoeTomRes.value : null;
 
     if (!d || !d.rows || !d.rows.length) return;
     const cols = (d.columns || []).filter(c => c !== 'Date' && c !== 'Interval' && c !== 'date');
@@ -691,10 +697,14 @@ async function loadGenerationRES() {
 
     const daPoints = (sol && sol.day_ahead) || [];
     const idPoints = (sol && sol.intraday)  || [];
+    const daTomPoints = (solTom && solTom.day_ahead) || [];
+    const idTomPoints = (solTom && solTom.intraday)  || [];
     // Cache pro AI snapshot
-    _aiSnapshot.res     = d;
-    _aiSnapshot.solarDA = daPoints;
-    _aiSnapshot.solarID = idPoints;
+    _aiSnapshot.res        = d;
+    _aiSnapshot.solarDA    = daPoints;
+    _aiSnapshot.solarID    = idPoints;
+    _aiSnapshot.solarDATom = daTomPoints;
+    _aiSnapshot.solarIDTom = idTomPoints;
     drawResChart(canvas, d.rows, cols, daPoints, idPoints);
     renderResStats(d.rows, cols, daPoints, idPoints);
   } catch(e) { console.warn('GenerationRES:', e); }
@@ -1050,143 +1060,188 @@ let _aiSnapshot = {
 // Build textovy snapshot pro Claude
 function buildAISnapshotText() {
   const now = new Date();
-  const fmt = d => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+  const fmt = d => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
   const lines = [];
 
-  lines.push('# Snapshot české přenosové soustavy (ČEPS)');
-  lines.push(`Časová značka: ${now.toLocaleString('cs-CZ')}`);
+  lines.push('# Snapshot české přenosové soustavy');
+  lines.push(`Dnešní datum: ${now.toLocaleDateString('cs-CZ')} (čas snapshotu: ${fmt(now)})`);
   lines.push('');
 
-  // KPI
-  lines.push('## Klíčové ukazatele (aktuální):');
-  const kpi = (id) => {
-    const v = document.getElementById('dv-'+id)?.textContent.replace(/\s+/g,' ').trim() || '—';
-    const s = document.getElementById('ds-'+id)?.textContent.trim() || '';
-    return `${v}${s ? ' (' + s + ')' : ''}`;
-  };
-  lines.push(`- Systémová odchylka: ${kpi('O')}`);
-  lines.push(`- Cena odchylky: ${kpi('C')}`);
-  lines.push(`- Cena reg. energie: ${kpi('F')}`);
-  lines.push(`- aFRR aktivní: ${kpi('S')}`);
+  // ============================================================
+  // SEKCE 1: AGREGACE DENNICH UDALOSTI
+  // ============================================================
+  lines.push('## DNES - klíčové události dne');
   lines.push('');
 
-  // Posledních 30 minut systémové odchylky
+  // Extrémy odchylky za den
   if (_aiSnapshot.odch && _aiSnapshot.odch.rows && _aiSnapshot.odch.rows.length) {
     const colO = _aiSnapshot.odch.columns[0];
-    const last30 = _aiSnapshot.odch.rows.slice(-30);
-    lines.push('## Posledních 30 min systémové odchylky [MW]:');
-    last30.forEach(r => {
-      const v = parseFloat(r[colO]) || 0;
-      lines.push(`  ${fmt(new Date(r.date))}  ${v >= 0 ? '+' : ''}${v.toFixed(1)}`);
-    });
-    lines.push('');
-  }
-
-  // 15min bloky odchylky (cely den)
-  if (_aiSnapshot.odch && _aiSnapshot.odch.rows) {
-    const colO = _aiSnapshot.odch.columns[0];
-    const buckets = {};
+    let maxV = -Infinity, maxT = null, minV = Infinity, minT = null;
+    let sumAbs = 0, count = 0;
     _aiSnapshot.odch.rows.forEach(r => {
+      const v = parseFloat(r[colO]) || 0;
       const d = new Date(r.date);
-      const m15 = Math.floor(d.getMinutes()/15)*15;
-      const k = `${String(d.getHours()).padStart(2,'0')}:${String(m15).padStart(2,'0')}`;
-      if (!buckets[k]) buckets[k] = [];
-      buckets[k].push(parseFloat(r[colO])||0);
+      if (v > maxV) { maxV = v; maxT = d; }
+      if (v < minV) { minV = v; minT = d; }
+      sumAbs += Math.abs(v); count++;
     });
-    const blocks = Object.entries(buckets).map(([k,vs]) => ({k, v: vs.reduce((a,x)=>a+x,0)/vs.length}));
-    lines.push('## 15min bloky odchylky (průměry):');
-    blocks.forEach(b => {
-      lines.push(`  ${b.k}  ${b.v >= 0 ? '+' : ''}${b.v.toFixed(1)} MW`);
-    });
+    lines.push('### Systémová odchylka dnes:');
+    lines.push(`- Aktuální (${fmt(new Date(_aiSnapshot.odch.rows[_aiSnapshot.odch.rows.length-1].date))}): ${parseFloat(_aiSnapshot.odch.rows[_aiSnapshot.odch.rows.length-1][colO]).toFixed(1)} MW`);
+    lines.push(`- Maximum (přebytek): +${maxV.toFixed(1)} MW v ${fmt(maxT)}`);
+    lines.push(`- Minimum (deficit): ${minV.toFixed(1)} MW v ${fmt(minT)}`);
+    lines.push(`- Průměrná absolutní odchylka: ${(sumAbs/count).toFixed(1)} MW`);
     lines.push('');
   }
 
-  // SVR aktivace - aktualni
+  // SVR aktivace souhrn dne
   if (_aiSnapshot.svr && _aiSnapshot.svr.rows && _aiSnapshot.svr.rows.length) {
-    const lastSVR = _aiSnapshot.svr.rows[_aiSnapshot.svr.rows.length-1];
-    lines.push('## SVR aktivace (poslední bod):');
+    lines.push('### Regulační energie - dnešní maxima:');
     _aiSnapshot.svr.columns.forEach(c => {
-      const v = parseFloat(lastSVR[c]) || 0;
-      if (v !== 0) lines.push(`  ${c}: ${v.toFixed(2)} MW`);
+      const vals = _aiSnapshot.svr.rows.map(r => parseFloat(r[c]) || 0);
+      const peak = Math.max(...vals.map(Math.abs));
+      const peakIdx = vals.findIndex(v => Math.abs(v) === peak);
+      const peakT = peakIdx >= 0 ? new Date(_aiSnapshot.svr.rows[peakIdx].date) : null;
+      const peakSigned = vals[peakIdx];
+      if (peak > 5) {
+        lines.push(`- ${c}: peak ${peakSigned >= 0 ? '+' : ''}${peakSigned.toFixed(1)} MW v ${peakT ? fmt(peakT) : '?'}`);
+      }
     });
-    lines.push('');
-  }
-
-  // Tabulka cen odchylky (cely den)
-  if (_aiSnapshot.cenaTable && _aiSnapshot.cenaTable.length) {
-    lines.push('## Cena odchylky [Kč/MWh] dnes (15min bloky):');
-    const sorted = [..._aiSnapshot.cenaTable].sort((a,b) => a.h*60+a.m - (b.h*60+b.m));
-    const nonZero = sorted.filter(r => r.v !== 0);
-    if (nonZero.length) {
-      nonZero.forEach(r => {
-        lines.push(`  ${String(r.h).padStart(2,'0')}:${String(r.m).padStart(2,'0')}  ${r.v >= 0 ? '+' : ''}${Math.round(r.v)}`);
-      });
-    } else {
-      lines.push('  (zatím všechny intervaly = 0)');
+    // Aktualni
+    const lastS = _aiSnapshot.svr.rows[_aiSnapshot.svr.rows.length - 1];
+    const activeNow = _aiSnapshot.svr.columns
+      .map(c => ({c, v: parseFloat(lastS[c]) || 0}))
+      .filter(x => Math.abs(x.v) > 0.5);
+    if (activeNow.length) {
+      lines.push('- Aktuálně aktivní: ' + activeNow.map(x => `${x.c}=${x.v >= 0 ? '+' : ''}${x.v.toFixed(1)}`).join(', '));
     }
     lines.push('');
   }
 
-  // Vyroba OZE - VZDY vypsat (i kdyz chybi data, at Claude vi)
-  lines.push('## Aktuální výroba OZE (ČEPS GenerationRES):');
+  // Cena odchylky - extrémy dne
+  if (_aiSnapshot.cenaTable && _aiSnapshot.cenaTable.length) {
+    const sorted = [..._aiSnapshot.cenaTable].sort((a,b) => a.h*60+a.m - (b.h*60+b.m));
+    const nonZero = sorted.filter(r => r.v !== 0);
+    if (nonZero.length) {
+      const maxPrice = nonZero.reduce((a,b) => Math.abs(b.v) > Math.abs(a.v) ? b : a);
+      const minPrice = nonZero.reduce((a,b) => b.v < a.v ? b : a);
+      const maxPriceUp = nonZero.reduce((a,b) => b.v > a.v ? b : a);
+      const lastNonZero = [...sorted].reverse().find(r => r.v !== 0);
+      lines.push('### Cena odchylky dnes:');
+      if (lastNonZero) {
+        lines.push(`- Aktuální slot: ${lastNonZero.v >= 0 ? '+' : ''}${Math.round(lastNonZero.v)} Kč/MWh (${String(lastNonZero.h).padStart(2,'0')}:${String(lastNonZero.m).padStart(2,'0')})`);
+      }
+      if (maxPriceUp.v > 100) {
+        lines.push(`- Nejvyšší kladná: +${Math.round(maxPriceUp.v)} Kč/MWh v ${String(maxPriceUp.h).padStart(2,'0')}:${String(maxPriceUp.m).padStart(2,'0')}`);
+      }
+      if (minPrice.v < -100) {
+        lines.push(`- Nejnižší (záporná): ${Math.round(minPrice.v)} Kč/MWh v ${String(minPrice.h).padStart(2,'0')}:${String(minPrice.m).padStart(2,'0')}`);
+      }
+      // Pocet "drahych" intervalu
+      const expensive = nonZero.filter(r => Math.abs(r.v) > 3000).length;
+      if (expensive > 0) {
+        lines.push(`- Mimořádné slot (|cena| > 3000 Kč/MWh): ${expensive}× za den`);
+      }
+      lines.push('');
+    }
+  }
+
+  // OZE peaks
   if (_aiSnapshot.res && _aiSnapshot.res.rows && _aiSnapshot.res.rows.length) {
-    const lastRes = _aiSnapshot.res.rows[_aiSnapshot.res.rows.length-1];
+    lines.push('### Výroba z OZE dnes:');
     const cols = _aiSnapshot.res.columns.filter(c => c !== 'Date' && c !== 'Interval' && c !== 'date');
     cols.forEach(c => {
-      const v = parseFloat(lastRes[c]) || 0;
-      lines.push(`  - ${c} aktuálně: ${v.toFixed(0)} MW`);
+      const vals = _aiSnapshot.res.rows.map(r => parseFloat(r[c]) || 0);
+      const peak = Math.max(...vals);
+      const peakIdx = vals.findIndex(v => v === peak);
+      const peakT = peakIdx >= 0 ? new Date(_aiSnapshot.res.rows[peakIdx].date) : null;
+      const lastV = vals[vals.length-1];
+      lines.push(`- ${c}: peak ${peak.toFixed(0)} MW v ${peakT ? fmt(peakT) : '?'}, aktuálně ${lastV.toFixed(0)} MW`);
     });
-    cols.forEach(c => {
-      const peak = Math.max(...(_aiSnapshot.res.rows.map(r => parseFloat(r[c]) || 0)));
-      lines.push(`  - ${c} dnešní peak: ${peak.toFixed(0)} MW`);
-    });
-  } else {
-    lines.push('  - (data ČEPS GenerationRES dosud nedorazila, vynech tento detail v analýze)');
-  }
-  lines.push('');
-
-  // Solar Forecast (ENTSO-E) - taky VZDY vypsat
-  lines.push('## Solar Forecast (ENTSO-E, dnešní den):');
-  if (_aiSnapshot.solarDA && _aiSnapshot.solarDA.length) {
-    const peakDA = Math.max(...(_aiSnapshot.solarDA.map(p => p.value || 0)));
-    const peakIdx = _aiSnapshot.solarDA.findIndex(p => (p.value || 0) === peakDA);
-    const peakTime = peakIdx >= 0 ? new Date(_aiSnapshot.solarDA[peakIdx].ts) : null;
-    lines.push(`  - Day-ahead peak: ${peakDA.toFixed(0)} MW kolem ${peakTime ? fmt(peakTime) : '?'}`);
-  } else {
-    lines.push('  - Day-ahead forecast: nedostupný');
-  }
-  if (_aiSnapshot.solarID && _aiSnapshot.solarID.length) {
-    const peakID = Math.max(...(_aiSnapshot.solarID.map(p => p.value || 0)));
-    const peakIdx = _aiSnapshot.solarID.findIndex(p => (p.value || 0) === peakID);
-    const peakTime = peakIdx >= 0 ? new Date(_aiSnapshot.solarID[peakIdx].ts) : null;
-    lines.push(`  - Intraday peak: ${peakID.toFixed(0)} MW kolem ${peakTime ? fmt(peakTime) : '?'}`);
-  } else {
-    lines.push('  - Intraday forecast: nedostupný');
-  }
-  lines.push('');
-
-  // Frekvence
-  if (_aiSnapshot.freq && _aiSnapshot.freq.rows && _aiSnapshot.freq.rows.length) {
-    const lastF = _aiSnapshot.freq.rows[_aiSnapshot.freq.rows.length-1];
-    lines.push(`## Frekvence: ${lastF['aFRR [EUR/MWh]'] ? '(API jen vrátila aFRR)' : 'n/a'}`);
     lines.push('');
   }
 
-  // Promp
+  // Solar forecast vs realita
+  if (_aiSnapshot.solarDA && _aiSnapshot.solarDA.length) {
+    const peakDA = Math.max(...(_aiSnapshot.solarDA.map(p => p.value || 0)));
+    const peakIdx = _aiSnapshot.solarDA.findIndex(p => (p.value || 0) === peakDA);
+    const peakT = peakIdx >= 0 ? new Date(_aiSnapshot.solarDA[peakIdx].ts) : null;
+    lines.push('### Solar Forecast dnes (ENTSO-E):');
+    lines.push(`- Day-ahead peak: ${peakDA.toFixed(0)} MW v ${peakT ? fmt(peakT) : '?'}`);
+    if (_aiSnapshot.solarID && _aiSnapshot.solarID.length) {
+      const peakID = Math.max(...(_aiSnapshot.solarID.map(p => p.value || 0)));
+      lines.push(`- Intraday peak: ${peakID.toFixed(0)} MW`);
+    }
+    lines.push('');
+  }
+
+  // ============================================================
+  // SEKCE 2: VYHLED NA ZITRA
+  // ============================================================
+  const tomorrow = new Date(now.getTime() + 24*60*60*1000);
+  lines.push('## ZÍTRA - výhled');
+  lines.push(`Datum: ${tomorrow.toLocaleDateString('cs-CZ')}`);
+  lines.push('');
+
+  if (_aiSnapshot.solarDATom && _aiSnapshot.solarDATom.length) {
+    lines.push('### Solar Day-ahead forecast pro zítra:');
+    const points = _aiSnapshot.solarDATom;
+    const peakDA = Math.max(...(points.map(p => p.value || 0)));
+    const peakIdx = points.findIndex(p => (p.value || 0) === peakDA);
+    const peakT = peakIdx >= 0 ? new Date(points[peakIdx].ts) : null;
+    // Sumarizace v 4-hodinovych blocich
+    const hourBlocks = {};
+    points.forEach(p => {
+      const d = new Date(p.ts);
+      const h = d.getHours();
+      const blockKey = h < 6 ? '00-06' : h < 10 ? '06-10' : h < 14 ? '10-14' : h < 18 ? '14-18' : '18-24';
+      if (!hourBlocks[blockKey]) hourBlocks[blockKey] = [];
+      hourBlocks[blockKey].push(p.value || 0);
+    });
+    lines.push(`- Peak: ${peakDA.toFixed(0)} MW v ${peakT ? fmt(peakT) : '?'}`);
+    // Pseudo-energy: suma MW * 0.25h = MWh
+    const totalMWh = points.reduce((a,p) => a + (p.value || 0), 0) * 0.25;
+    lines.push(`- Celková denní solární produkce dle forecastu: ${(totalMWh/1000).toFixed(1)} GWh`);
+    Object.entries(hourBlocks).forEach(([blk, vals]) => {
+      const peak = Math.max(...vals);
+      lines.push(`  - blok ${blk}: peak ${peak.toFixed(0)} MW`);
+    });
+    if (_aiSnapshot.solarIDTom && _aiSnapshot.solarIDTom.length) {
+      const peakID = Math.max(...(_aiSnapshot.solarIDTom.map(p => p.value || 0)));
+      lines.push(`- Intraday forecast peak: ${peakID.toFixed(0)} MW`);
+    }
+    lines.push('');
+  } else {
+    lines.push('### Solar Day-ahead forecast pro zítra: ještě nedostupný (typicky se publikuje odpoledne dne D-1)');
+    lines.push('');
+  }
+
+  // ============================================================
+  // PROMPT
+  // ============================================================
   lines.push('---');
   lines.push('');
-  lines.push('Jsi expert na českou přenosovou soustavu. Vyše máš k dispozici kompletní data včetně VTE/FVE výroby a Solar forecastu (Day-ahead i Intraday) z ENTSO-E. Napiš stručnou analýzu v češtině v 5 očíslovaných bodech:');
+  lines.push('Jsi expert na českou přenosovou soustavu. Z výše uvedených dat napiš strukturovanou analýzu v ČEŠTINĚ ve dvou sekcích:');
   lines.push('');
-  lines.push('1. Aktuální stav soustavy (deficit/přebytek, jak velký).');
-  lines.push('2. Co dělá regulační energie (aFRR/mFRR), zda dává smysl vzhledem k odchylce.');
-  lines.push('3. Cena odchylky - je dnes vysoká/nízká, výjimečné události?');
-  lines.push('4. OZE výroba - srovnej AKTUÁLNÍ FVE výrobu s peak hodnotami Day-ahead a Intraday forecastu uvedenými výše.');
-  lines.push('5. Krátkodobý výhled na nejbližší 1-2 hodiny.');
+  lines.push('## DNES');
+  lines.push('Stručně shrň klíčové události dne (3-4 odrážky):');
+  lines.push('- Mimořádné odchylky soustavy (peak, propad, jak dlouho byly)');
+  lines.push('- Mimořádné ceny odchylky (kdy byly nejvyšší/nejnižší, proč)');
+  lines.push('- Peak OZE výroby a porovnání s forecastem');
+  lines.push('- Cokoliv neobvyklého (např. silně záporné ceny → přebytek FVE; vysoké aktivace mFRR → větší události)');
+  lines.push('');
+  lines.push('## ZÍTRA');
+  lines.push('Výhled (3-4 odrážky):');
+  lines.push('- Očekávaný průběh solární produkce dle DA forecastu (peak, čas, denní objem GWh)');
+  lines.push('- Kvalitativní výhled cen: kdy lze čekat dražší/levnější obchodování (např. "v poledne lze čekat negativní spotové ceny pokud bude solární peak 2500+ MW", "ráno a večer typicky drahé kvůli souběhu nízké výroby OZE a špiček spotřeby")');
+  lines.push('- Případné očekávané problémy (např. "rapidní pokles FVE ve 18-19h vyvolá tlak na regulační rezervy")');
+  lines.push('- Pokud forecast pro zítra není dostupný, sekce ZÍTRA může být kratší a generická');
   lines.push('');
   lines.push('PRAVIDLA:');
-  lines.push('- Každý bod max 1-2 věty.');
-  lines.push('- VŠECHNA potřebná data jsou výše - aktivně je projdi a najdi konkrétní čísla.');
-  lines.push('- Nikdy nepiš věty typu "data chybí", "není k dispozici", "nelze posoudit". Data tam jsou, najdi je.');
+  lines.push('- Používej nadpisy přesně **## DNES** a **## ZÍTRA**.');
+  lines.push('- Každá odrážka max 1-2 věty.');
+  lines.push('- Konkrétní čísla z dat, ne odhady.');
+  lines.push('- Vyhni se rutině - fokus na zajímavé/mimořádné věci, ne "soustava byla dnes v normě".');
+  lines.push('- Pro výhled cen pracuj s logikou trhu: vysoký solar = nižší ceny v poledne; nízká VTE/FVE + vysoká spotřeba = drahé.');
   lines.push('- Žádný úvod ani závěr, žádné trading rady.');
 
   return lines.join('\n');
@@ -1205,13 +1260,38 @@ function formatAnalysis(text) {
     .replace(/>/g, '&gt;');
   // Tucne **text**
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#1a1a2e;font-weight:600;">$1</strong>');
-  // Spojit dvojite zalomeni
+  // Markdown nadpisy ## a ###
   html = html.split(/\n\s*\n/).map(para => {
-    // Pokud zacina cislem 1. 2. - styling jako bod seznamu
-    if (/^\s*\d+\./.test(para)) {
-      return `<div style="margin:0 0 12px 0;padding-left:0;">${para.replace(/\n/g,' ')}</div>`;
+    const trimmed = para.trim();
+    // ## Nadpis sekce (DNES, ZÍTRA)
+    if (/^##\s+/.test(trimmed)) {
+      const title = trimmed.replace(/^##\s+/, '').replace(/\n.*/s, '');
+      // Specialni styly pro DNES/ZÍTRA
+      const isToday = /dnes/i.test(title);
+      const isTom = /z[ií]tr/i.test(title);
+      const accent = isToday ? '#1565c0' : isTom ? '#7b1fa2' : '#1a1a2e';
+      const icon = isToday ? '📊' : isTom ? '🔮' : '';
+      return `<h3 style="margin:14px 0 8px 0;padding-bottom:6px;border-bottom:2px solid ${accent};color:${accent};font-size:14px;font-weight:700;letter-spacing:.02em;">${icon} ${title}</h3>`;
     }
-    return `<p style="margin:0 0 10px 0;">${para.replace(/\n/g,'<br>')}</p>`;
+    // ### Sub-nadpis
+    if (/^###\s+/.test(trimmed)) {
+      const title = trimmed.replace(/^###\s+/, '');
+      return `<h4 style="margin:10px 0 4px 0;color:#555;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">${title}</h4>`;
+    }
+    // Bullety začínající - nebo •
+    if (/^[\s]*[-•]\s+/m.test(trimmed)) {
+      const items = trimmed.split(/\n/).filter(l => l.trim()).map(line => {
+        const cleaned = line.replace(/^[\s]*[-•]\s+/, '');
+        return `<li style="margin:0 0 6px 0;">${cleaned}</li>`;
+      }).join('');
+      return `<ul style="margin:0 0 10px 0;padding-left:20px;list-style:disc;">${items}</ul>`;
+    }
+    // Cislovany bod (1. 2. 3.)
+    if (/^\s*\d+\./.test(trimmed)) {
+      return `<div style="margin:0 0 10px 0;padding-left:0;">${trimmed.replace(/\n/g,' ')}</div>`;
+    }
+    // Bezny odstavec
+    return `<p style="margin:0 0 10px 0;">${trimmed.replace(/\n/g,'<br>')}</p>`;
   }).join('');
   return html;
 }
