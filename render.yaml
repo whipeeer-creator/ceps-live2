@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: ceps-dashboard
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py
+    envVars:
+      - key: ENTSOE_TOKEN
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
