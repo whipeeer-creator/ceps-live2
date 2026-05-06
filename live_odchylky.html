@@ -216,16 +216,34 @@ function startDashboard(useLocal) {
   triggerAIWhenReady();
 }
 
-// Pocka az se naplnit cache _aiSnapshot, pak spusti analyzu (max 30s)
+// Pocka az se naplni cache _aiSnapshot, pak spusti analyzu (max 90s)
 let _aiAutoTriggered = false;
 function triggerAIWhenReady(attempt = 0) {
   if (_aiAutoTriggered) return;
-  if (_aiSnapshot.odch && _aiSnapshot.odch.rows && _aiSnapshot.odch.rows.length) {
+  // Detailed logging do console
+  if (attempt === 0) console.log('[AI auto-trigger] Cekam na nacteni dat...');
+
+  const hasData = _aiSnapshot.odch && _aiSnapshot.odch.rows && _aiSnapshot.odch.rows.length > 0;
+  if (hasData) {
     _aiAutoTriggered = true;
+    console.log(`[AI auto-trigger] Data dorazila po ${attempt * 500}ms, spoustim analyzu`);
     refreshAIAnalysis();
     return;
   }
-  if (attempt >= 60) return; // max 30s (60 * 500ms)
+  if (attempt >= 180) {  // max 90s (180 * 500ms)
+    console.warn('[AI auto-trigger] Timeout - data se nenacetla');
+    const out = document.getElementById('ai-output');
+    if (out) out.innerHTML = '<span style="color:#c0392b;">⚠ Data se nepodařilo načíst pro analýzu. Klikni "↻ Aktualizovat analýzu".</span>';
+    return;
+  }
+  // Update placeholder kazdych 5s ať user vidi že se neco deje
+  if (attempt > 0 && attempt % 10 === 0) {
+    const out = document.getElementById('ai-output');
+    if (out && out.querySelector('span')) {
+      const sec = Math.floor(attempt * 0.5);
+      out.innerHTML = `<span style="color:#aaa;font-style:italic;">⏳ Načítám data ze sítě (${sec}s)...</span>`;
+    }
+  }
   setTimeout(() => triggerAIWhenReady(attempt + 1), 500);
 }
 
