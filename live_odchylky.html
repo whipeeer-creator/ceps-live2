@@ -97,7 +97,7 @@ canvas { max-width: 100%; display: block; }
   <div class="hdr-right">
     <span class="cd" id="cd">—</span>
     <select class="rsel" id="rsel" onchange="setRefresh(+this.value)">
-      <option value="5" selected>5 s</option><option value="15">15 s</option><option value="30" >30 s</option>
+      <option value="5">5 s</option><option value="15" selected>15 s</option><option value="30">30 s</option>
       <option value="60">60 s</option><option value="120">2 min</option>
     </select>
     <button class="hbtn" onclick="loadAll()">↺</button>
@@ -122,7 +122,7 @@ canvas { max-width: 100%; display: block; }
       <button class="hbtn" id="ai-btn" onclick="refreshAIAnalysis()" style="background:#1565c0;color:#fff;border-color:#1565c0;font-weight:600;">↻ Aktualizovat analýzu</button>
     </div>
     <div id="ai-output" style="padding:16px 20px;background:#fafbfd;font-family:'Inter',-apple-system,'Segoe UI',sans-serif;font-size:13px;line-height:1.7;color:#2c2c44;letter-spacing:.005em;min-height:60px;">
-      <span style="color:#aaa;font-style:italic;">Načítám analýzu...</span>
+      <span style="color:#aaa;font-style:italic;">⏳ Načítám data ze sítě, pak spustím analýzu...</span>
     </div>
   </div>
   <div class="chart-panel">
@@ -210,14 +210,23 @@ function startDashboard(useLocal) {
     : document.getElementById('apiInput').value.trim().replace(/\/$/, '');
   if (!API_URL) return;
   document.getElementById('setupModal').style.display = 'none';
-  // Pocka na nacteni dat, pak automaticky spusti AI analyzu
-  loadAll().then(() => {
-    // Cache musi byt naplnena pred AI snapshot - cekej kratce po loadAll
-    setTimeout(() => {
-      if (_aiSnapshot.odch) refreshAIAnalysis();
-    }, 500);
-  });
+  loadAll();
   setRefresh(+document.getElementById('rsel').value);
+  // Auto-load AI analyzy - cekame na data, pak spustime
+  triggerAIWhenReady();
+}
+
+// Pocka az se naplnit cache _aiSnapshot, pak spusti analyzu (max 30s)
+let _aiAutoTriggered = false;
+function triggerAIWhenReady(attempt = 0) {
+  if (_aiAutoTriggered) return;
+  if (_aiSnapshot.odch && _aiSnapshot.odch.rows && _aiSnapshot.odch.rows.length) {
+    _aiAutoTriggered = true;
+    refreshAIAnalysis();
+    return;
+  }
+  if (attempt >= 60) return; // max 30s (60 * 500ms)
+  setTimeout(() => triggerAIWhenReady(attempt + 1), 500);
 }
 
 function ft(ds) {
@@ -1204,12 +1213,32 @@ function saveAIResponse() {
   // Smaze - nahrazeno refreshAIAnalysis
 }
 
+// Throttling pro pomale endpointy - update jen jednou za N ms
+let _lastResLoad = 0;
+let _lastCenaTableLoad = 0;
+const RES_THROTTLE_MS = 60 * 1000;       // OZE + Solar forecast: 1 min
+const CENA_TABLE_THROTTLE_MS = 60 * 1000; // Tabulka cen: 1 min (counts per 15min slot)
+
 async function loadAll() {
   if (!API_URL) return;
   setDot('idle', 'Načítám…');
   document.getElementById('err').style.display = 'none';
   try {
-    await Promise.allSettled([loadMain(), loadFreq(), loadCena(), loadCenaTable(), loadGenerationRES()]);
+    const tasks = [loadMain(), loadFreq(), loadCena()];
+
+    // Tabulka cen odchylky - jen jednou za minutu
+    const now = Date.now();
+    if (now - _lastCenaTableLoad > CENA_TABLE_THROTTLE_MS) {
+      _lastCenaTableLoad = now;
+      tasks.push(loadCenaTable());
+    }
+    // GenerationRES + Solar - jen jednou za minutu
+    if (now - _lastResLoad > RES_THROTTLE_MS) {
+      _lastResLoad = now;
+      tasks.push(loadGenerationRES());
+    }
+
+    await Promise.allSettled(tasks);
     setDot('ok', 'Live · '+new Date().toLocaleTimeString('cs'));
   } catch(e) {
     setDot('err', 'Chyba');
