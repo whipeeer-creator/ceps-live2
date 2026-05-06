@@ -289,23 +289,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 502)
 
     def _entsoe_afrr(self, qs):
-        """ENTSO-E aFRR Capacity Bids - kontraktovane (procurement) na dennim trhu pro CZ.
-        Vraci {day, volumes_up, volumes_down, prices_up, prices_down}.
-
-        Datum: ?day=YYYY-MM-DD (defaultne dnes UTC).
-
-        Documenty:
-        - A81 = Contracted reserve (volumes)  - kontraktovane objemy
-        - A89 = Procured balancing capacity (prices) - ceny procurementu
-        Type_MarketAgreement.Type:
-        - A01 = Daily (denni trh)
-        ProcessType:
-        - A52 = aFRR procurement (NE A51 - to je activation)
-        BusinessType:
-        - A95 = Frequency containment reserve (FCR)
-        - B95 = Procured capacity (procured balancing capacity)
-        - A96 = Automatic frequency restoration reserve (aFRR) - upward
-        - A97 = aFRR downward
+        """ENTSO-E aFRR Capacity Bids - zkousi vice kombinaci parametru pro CZ.
+        Vraci JSON vcetne debug info aby slo videt jaka kombinace zafungovala.
         """
         try:
             day_str = qs.get("day", [None])[0]
@@ -316,65 +301,87 @@ class Handler(BaseHTTPRequestHandler):
             ps = day.replace(hour=0, minute=0, second=0, microsecond=0)
             pe = ps + timedelta(hours=23)
 
-            base = {
-                "type_MarketAgreement.Type": "A01",  # daily
-                "controlArea_Domain":        CZ_DOMAIN,
-                "periodStart":               fmt_entsoe_period(ps),
-                "periodEnd":                 fmt_entsoe_period(pe),
+            base_period = {
+                "periodStart": fmt_entsoe_period(ps),
+                "periodEnd":   fmt_entsoe_period(pe),
             }
 
+            import re as _re
             def fetch(extra):
-                params = {**base, **extra}
+                params = {**base_period, **extra}
                 xml, st = call_entsoe(params)
                 pts = parse_entsoe_xml(xml, ps) if st == 200 else []
-                return pts, st, xml
+                # Extract reason text z XML pokud je
+                reason = ""
+                rm = _re.search(r"<text>([^<]+)</text>", xml)
+                if rm: reason = rm.group(1)[:120]
+                return pts, st, xml, reason
 
-            # A81 = Contracted reserves (volumes) - aFRR upward / downward
-            vol_up,   st_vu, xml_vu = fetch({
-                "documentType": "A81",
-                "businessType": "A96",  # aFRR upward
-                "psrType":      "A04",
-            })
-            print(f"  -> ENTSO-E aFRR capacity vol UP:   status={st_vu}, points={len(vol_up)}", flush=True)
-            if st_vu != 200 or not vol_up:
-                print(f"     resp[:200]: {xml_vu[:200]}", flush=True)
+            # Kombinace parametru pro CZ aFRR upward capacity bids
+            combos = [
+                # ENTSO-E REST API guide: Procurement of balancing capacity (4.5.A.A)
+                {"label": "A81+A95+A52+A04", "documentType": "A81", "businessType": "A95",
+                 "processType": "A52", "psrType": "A04",
+                 "controlArea_Domain": CZ_DOMAIN,
+                 "type_MarketAgreement.Type": "A01"},
+                # Bez psrType
+                {"label": "A81+A95+A52", "documentType": "A81", "businessType": "A95",
+                 "processType": "A52",
+                 "controlArea_Domain": CZ_DOMAIN,
+                 "type_MarketAgreement.Type": "A01"},
+                # Bez processType
+                {"label": "A81+A96", "documentType": "A81", "businessType": "A96",
+                 "controlArea_Domain": CZ_DOMAIN,
+                 "type_MarketAgreement.Type": "A01"},
+                # in_Domain misto controlArea
+                {"label": "A81+A96+inDomain", "documentType": "A81", "businessType": "A96",
+                 "in_Domain": CZ_DOMAIN,
+                 "type_MarketAgreement.Type": "A01"},
+                # Procured balancing capacity
+                {"label": "A89+B95+A52", "documentType": "A89", "businessType": "B95",
+                 "processType": "A52",
+                 "controlArea_Domain": CZ_DOMAIN,
+                 "type_MarketAgreement.Type": "A01"},
+                # Aggregated bids (A37)
+                {"label": "A37+A51", "documentType": "A37", "processType": "A51",
+                 "in_Domain": CZ_DOMAIN},
+                # Activated balancing reserves
+                {"label": "A83+A96", "documentType": "A83", "businessType": "A96",
+                 "controlArea_Domain": CZ_DOMAIN},
+                # FCR procurement (sanity check ze ENTSO-E vraci alespon neco pro CZ)
+                {"label": "A81+A95-FCR", "documentType": "A81", "businessType": "A95",
+                 "processType": "A46",  # FCR
+                 "controlArea_Domain": CZ_DOMAIN,
+                 "type_MarketAgreement.Type": "A01"},
+            ]
 
-            vol_down, st_vd, xml_vd = fetch({
-                "documentType": "A81",
-                "businessType": "A97",
-                "psrType":      "A04",
-            })
-            print(f"  -> ENTSO-E aFRR capacity vol DOWN: status={st_vd}, points={len(vol_down)}", flush=True)
-            if st_vd != 200 or not vol_down:
-                print(f"     resp[:200]: {xml_vd[:200]}", flush=True)
-
-            # A89 = Procured balancing capacity (prices)
-            price_up,   st_pu, xml_pu = fetch({
-                "documentType": "A89",
-                "processType":  "A52",   # aFRR
-                "businessType": "B95",   # Procured capacity
-                "psrType":      "A04",
-            })
-            print(f"  -> ENTSO-E aFRR capacity price UP:   status={st_pu}, points={len(price_up)}", flush=True)
-            if st_pu != 200 or not price_up:
-                print(f"     resp[:200]: {xml_pu[:200]}", flush=True)
-
-            # Pro DOWN ceny ENTSO-E nedava samostatny endpoint (procurement obvykle vraci jednu cenu na slot)
-            # Zkousime alternativu - procurement_volume jako bonus
-            price_down, st_pd, xml_pd = fetch({
-                "documentType": "A89",
-                "processType":  "A52",
-                "businessType": "B95",
-                "psrType":      "A05",  # Load (downward)
-            })
-            print(f"  -> ENTSO-E aFRR capacity price DOWN: status={st_pd}, points={len(price_down)}", flush=True)
+            debug = []
+            best_pts = []
+            best_label = None
+            print(f"  -> ENTSO-E aFRR: {ps.strftime('%Y-%m-%d')} - zkousim {len(combos)} kombinaci...", flush=True)
+            for c in combos:
+                label = c.pop("label")
+                pts, st, xml, reason = fetch(c)
+                debug.append({
+                    "label":  label,
+                    "status": st,
+                    "points": len(pts),
+                    "reason": reason,
+                    "xml_preview": xml[:200] if (not pts and st == 200) else None,
+                })
+                print(f"     [{label}] status={st}, points={len(pts)}, reason={reason!r}", flush=True)
+                if pts and not best_pts:
+                    best_pts = pts
+                    best_label = label
 
             self._json({
                 "day": ps.strftime("%Y-%m-%d"),
-                "volumes_up":   vol_up,
-                "volumes_down": vol_down,
-                "prices_up":    price_up,
-                "prices_down":  price_down,
+                "volumes_up":    best_pts,
+                "volumes_down":  [],
+                "prices_up":     [],
+                "prices_down":   [],
+                "best_combo":    best_label,
+                "debug":         debug,
             })
         except Exception as e:
             print(f"  -> ENTSO-E aFRR ERROR: {e}", flush=True)
