@@ -69,7 +69,16 @@ main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .tbl tr:hover td { background: #f8f9ff; }
 .vp { color: #2e7d32; font-weight: 700; } .vn { color: #c0392b; font-weight: 700; } .v0 { color: #ccc; }
 
-/* === aFRR Ladder (regelleistung.net DE+AT) === */
+/* === aFRR Ladder (regelleistung.net DE) === */
+.flag-de {
+  display: inline-block;
+  width: 20px;
+  height: 14px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  background: linear-gradient(to bottom, #000 0 33.33%, #DD0000 33.33% 66.66%, #FFCE00 66.66% 100%);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+}
 .rl-controls { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: #fafbfd; border-bottom: 1px solid #eef0f8; flex-wrap: wrap; }
 .rl-controls input[type="date"] { padding: 4px 8px; border: 1px solid #dde; border-radius: 5px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #1a1a2e; background: #fff; }
 .dir-toggle { display: inline-flex; border: 1px solid #dde; border-radius: 5px; overflow: hidden; }
@@ -203,7 +212,10 @@ canvas { max-width: 100%; display: block; }
   <div class="chart-panel">
     <div class="panel-hdr">
       <div>
-        <div class="panel-title">🇩🇪 aFRR Energy Bids · DE+AT (regelleistung.net)</div>
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;">
+          <span class="flag-de" title="Germany"></span>
+          aFRR Energy Bids · Germany (regelleistung.net)
+        </div>
         <div class="panel-sub">individuální anonymizované energy bidy seřazené podle ceny · 6 čtvrthodin dozadu + 6 dopředu</div>
       </div>
       <div id="rlStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#888;display:flex;gap:14px;flex-wrap:wrap;"></div>
