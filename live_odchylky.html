@@ -1053,8 +1053,15 @@ async function loadRegelleistungAfrr(force) {
     if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
 
     rlData = j;
-    const totalBids = Object.values(j.slots || {})
-      .reduce((acc, arr) => acc + arr.length, 0);
+    // Spocitej bidy - novy format (server vraci slot jako objekt {pos:{bids:[]}, neg:{bids:[]}})
+    // i fallback pro stary format (slot je pole)
+    const totalBids = Object.values(j.slots || {}).reduce((acc, slot) => {
+      if (Array.isArray(slot)) return acc + slot.length;
+      let n = 0;
+      if (slot && slot.pos && slot.pos.bids) n += slot.pos.bids.length;
+      if (slot && slot.neg && slot.neg.bids) n += slot.neg.bids.length;
+      return acc + n;
+    }, 0);
     const slotCount = Object.keys(j.slots || {}).length;
     const cacheLabel = j._cache === 'hit' ? 'cache hit'
                      : j._cache === 'stale' ? `stale (${j._age_sec || 0}s)`
@@ -1191,25 +1198,43 @@ function rlRender() {
     activeEl.textContent = `${rlCurrentDate}, ${slotKey} (Europe/Berlin)`;
   }
 
-  const bidsAll = (rlData.slots || {})[slotKey] || [];
-  const bids = bidsAll.filter(b => b.direction === rlCurrentDir);
-  bids.sort((a, b) => a.price - b.price);
+  // Backend nyni vraci slot jako objekt {pos: {bids: [...], total_mw, ...}, neg: {...}}
+  // Pokud je to stary format (pole bidu), vyradime fallback.
+  const slot = (rlData.slots || {})[slotKey];
+  let ladder = null;
 
-  rlDrawLadder(document.getElementById('rlCanvas'), bids);
+  if (slot && typeof slot === 'object' && !Array.isArray(slot)) {
+    // Novy format - vyber smer
+    const dirKey = rlCurrentDir.toLowerCase();
+    if (slot[dirKey] && slot[dirKey].bids) {
+      ladder = slot[dirKey].bids;
+    }
+  } else if (Array.isArray(slot)) {
+    // Stary format - merit-order na klientu (fallback pokud server jeste nema novy parser)
+    const filtered = slot.filter(b => b.direction === rlCurrentDir);
+    filtered.sort((a, b) => a.price - b.price);
+    let cum = 0;
+    ladder = filtered.map(b => {
+      cum += b.volume_mw;
+      return { price: b.price, volume_mw: b.volume_mw, cum_mw: cum };
+    });
+  }
+
+  rlDrawLadder(document.getElementById('rlCanvas'), ladder || []);
 }
 
-function rlDrawLadder(canvas, bids) {
+function rlDrawLadder(canvas, ladder) {
   if (!canvas) return;
   const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||320);
-  const PAD = { top: 16, right: 24, bottom: 28, left: 50 };
+  const PAD = { top: 18, right: 24, bottom: 32, left: 60 };
   const cW = W - PAD.left - PAD.right;
   const cH = H - PAD.top - PAD.bottom;
 
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, W, H);
 
-  // Pokud žádná data
-  if (!bids || !bids.length) {
+  // Žádná data
+  if (!ladder || !ladder.length) {
     ctx.fillStyle = '#aaa';
     ctx.font = '12px Inter, sans-serif';
     ctx.textAlign = 'center';
@@ -1218,49 +1243,99 @@ function rlDrawLadder(canvas, bids) {
     return;
   }
 
-  const prices = bids.map(b => b.price);
+  const n = ladder.length;
+  const totalMW = ladder[ladder.length - 1].cum_mw;
+
+  // Cenové rozsahy - cap na 95-percentil aby extreme prices nezdeformovaly graf
+  const prices = ladder.map(b => b.price);
   const finitePrices = prices.filter(v => Number.isFinite(v));
-  const maxP = finitePrices.length ? Math.max(...finitePrices) : 20;
-  const minP = finitePrices.length ? Math.min(...finitePrices) : 0;
-
-  // Y rozsah - cap na 95-percentil aby extreme prices nezdeformovaly graf
   const sortedPrices = [...finitePrices].sort((a, b) => a - b);
-  const p95 = sortedPrices[Math.floor(sortedPrices.length * 0.95)] || maxP;
-  const yMax = Math.max(20, Math.min(maxP, Math.max(p95 * 1.5, 20)));
+  const p95 = sortedPrices[Math.min(sortedPrices.length - 1, Math.floor(sortedPrices.length * 0.95))] || 0;
+  const minP = sortedPrices[0] || 0;
+  const maxP = sortedPrices[sortedPrices.length - 1] || 20;
+
+  // Y rozsah: jdeme od 0 (nebo nejnižší ceny pokud jsou záporné) do p95*1.3 (nebo maxP)
+  const yMax = Math.max(20, Math.min(maxP, Math.max(p95 * 1.3, p95 + 5)));
   const yMin = Math.min(0, minP);
-  const yR   = yMax - yMin;
+  const yR = yMax - yMin;
 
-  const n = bids.length;
-  const barW = cW / n;
+  // X rozsah: 0 -> totalMW
+  const xToPx = mw => PAD.left + (mw / totalMW) * cW;
+  const yToPx = pr => PAD.top + cH * (1 - (pr - yMin) / yR);
+  const y0 = yToPx(0);
 
-  function xP(i) { return PAD.left + i * barW; }
-  function yP(v) { return PAD.top + cH * (1 - (v - yMin) / yR); }
-  const y0 = yP(0);
+  // Pozadí grafu
+  ctx.fillStyle = '#fafbfd';
+  ctx.fillRect(PAD.left, PAD.top, cW, cH);
 
-  // Grid horizontal
+  // Horizontální gridlines (cena)
   ctx.strokeStyle = '#eef0f7'; ctx.lineWidth = 1;
   const ySteps = 5;
   for (let i = 0; i <= ySteps; i++) {
-    const y = PAD.top + (cH/ySteps) * i;
+    const y = PAD.top + (cH / ySteps) * i;
     ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
   }
 
-  // Zero line zvýrazněna
-  ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
-  ctx.beginPath(); ctx.moveTo(PAD.left, y0); ctx.lineTo(PAD.left + cW, y0); ctx.stroke();
+  // Vertikální gridlines (MW) - rozumné kroky
+  const niceMwStep = (() => {
+    const target = totalMW / 8;
+    const pow10 = Math.pow(10, Math.floor(Math.log10(target)));
+    const candidates = [1, 2, 5, 10].map(c => c * pow10);
+    return candidates.find(c => c >= target * 0.7) || pow10;
+  })();
+  ctx.strokeStyle = '#eef0f7';
+  for (let mw = 0; mw <= totalMW; mw += niceMwStep) {
+    const x = xToPx(mw);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + cH); ctx.stroke();
+  }
 
-  // Bary
+  // Zero line (cena = 0) zvýrazněna
+  if (yMin < 0 && y0 >= PAD.top && y0 <= PAD.top + cH) {
+    ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y0); ctx.lineTo(PAD.left + cW, y0); ctx.stroke();
+  }
+
+  // Step-chart fill - každý bid = obdélník (schod ladderu)
   const barColor = rlCurrentDir === 'POS' ? '#00d540' : '#ff5252';
-  ctx.fillStyle = barColor;
-  bids.forEach((b, i) => {
-    const x = xP(i);
+  const fillColor = rlCurrentDir === 'POS' ? 'rgba(0,213,64,0.7)' : 'rgba(255,82,82,0.7)';
+
+  ctx.fillStyle = fillColor;
+  let prevX = PAD.left;
+  ladder.forEach(b => {
+    const xRight = xToPx(b.cum_mw);
     const cappedPrice = Math.max(yMin, Math.min(yMax, b.price));
-    const yT = b.price >= 0 ? yP(cappedPrice) : y0;
-    const yB = b.price >= 0 ? y0 : yP(cappedPrice);
-    ctx.fillRect(x, yT, Math.max(0.5, barW - 0.5), yB - yT);
+    const yT = yToPx(cappedPrice);
+    // Vykresli obdélník (od prevX po xRight, od yT po y0 nebo cH)
+    const yBottom = b.price >= 0 ? y0 : yT;
+    const yTop    = b.price >= 0 ? yT : y0;
+    const h2 = Math.abs(yBottom - yTop);
+    const yStart = Math.min(yBottom, yTop);
+    if (xRight > prevX && h2 > 0) {
+      ctx.fillRect(prevX, yStart, xRight - prevX, h2);
+    }
+    prevX = xRight;
   });
 
-  // Y axis ticks
+  // Outline ladderu (linie schodů)
+  ctx.strokeStyle = barColor;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(PAD.left, y0);
+  let px = PAD.left;
+  ladder.forEach(b => {
+    const xRight = xToPx(b.cum_mw);
+    const cappedPrice = Math.max(yMin, Math.min(yMax, b.price));
+    const y = yToPx(cappedPrice);
+    // Vertikální skok (z předchozí ceny na novou)
+    ctx.lineTo(px, y);
+    // Horizontální segment (po dobu šířky bidu)
+    ctx.lineTo(xRight, y);
+    px = xRight;
+  });
+  ctx.lineTo(px, y0);
+  ctx.stroke();
+
+  // Y axis ticks (cena)
   ctx.fillStyle = '#888';
   ctx.font = '10px JetBrains Mono, monospace';
   ctx.textAlign = 'right';
@@ -1270,22 +1345,29 @@ function rlDrawLadder(canvas, bids) {
     ctx.fillText(Math.round(v).toLocaleString(), PAD.left - 5, y + 3);
   }
 
-  // X axis ticks
+  // X axis ticks (kumulativní MW)
   ctx.textAlign = 'center';
-  ctx.fillStyle = '#aaa';
-  const xTickStep = n <= 50 ? 10 : n <= 100 ? 20 : 40;
-  for (let i = 0; i < n; i += xTickStep) {
-    ctx.fillText(String(i), xP(i) + barW/2, PAD.top + cH + 14);
+  ctx.fillStyle = '#888';
+  for (let mw = 0; mw <= totalMW; mw += niceMwStep) {
+    const x = xToPx(mw);
+    ctx.fillText(Math.round(mw).toLocaleString(), x, PAD.top + cH + 16);
   }
-  ctx.fillText(String(n), xP(n) - 2, PAD.top + cH + 14);
 
-  // Y unit
+  // Popisky os
   ctx.fillStyle = '#888';
   ctx.font = '9px JetBrains Mono, monospace';
   ctx.textAlign = 'left';
-  ctx.fillText('EUR/MWh', PAD.left, PAD.top - 4);
+  ctx.fillText('EUR/MWh', PAD.left, PAD.top - 5);
+  ctx.textAlign = 'right';
+  ctx.fillText('kumulativní MW', PAD.left + cW, PAD.top + cH + 28);
 
-  _rlMeta = { bids, PAD, cW, cH, n, barW, xP, yP, yMin, yMax };
+  // Total MW indikátor v pravém horním rohu
+  ctx.fillStyle = '#1a1a2e';
+  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(`Σ ${Math.round(totalMW)} MW · ${n} bidů`, PAD.left + cW, PAD.top - 5);
+
+  _rlMeta = { ladder, PAD, cW, cH, n, totalMW, xToPx, yToPx, yMin, yMax, y0 };
 }
 
 (function() {
@@ -1298,27 +1380,95 @@ function rlDrawLadder(canvas, bids) {
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
-    const { bids, PAD, cW, cH, n, barW } = _rlMeta;
+    const { ladder, PAD, cW, cH, n, totalMW, xToPx, yToPx } = _rlMeta;
     if (mx < PAD.left || mx > PAD.left + cW || my < PAD.top || my > PAD.top + cH) {
-      tip.style.display = 'none'; return;
+      tip.style.display = 'none';
+      _rlRedraw();
+      return;
     }
-    const i = Math.max(0, Math.min(n-1, Math.floor((mx - PAD.left) / barW)));
-    const b = bids[i];
+    // Kumulativní MW pod kurzorem
+    const mwAtCursor = ((mx - PAD.left) / cW) * totalMW;
+    // Najdi bid jehož cum_mw >= mwAtCursor (binary search by se hodil ale n<=200 = OK)
+    let bidIdx = 0;
+    for (let i = 0; i < n; i++) {
+      if (ladder[i].cum_mw >= mwAtCursor) { bidIdx = i; break; }
+      bidIdx = i;
+    }
+    const b = ladder[bidIdx];
     if (!b) return;
+
+    // Marginální cena při tomto MW = cena tohoto bidu
+    // (protože step-chart: každý schod má konstantní cenu na svém intervalu)
+    const marginalPrice = b.price;
+
     tip.innerHTML = `
-      <b>Bid #${i+1}</b><br>
-      Price: <b>${b.price.toFixed(2)} EUR/MWh</b><br>
-      Volume: <b>${b.volume_mw.toFixed(1)} MW</b><br>
-      <span style="color:#aaa;">${b.direction}</span>
+      <b>${rlCurrentDir} bid #${bidIdx + 1} / ${n}</b><br>
+      Při aktivaci: <b>${mwAtCursor.toFixed(1)} MW</b><br>
+      Marginální cena: <b style="color:${rlCurrentDir==='POS'?'#4caf50':'#ff5252'};">${marginalPrice.toFixed(2)} EUR/MWh</b><br>
+      <span style="color:#aaa;">Bid: ${b.volume_mw.toFixed(1)} MW @ ${b.price.toFixed(2)}</span><br>
+      <span style="color:#aaa;">Kumulativně: ${b.cum_mw.toFixed(1)} MW</span>
     `;
     tip.style.display = 'block';
-    const tipW = 150;
+    const tipW = 230;
     const left = mx + 12 + tipW > rect.width ? mx - tipW - 8 : mx + 12;
     tip.style.left = left + 'px';
-    tip.style.top = Math.max(8, my - 50) + 'px';
+    tip.style.top = Math.max(8, my - 70) + 'px';
+
+    // Překresli graf + přidej crosshair
+    _rlRedraw();
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Vertikální linka
+    ctx.strokeStyle = 'rgba(26,26,46,0.5)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(mx, PAD.top);
+    ctx.lineTo(mx, PAD.top + cH);
+    ctx.stroke();
+    // Horizontální linka v úrovni marginální ceny
+    const yMarg = yToPx(Math.max(_rlMeta.yMin, Math.min(_rlMeta.yMax, marginalPrice)));
+    ctx.beginPath();
+    ctx.moveTo(PAD.left, yMarg);
+    ctx.lineTo(PAD.left + cW, yMarg);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Tečka v průsečíku
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(mx, yMarg, 4, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.restore();
   });
-  canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+  canvas.addEventListener('mouseleave', () => {
+    tip.style.display = 'none';
+    _rlRedraw();
+  });
 })();
+
+// Helper: překreslí ladder bez crosshair (volá se z hover handleru)
+function _rlRedraw() {
+  if (!rlData) return;
+  const slotKey = rlTimelineSlots[rlSlotIdx];
+  if (!slotKey) return;
+  const slot = (rlData.slots || {})[slotKey];
+  let ladder = null;
+  if (slot && typeof slot === 'object' && !Array.isArray(slot)) {
+    const dirKey = rlCurrentDir.toLowerCase();
+    if (slot[dirKey] && slot[dirKey].bids) ladder = slot[dirKey].bids;
+  } else if (Array.isArray(slot)) {
+    const filtered = slot.filter(b => b.direction === rlCurrentDir);
+    filtered.sort((a, b) => a.price - b.price);
+    let cum = 0;
+    ladder = filtered.map(b => {
+      cum += b.volume_mw;
+      return { price: b.price, volume_mw: b.volume_mw, cum_mw: cum };
+    });
+  }
+  rlDrawLadder(document.getElementById('rlCanvas'), ladder || []);
+}
 
 // ============================================================
 // Tabulka cen + ostatní
