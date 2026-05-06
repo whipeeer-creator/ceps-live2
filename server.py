@@ -569,7 +569,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/health":
             self._json({"status": "ok", "time": datetime.now().isoformat(),
-                        "version": "regelleistung-xlsx-v7-ote-spot"}); return
+                        "version": "regelleistung-xlsx-v8-ote-stats"}); return
 
         if parsed.path in ("/", "/index.html", "/live_odchylky.html"):
             self._html(); return
@@ -673,11 +673,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 502)
 
     def _ote_spot(self, qs):
-        """Vraci aktualni spotovou cenu z OTE day-ahead trhu.
-        Cache 5 minut (cena se meni jednou za hodinu).
-        Vystup: {price_czk, price_eur, hour, source}
+        """Vraci aktualni spotovou cenu + statistiky pro cely den.
+        Cache 5 minut. Vystup: {price_czk, price_eur, hour, day_stats: {...}}
         """
-        global _OTE_SPOT_CACHE
         try:
             # Cache - drzi se 5 minut
             if "_OTE_SPOT_CACHE" not in globals():
@@ -688,22 +686,64 @@ class Handler(BaseHTTPRequestHandler):
                 out = dict(cache["data"]); out["_cache"] = "hit"
                 self._json(out); return
 
-            # Stahni z spotovaelektrina.cz (free API)
-            r = _request_with_retry(
+            # 1) Stahni aktualni cenu (pro hour info)
+            r1 = _request_with_retry(
                 requests.get,
                 "https://spotovaelektrina.cz/api/v1/price/get-actual-price-json",
                 timeout=15,
                 headers={"User-Agent": "Mozilla/5.0 (compatible; ceps-dashboard)"}
             )
-            if r.status_code != 200:
-                self._json({"error": f"OTE API HTTP {r.status_code}"}, 502); return
+            if r1.status_code != 200:
+                self._json({"error": f"OTE actual HTTP {r1.status_code}"}, 502); return
+            actual = r1.json()
 
-            data = r.json()
-            # Format: {"priceCZK": 2792, "priceEUR": 113.5, "hour": 23, ...}
+            current_hour = actual.get("hour")
+            current_eur = actual.get("priceEUR")
+            current_czk = actual.get("priceCZK")
+
+            # 2) Stahni 24h ceny pro statistiky
+            day_stats = None
+            try:
+                r2 = _request_with_retry(
+                    requests.get,
+                    "https://spotovaelektrina.cz/api/v1/price/get-prices-json",
+                    timeout=15,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; ceps-dashboard)"}
+                )
+                if r2.status_code == 200:
+                    day_data = r2.json()
+                    # Format: {"hoursToday": [{"hour": 0, "priceCZK":..., "priceEUR":...}, ...]}
+                    hours_today = day_data.get("hoursToday", [])
+                    if hours_today:
+                        prices_eur = [h.get("priceEUR") for h in hours_today if h.get("priceEUR") is not None]
+                        if prices_eur:
+                            min_eur = min(prices_eur)
+                            max_eur = max(prices_eur)
+                            avg_eur = sum(prices_eur) / len(prices_eur)
+                            min_hour = next((h["hour"] for h in hours_today if h.get("priceEUR") == min_eur), None)
+                            max_hour = next((h["hour"] for h in hours_today if h.get("priceEUR") == max_eur), None)
+                            spread = max_eur - min_eur
+                            # Vs prumer pro aktualni hodinu
+                            vs_avg_pct = None
+                            if current_eur is not None and avg_eur > 0:
+                                vs_avg_pct = ((current_eur - avg_eur) / avg_eur) * 100
+                            day_stats = {
+                                "min_eur": round(min_eur, 2),
+                                "max_eur": round(max_eur, 2),
+                                "avg_eur": round(avg_eur, 2),
+                                "min_hour": min_hour,
+                                "max_hour": max_hour,
+                                "spread_eur": round(spread, 2),
+                                "current_vs_avg_pct": round(vs_avg_pct, 1) if vs_avg_pct is not None else None,
+                            }
+            except Exception as e:
+                print(f"  -> OTE day stats fetch failed: {e}", flush=True)
+
             out = {
-                "price_czk": data.get("priceCZK"),
-                "price_eur": data.get("priceEUR"),
-                "hour": data.get("hour"),
+                "price_czk": current_czk,
+                "price_eur": current_eur,
+                "hour": current_hour,
+                "day_stats": day_stats,
                 "source": "spotovaelektrina.cz",
                 "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "_cache": "miss",
@@ -822,5 +862,5 @@ if __name__ == "__main__":
     else:
         print("[keepalive] RENDER_EXTERNAL_URL not set - keepalive disabled", flush=True)
     print(f"CEPS API server -> port {port}", flush=True)
-    print(f"VERSION: regelleistung-xlsx-v7-ote-spot", flush=True)
+    print(f"VERSION: regelleistung-xlsx-v8-ote-stats", flush=True)
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
