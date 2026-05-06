@@ -263,6 +263,14 @@ def parse_afrr_energy_xlsx(xlsx_bytes):
                 skipped_reasons["non_afrr"] += 1
                 continue
 
+        # Filter jen Nemecko (regelleistung publikuje DE+AT joint, my chceme jen DE)
+        if idx_country >= 0 and len(row) > idx_country:
+            ctry = str(row[idx_country] or "").strip().upper()
+            if ctry and ctry != "DE":
+                skipped_reasons.setdefault("non_de", 0)
+                skipped_reasons["non_de"] += 1
+                continue
+
         product_str = str(product).strip()
         if product_str not in seen_products and len(sample_products) < 5:
             sample_products.append(product_str)
