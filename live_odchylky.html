@@ -113,18 +113,6 @@ canvas { max-width: 100%; display: block; }
     <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
   </div>
 
-  <div class="chart-panel" id="ai-panel">
-    <div class="panel-hdr">
-      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
-        <div class="panel-title">AI Insight · Claude</div>
-        <span id="ai-time" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#aaa;"></span>
-      </div>
-      <button class="hbtn" id="ai-btn" onclick="refreshAIAnalysis()" style="background:#1565c0;color:#fff;border-color:#1565c0;font-weight:600;">↻ Aktualizovat analýzu</button>
-    </div>
-    <div id="ai-output" style="padding:16px 20px;background:#fafbfd;font-family:'Inter',-apple-system,'Segoe UI',sans-serif;font-size:13px;line-height:1.7;color:#2c2c44;letter-spacing:.005em;min-height:60px;">
-      <span style="color:#aaa;font-style:italic;">⏳ Načítám data ze sítě, pak spustím analýzu...</span>
-    </div>
-  </div>
   <div class="chart-panel">
     <div class="panel-hdr">
       <div>
@@ -212,53 +200,8 @@ function startDashboard(useLocal) {
   document.getElementById('setupModal').style.display = 'none';
   loadAll();
   setRefresh(+document.getElementById('rsel').value);
-  // Auto-load AI analyzy - cekame na data, pak spustime
-  triggerAIWhenReady();
 }
 
-// Pocka az se naplni cache _aiSnapshot, pak spusti analyzu (max 90s)
-let _aiAutoTriggered = false;
-function triggerAIWhenReady(attempt = 0) {
-  if (_aiAutoTriggered) return;
-  if (attempt === 0) console.log('[AI auto-trigger] Cekam na nacteni dat...');
-
-  // Cekej na obe: zakladni odchylku I OZE data (jinak Claude bude tvrdit ze data chybi)
-  const hasOdch  = _aiSnapshot.odch && _aiSnapshot.odch.rows && _aiSnapshot.odch.rows.length > 0;
-  const hasRes   = _aiSnapshot.res  && _aiSnapshot.res.rows  && _aiSnapshot.res.rows.length > 0;
-  // Solar je optional - pokud ENTSO-E selze, pokracuj i bez nej (jen po 15s cekani)
-  const hasSolar = (_aiSnapshot.solarDA && _aiSnapshot.solarDA.length > 0)
-                || (_aiSnapshot.solarID && _aiSnapshot.solarID.length > 0)
-                || attempt > 30; // po 15s vzdat se cekani na solar
-
-  if (hasOdch && hasRes && hasSolar) {
-    _aiAutoTriggered = true;
-    const elapsed = (attempt * 500 / 1000).toFixed(1);
-    console.log(`[AI auto-trigger] Data dorazila po ${elapsed}s, spoustim analyzu`,
-      {odch: hasOdch, res: hasRes, solar: hasSolar});
-    refreshAIAnalysis();
-    return;
-  }
-  if (attempt >= 180) { // max 90s
-    console.warn('[AI auto-trigger] Timeout - data se nenacetla',
-      {odch: hasOdch, res: hasRes, solar: hasSolar});
-    const out = document.getElementById('ai-output');
-    if (out) out.innerHTML = '<span style="color:#c0392b;">⚠ Data se nepodařilo načíst pro analýzu. Klikni "↻ Aktualizovat analýzu".</span>';
-    return;
-  }
-  // Update placeholder kazdych 5s
-  if (attempt > 0 && attempt % 10 === 0) {
-    const out = document.getElementById('ai-output');
-    if (out && out.querySelector('span')) {
-      const sec = Math.floor(attempt * 0.5);
-      const missing = [];
-      if (!hasOdch)  missing.push('odchylka');
-      if (!hasRes)   missing.push('OZE');
-      if (!hasSolar) missing.push('forecast');
-      out.innerHTML = `<span style="color:#aaa;font-style:italic;">⏳ Načítám data (${sec}s) - chybí: ${missing.join(', ')}</span>`;
-    }
-  }
-  setTimeout(() => triggerAIWhenReady(attempt + 1), 500);
-}
 
 function ft(ds) {
   if (!ds) return '';
@@ -606,9 +549,6 @@ async function loadMain() {
     apiFetch('AktivaceSVRvCR', { para1:'all' })
   ]);
   if (!dO.rows.length) return;
-  // Cache pro AI snapshot
-  _aiSnapshot.odch = dO;
-  _aiSnapshot.svr  = dS;
 
   const colO = dO.columns[0];
   const gc   = kw => dS.columns.find(c => c.includes(kw)) || null;
@@ -675,20 +615,14 @@ async function loadGenerationRES() {
       para1: 'all',
     });
 
-    // Zitrejsi datum pro DA forecast vyhledu
-    const tomorrow = new Date(now.getTime() + 24*60*60*1000);
-    const ymdTom = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth()+1)}-${pad(tomorrow.getDate())}`;
-
-    // Paralelni fetch CEPS GenerationRES + ENTSO-E Solar Forecast (dnes + zitra)
-    const [cepsRes, entsoeRes, entsoeTomRes] = await Promise.allSettled([
+    // Paralelni fetch CEPS GenerationRES + ENTSO-E Solar Forecast
+    const [cepsRes, entsoeRes] = await Promise.allSettled([
       fetch(`${API_URL}/api?${p}`).then(r => r.ok ? r.json() : null),
       fetch(`${API_URL}/entsoe/solar`).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`${API_URL}/entsoe/solar?day=${ymdTom}`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
 
     const d = cepsRes.status === 'fulfilled' ? cepsRes.value : null;
     const sol = entsoeRes.status === 'fulfilled' ? entsoeRes.value : null;
-    const solTom = entsoeTomRes.status === 'fulfilled' ? entsoeTomRes.value : null;
 
     if (!d || !d.rows || !d.rows.length) return;
     const cols = (d.columns || []).filter(c => c !== 'Date' && c !== 'Interval' && c !== 'date');
@@ -697,14 +631,6 @@ async function loadGenerationRES() {
 
     const daPoints = (sol && sol.day_ahead) || [];
     const idPoints = (sol && sol.intraday)  || [];
-    const daTomPoints = (solTom && solTom.day_ahead) || [];
-    const idTomPoints = (solTom && solTom.intraday)  || [];
-    // Cache pro AI snapshot
-    _aiSnapshot.res        = d;
-    _aiSnapshot.solarDA    = daPoints;
-    _aiSnapshot.solarID    = idPoints;
-    _aiSnapshot.solarDATom = daTomPoints;
-    _aiSnapshot.solarIDTom = idTomPoints;
     drawResChart(canvas, d.rows, cols, daPoints, idPoints);
     renderResStats(d.rows, cols, daPoints, idPoints);
   } catch(e) { console.warn('GenerationRES:', e); }
@@ -977,8 +903,6 @@ async function loadCenaTable() {
       const [h, m] = start.split(':').map(Number);
       return { h, m, v: parseFloat(r[col]) || 0 };
     });
-    // Cache pro AI snapshot
-    _aiSnapshot.cenaTable = rows;
 
     // Unikátní hodiny seřazené
     const hours = [...new Set(rows.map(r => r.h))].sort((a,b)=>a-b);
@@ -1040,298 +964,6 @@ async function loadCena() {
   const intCol   = d.columns.find(c=>c==='Interval')||'';
   const last     = fRows[fRows.length-1];
   setKPI('C', parseFloat(last[priceCol])||0, 'Kč/MWh', `interval: ${last[intCol]||'—'}`);
-}
-
-// ============================================================
-// AI Insight - manual snapshot pro Claude
-// ============================================================
-
-// Cache last loaded data pro snapshot
-let _aiSnapshot = {
-  ts: null,
-  odch: null,
-  svr: null,
-  cena: null,
-  cenaTable: null,
-  res: null,
-  freq: null,
-};
-
-// Build textovy snapshot pro Claude
-function buildAISnapshotText() {
-  const now = new Date();
-  const fmt = d => `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-  const lines = [];
-
-  lines.push('# Snapshot české přenosové soustavy');
-  lines.push(`Dnešní datum: ${now.toLocaleDateString('cs-CZ')} (čas snapshotu: ${fmt(now)})`);
-  lines.push('');
-
-  // ============================================================
-  // SEKCE 1: AGREGACE DENNICH UDALOSTI
-  // ============================================================
-  lines.push('## DNES - klíčové události dne');
-  lines.push('');
-
-  // Extrémy odchylky za den
-  if (_aiSnapshot.odch && _aiSnapshot.odch.rows && _aiSnapshot.odch.rows.length) {
-    const colO = _aiSnapshot.odch.columns[0];
-    let maxV = -Infinity, maxT = null, minV = Infinity, minT = null;
-    let sumAbs = 0, count = 0;
-    _aiSnapshot.odch.rows.forEach(r => {
-      const v = parseFloat(r[colO]) || 0;
-      const d = new Date(r.date);
-      if (v > maxV) { maxV = v; maxT = d; }
-      if (v < minV) { minV = v; minT = d; }
-      sumAbs += Math.abs(v); count++;
-    });
-    lines.push('### Systémová odchylka dnes:');
-    lines.push(`- Aktuální (${fmt(new Date(_aiSnapshot.odch.rows[_aiSnapshot.odch.rows.length-1].date))}): ${parseFloat(_aiSnapshot.odch.rows[_aiSnapshot.odch.rows.length-1][colO]).toFixed(1)} MW`);
-    lines.push(`- Maximum (přebytek): +${maxV.toFixed(1)} MW v ${fmt(maxT)}`);
-    lines.push(`- Minimum (deficit): ${minV.toFixed(1)} MW v ${fmt(minT)}`);
-    lines.push(`- Průměrná absolutní odchylka: ${(sumAbs/count).toFixed(1)} MW`);
-    lines.push('');
-  }
-
-  // SVR aktivace souhrn dne
-  if (_aiSnapshot.svr && _aiSnapshot.svr.rows && _aiSnapshot.svr.rows.length) {
-    lines.push('### Regulační energie - dnešní maxima:');
-    _aiSnapshot.svr.columns.forEach(c => {
-      const vals = _aiSnapshot.svr.rows.map(r => parseFloat(r[c]) || 0);
-      const peak = Math.max(...vals.map(Math.abs));
-      const peakIdx = vals.findIndex(v => Math.abs(v) === peak);
-      const peakT = peakIdx >= 0 ? new Date(_aiSnapshot.svr.rows[peakIdx].date) : null;
-      const peakSigned = vals[peakIdx];
-      if (peak > 5) {
-        lines.push(`- ${c}: peak ${peakSigned >= 0 ? '+' : ''}${peakSigned.toFixed(1)} MW v ${peakT ? fmt(peakT) : '?'}`);
-      }
-    });
-    // Aktualni
-    const lastS = _aiSnapshot.svr.rows[_aiSnapshot.svr.rows.length - 1];
-    const activeNow = _aiSnapshot.svr.columns
-      .map(c => ({c, v: parseFloat(lastS[c]) || 0}))
-      .filter(x => Math.abs(x.v) > 0.5);
-    if (activeNow.length) {
-      lines.push('- Aktuálně aktivní: ' + activeNow.map(x => `${x.c}=${x.v >= 0 ? '+' : ''}${x.v.toFixed(1)}`).join(', '));
-    }
-    lines.push('');
-  }
-
-  // Cena odchylky - extrémy dne
-  if (_aiSnapshot.cenaTable && _aiSnapshot.cenaTable.length) {
-    const sorted = [..._aiSnapshot.cenaTable].sort((a,b) => a.h*60+a.m - (b.h*60+b.m));
-    const nonZero = sorted.filter(r => r.v !== 0);
-    if (nonZero.length) {
-      const maxPrice = nonZero.reduce((a,b) => Math.abs(b.v) > Math.abs(a.v) ? b : a);
-      const minPrice = nonZero.reduce((a,b) => b.v < a.v ? b : a);
-      const maxPriceUp = nonZero.reduce((a,b) => b.v > a.v ? b : a);
-      const lastNonZero = [...sorted].reverse().find(r => r.v !== 0);
-      lines.push('### Cena odchylky dnes:');
-      if (lastNonZero) {
-        lines.push(`- Aktuální slot: ${lastNonZero.v >= 0 ? '+' : ''}${Math.round(lastNonZero.v)} Kč/MWh (${String(lastNonZero.h).padStart(2,'0')}:${String(lastNonZero.m).padStart(2,'0')})`);
-      }
-      if (maxPriceUp.v > 100) {
-        lines.push(`- Nejvyšší kladná: +${Math.round(maxPriceUp.v)} Kč/MWh v ${String(maxPriceUp.h).padStart(2,'0')}:${String(maxPriceUp.m).padStart(2,'0')}`);
-      }
-      if (minPrice.v < -100) {
-        lines.push(`- Nejnižší (záporná): ${Math.round(minPrice.v)} Kč/MWh v ${String(minPrice.h).padStart(2,'0')}:${String(minPrice.m).padStart(2,'0')}`);
-      }
-      // Pocet "drahych" intervalu
-      const expensive = nonZero.filter(r => Math.abs(r.v) > 3000).length;
-      if (expensive > 0) {
-        lines.push(`- Mimořádné slot (|cena| > 3000 Kč/MWh): ${expensive}× za den`);
-      }
-      lines.push('');
-    }
-  }
-
-  // OZE peaks
-  if (_aiSnapshot.res && _aiSnapshot.res.rows && _aiSnapshot.res.rows.length) {
-    lines.push('### Výroba z OZE dnes:');
-    const cols = _aiSnapshot.res.columns.filter(c => c !== 'Date' && c !== 'Interval' && c !== 'date');
-    cols.forEach(c => {
-      const vals = _aiSnapshot.res.rows.map(r => parseFloat(r[c]) || 0);
-      const peak = Math.max(...vals);
-      const peakIdx = vals.findIndex(v => v === peak);
-      const peakT = peakIdx >= 0 ? new Date(_aiSnapshot.res.rows[peakIdx].date) : null;
-      const lastV = vals[vals.length-1];
-      lines.push(`- ${c}: peak ${peak.toFixed(0)} MW v ${peakT ? fmt(peakT) : '?'}, aktuálně ${lastV.toFixed(0)} MW`);
-    });
-    lines.push('');
-  }
-
-  // Solar forecast vs realita
-  if (_aiSnapshot.solarDA && _aiSnapshot.solarDA.length) {
-    const peakDA = Math.max(...(_aiSnapshot.solarDA.map(p => p.value || 0)));
-    const peakIdx = _aiSnapshot.solarDA.findIndex(p => (p.value || 0) === peakDA);
-    const peakT = peakIdx >= 0 ? new Date(_aiSnapshot.solarDA[peakIdx].ts) : null;
-    lines.push('### Solar Forecast dnes (ENTSO-E):');
-    lines.push(`- Day-ahead peak: ${peakDA.toFixed(0)} MW v ${peakT ? fmt(peakT) : '?'}`);
-    if (_aiSnapshot.solarID && _aiSnapshot.solarID.length) {
-      const peakID = Math.max(...(_aiSnapshot.solarID.map(p => p.value || 0)));
-      lines.push(`- Intraday peak: ${peakID.toFixed(0)} MW`);
-    }
-    lines.push('');
-  }
-
-  // ============================================================
-  // SEKCE 2: VYHLED NA ZITRA
-  // ============================================================
-  const tomorrow = new Date(now.getTime() + 24*60*60*1000);
-  lines.push('## ZÍTRA - výhled');
-  lines.push(`Datum: ${tomorrow.toLocaleDateString('cs-CZ')}`);
-  lines.push('');
-
-  if (_aiSnapshot.solarDATom && _aiSnapshot.solarDATom.length) {
-    lines.push('### Solar Day-ahead forecast pro zítra:');
-    const points = _aiSnapshot.solarDATom;
-    const peakDA = Math.max(...(points.map(p => p.value || 0)));
-    const peakIdx = points.findIndex(p => (p.value || 0) === peakDA);
-    const peakT = peakIdx >= 0 ? new Date(points[peakIdx].ts) : null;
-    // Sumarizace v 4-hodinovych blocich
-    const hourBlocks = {};
-    points.forEach(p => {
-      const d = new Date(p.ts);
-      const h = d.getHours();
-      const blockKey = h < 6 ? '00-06' : h < 10 ? '06-10' : h < 14 ? '10-14' : h < 18 ? '14-18' : '18-24';
-      if (!hourBlocks[blockKey]) hourBlocks[blockKey] = [];
-      hourBlocks[blockKey].push(p.value || 0);
-    });
-    lines.push(`- Peak: ${peakDA.toFixed(0)} MW v ${peakT ? fmt(peakT) : '?'}`);
-    // Pseudo-energy: suma MW * 0.25h = MWh
-    const totalMWh = points.reduce((a,p) => a + (p.value || 0), 0) * 0.25;
-    lines.push(`- Celková denní solární produkce dle forecastu: ${(totalMWh/1000).toFixed(1)} GWh`);
-    Object.entries(hourBlocks).forEach(([blk, vals]) => {
-      const peak = Math.max(...vals);
-      lines.push(`  - blok ${blk}: peak ${peak.toFixed(0)} MW`);
-    });
-    if (_aiSnapshot.solarIDTom && _aiSnapshot.solarIDTom.length) {
-      const peakID = Math.max(...(_aiSnapshot.solarIDTom.map(p => p.value || 0)));
-      lines.push(`- Intraday forecast peak: ${peakID.toFixed(0)} MW`);
-    }
-    lines.push('');
-  } else {
-    lines.push('### Solar Day-ahead forecast pro zítra: ještě nedostupný (typicky se publikuje odpoledne dne D-1)');
-    lines.push('');
-  }
-
-  // ============================================================
-  // PROMPT
-  // ============================================================
-  lines.push('---');
-  lines.push('');
-  lines.push('Jsi expert na českou přenosovou soustavu. Z výše uvedených dat napiš strukturovanou analýzu v ČEŠTINĚ ve dvou sekcích:');
-  lines.push('');
-  lines.push('## DNES');
-  lines.push('Stručně shrň klíčové události dne (3-4 odrážky):');
-  lines.push('- Mimořádné odchylky soustavy (peak, propad, jak dlouho byly)');
-  lines.push('- Mimořádné ceny odchylky (kdy byly nejvyšší/nejnižší, proč)');
-  lines.push('- Peak OZE výroby a porovnání s forecastem');
-  lines.push('- Cokoliv neobvyklého (např. silně záporné ceny → přebytek FVE; vysoké aktivace mFRR → větší události)');
-  lines.push('');
-  lines.push('## ZÍTRA');
-  lines.push('Výhled (3-4 odrážky):');
-  lines.push('- Očekávaný průběh solární produkce dle DA forecastu (peak, čas, denní objem GWh)');
-  lines.push('- Kvalitativní výhled cen: kdy lze čekat dražší/levnější obchodování (např. "v poledne lze čekat negativní spotové ceny pokud bude solární peak 2500+ MW", "ráno a večer typicky drahé kvůli souběhu nízké výroby OZE a špiček spotřeby")');
-  lines.push('- Případné očekávané problémy (např. "rapidní pokles FVE ve 18-19h vyvolá tlak na regulační rezervy")');
-  lines.push('- Pokud forecast pro zítra není dostupný, sekce ZÍTRA může být kratší a generická');
-  lines.push('');
-  lines.push('PRAVIDLA:');
-  lines.push('- Používej nadpisy přesně **## DNES** a **## ZÍTRA**.');
-  lines.push('- Každá odrážka max 1-2 věty.');
-  lines.push('- Konkrétní čísla z dat, ne odhady.');
-  lines.push('- Vyhni se rutině - fokus na zajímavé/mimořádné věci, ne "soustava byla dnes v normě".');
-  lines.push('- Pro výhled cen pracuj s logikou trhu: vysoký solar = nižší ceny v poledne; nízká VTE/FVE + vysoká spotřeba = drahé.');
-  lines.push('- Žádný úvod ani závěr, žádné trading rady.');
-  lines.push('- Piš VÝHRADNĚ v české latince - žádná cyrilice, žádná jiná abeceda. Slovo "budou" se píše "budou", nikdy ne "будут".');
-  lines.push('- Buď stručný - každá odrážka jedna kratká věta. Pokud nemáš na něco data, prostě o tom nepiš (než aby si to vymýšlel).');
-
-  return lines.join('\n');
-}
-
-async function generateAISnapshot() {
-  // Smaze - tahle funkce je nahrazena refreshAIAnalysis()
-}
-
-// Mini markdown renderer pro analyzu (tucne **text**, ciselne body, prazdne radky)
-function formatAnalysis(text) {
-  // Escape HTML
-  let html = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  // Tucne **text**
-  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#1a1a2e;font-weight:600;">$1</strong>');
-  // Markdown nadpisy ## a ###
-  html = html.split(/\n\s*\n/).map(para => {
-    const trimmed = para.trim();
-    // ## Nadpis sekce (DNES, ZÍTRA)
-    if (/^##\s+/.test(trimmed)) {
-      const title = trimmed.replace(/^##\s+/, '').replace(/\n.*/s, '');
-      // Specialni styly pro DNES/ZÍTRA
-      const isToday = /dnes/i.test(title);
-      const isTom = /z[ií]tr/i.test(title);
-      const accent = isToday ? '#1565c0' : isTom ? '#7b1fa2' : '#1a1a2e';
-      const icon = isToday ? '📊' : isTom ? '🔮' : '';
-      return `<h3 style="margin:14px 0 8px 0;padding-bottom:6px;border-bottom:2px solid ${accent};color:${accent};font-size:14px;font-weight:700;letter-spacing:.02em;">${icon} ${title}</h3>`;
-    }
-    // ### Sub-nadpis
-    if (/^###\s+/.test(trimmed)) {
-      const title = trimmed.replace(/^###\s+/, '');
-      return `<h4 style="margin:10px 0 4px 0;color:#555;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">${title}</h4>`;
-    }
-    // Bullety začínající - nebo •
-    if (/^[\s]*[-•]\s+/m.test(trimmed)) {
-      const items = trimmed.split(/\n/).filter(l => l.trim()).map(line => {
-        const cleaned = line.replace(/^[\s]*[-•]\s+/, '');
-        return `<li style="margin:0 0 6px 0;">${cleaned}</li>`;
-      }).join('');
-      return `<ul style="margin:0 0 10px 0;padding-left:20px;list-style:disc;">${items}</ul>`;
-    }
-    // Cislovany bod (1. 2. 3.)
-    if (/^\s*\d+\./.test(trimmed)) {
-      return `<div style="margin:0 0 10px 0;padding-left:0;">${trimmed.replace(/\n/g,' ')}</div>`;
-    }
-    // Bezny odstavec
-    return `<p style="margin:0 0 10px 0;">${trimmed.replace(/\n/g,'<br>')}</p>`;
-  }).join('');
-  return html;
-}
-
-async function refreshAIAnalysis() {
-  const btn = document.getElementById('ai-btn');
-  const out = document.getElementById('ai-output');
-  const time = document.getElementById('ai-time');
-  const orig = btn.textContent;
-  btn.disabled = true;
-  btn.textContent = '⏳ Generuji...';
-  out.innerHTML = '<span style="color:#aaa;font-style:italic;">Claude analyzuje data...</span>';
-
-  try {
-    const snapshot = buildAISnapshotText();
-    const r = await fetch(`${API_URL}/ai/analyze`, {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({snapshot}),
-    });
-    const data = await r.json();
-    if (!r.ok || data.error) {
-      out.innerHTML = `<span style="color:#c0392b;">⚠ Chyba: ${data.error || r.status}</span>`;
-    } else {
-      out.innerHTML = formatAnalysis(data.analysis || '(prázdná odpověď)');
-      const now = new Date();
-      time.textContent = `aktualizováno ${now.toLocaleTimeString('cs-CZ')}`;
-    }
-  } catch(e) {
-    out.innerHTML = `<span style="color:#c0392b;">⚠ Selhalo spojení: ${e.message}</span>`;
-  } finally {
-    btn.disabled = false;
-    btn.textContent = orig;
-  }
-}
-
-function saveAIResponse() {
-  // Smaze - nahrazeno refreshAIAnalysis
 }
 
 // Throttling pro pomale endpointy - update jen jednou za N ms
