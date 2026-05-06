@@ -115,17 +115,14 @@ canvas { max-width: 100%; display: block; }
 
   <div class="chart-panel" id="ai-panel">
     <div class="panel-hdr">
-      <div>
+      <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
         <div class="panel-title">AI Insight · Claude</div>
-        <div class="panel-sub">automatická analýza aktuálního stavu sítě</div>
-      </div>
-      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
         <span id="ai-time" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#aaa;"></span>
-        <button class="hbtn" id="ai-btn" onclick="refreshAIAnalysis()" style="background:#1565c0;color:#fff;border-color:#1565c0;font-weight:600;">↻ Aktualizovat analýzu</button>
       </div>
+      <button class="hbtn" id="ai-btn" onclick="refreshAIAnalysis()" style="background:#1565c0;color:#fff;border-color:#1565c0;font-weight:600;">↻ Aktualizovat analýzu</button>
     </div>
-    <div id="ai-output" style="padding:14px 16px;background:#fafbfd;font-size:12px;line-height:1.6;color:#1a1a2e;white-space:pre-wrap;min-height:60px;">
-      <span style="color:#aaa;font-style:italic;">Klikni "Aktualizovat analýzu" pro vygenerování insight z aktuálních dat.</span>
+    <div id="ai-output" style="padding:16px 20px;background:#fafbfd;font-family:'Inter',-apple-system,'Segoe UI',sans-serif;font-size:13px;line-height:1.7;color:#2c2c44;letter-spacing:.005em;min-height:60px;">
+      <span style="color:#aaa;font-style:italic;">Načítám analýzu...</span>
     </div>
   </div>
   <div class="chart-panel">
@@ -213,7 +210,13 @@ function startDashboard(useLocal) {
     : document.getElementById('apiInput').value.trim().replace(/\/$/, '');
   if (!API_URL) return;
   document.getElementById('setupModal').style.display = 'none';
-  loadAll();
+  // Pocka na nacteni dat, pak automaticky spusti AI analyzu
+  loadAll().then(() => {
+    // Cache musi byt naplnena pred AI snapshot - cekej kratce po loadAll
+    setTimeout(() => {
+      if (_aiSnapshot.odch) refreshAIAnalysis();
+    }, 500);
+  });
   setRefresh(+document.getElementById('rsel').value);
 }
 
@@ -1124,20 +1127,45 @@ function buildAISnapshotText() {
   // Promp
   lines.push('---');
   lines.push('');
-  lines.push('Podívej se na výše uvedená data z české přenosové soustavy a poskytni stručnou analýzu (3-5 vět) v češtině:');
+  lines.push('Jsi expert na českou přenosovou soustavu. Vyše máš k dispozici kompletní data včetně VTE/FVE výroby a Solar forecastu (Day-ahead i Intraday) z ENTSO-E. Napiš stručnou analýzu v češtině v 5 očíslovaných bodech:');
+  lines.push('');
   lines.push('1. Aktuální stav soustavy (deficit/přebytek, jak velký).');
   lines.push('2. Co dělá regulační energie (aFRR/mFRR), zda dává smysl vzhledem k odchylce.');
   lines.push('3. Cena odchylky - je dnes vysoká/nízká, výjimečné události?');
-  lines.push('4. OZE výroba - shoduje se s forecastem? Solar peak v očekávaném čase?');
-  lines.push('5. Krátkodobý výhled na nejbližší 1-2 hodiny dle forecastu.');
+  lines.push('4. OZE výroba - srovnej AKTUÁLNÍ FVE výrobu s peak hodnotami Day-ahead a Intraday forecastu uvedenými výše.');
+  lines.push('5. Krátkodobý výhled na nejbližší 1-2 hodiny.');
   lines.push('');
-  lines.push('Nepiš úvod ani závěr, jen 5 očíslovaných bodů, každý max 1-2 věty. Žádné trading rady.');
+  lines.push('PRAVIDLA:');
+  lines.push('- Každý bod max 1-2 věty.');
+  lines.push('- VŠECHNA potřebná data jsou výše - aktivně je projdi a najdi konkrétní čísla.');
+  lines.push('- Nikdy nepiš věty typu "data chybí", "není k dispozici", "nelze posoudit". Data tam jsou, najdi je.');
+  lines.push('- Žádný úvod ani závěr, žádné trading rady.');
 
   return lines.join('\n');
 }
 
 async function generateAISnapshot() {
   // Smaze - tahle funkce je nahrazena refreshAIAnalysis()
+}
+
+// Mini markdown renderer pro analyzu (tucne **text**, ciselne body, prazdne radky)
+function formatAnalysis(text) {
+  // Escape HTML
+  let html = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  // Tucne **text**
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong style="color:#1a1a2e;font-weight:600;">$1</strong>');
+  // Spojit dvojite zalomeni
+  html = html.split(/\n\s*\n/).map(para => {
+    // Pokud zacina cislem 1. 2. - styling jako bod seznamu
+    if (/^\s*\d+\./.test(para)) {
+      return `<div style="margin:0 0 12px 0;padding-left:0;">${para.replace(/\n/g,' ')}</div>`;
+    }
+    return `<p style="margin:0 0 10px 0;">${para.replace(/\n/g,'<br>')}</p>`;
+  }).join('');
+  return html;
 }
 
 async function refreshAIAnalysis() {
@@ -1160,7 +1188,7 @@ async function refreshAIAnalysis() {
     if (!r.ok || data.error) {
       out.innerHTML = `<span style="color:#c0392b;">⚠ Chyba: ${data.error || r.status}</span>`;
     } else {
-      out.textContent = data.analysis || '(prázdná odpověď)';
+      out.innerHTML = formatAnalysis(data.analysis || '(prázdná odpověď)');
       const now = new Date();
       time.textContent = `aktualizováno ${now.toLocaleTimeString('cs-CZ')}`;
     }
