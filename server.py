@@ -569,13 +569,19 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/health":
             self._json({"status": "ok", "time": datetime.now().isoformat(),
-                        "version": "regelleistung-xlsx-v6"}); return
+                        "version": "regelleistung-xlsx-v11-weather"}); return
 
         if parsed.path in ("/", "/index.html", "/live_odchylky.html"):
             self._html(); return
 
         if parsed.path == "/entsoe/solar":
             self._entsoe_solar(qs); return
+
+        if parsed.path == "/ote/spot":
+            self._ote_spot(qs); return
+
+        if parsed.path == "/weather":
+            self._weather(qs); return
 
         if parsed.path == "/regelleistung/afrr-energy":
             self._regelleistung_afrr_energy(qs); return
@@ -626,6 +632,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": f"CEPS {status}: {msg}"}, 502); return
 
         data = parse_ceps(xml_text)
+        # Pridame fetched_at = cas kdy server zavolal CEPS API
+        data["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         print(f"  -> {method}: {len(data['rows'])} radku, cols={data['columns']}", flush=True)
         self._json(data)
 
@@ -667,6 +675,214 @@ class Handler(BaseHTTPRequestHandler):
             })
         except Exception as e:
             print(f"  -> ENTSO-E Solar ERROR: {e}", flush=True)
+            self._json({"error": str(e)}, 502)
+
+    def _ote_spot(self, qs):
+        """Vraci aktualni spotovou cenu + statistiky pro cely den.
+        Cache 5 minut. Vystup: {price_czk, price_eur, hour, day_stats: {...}}
+        """
+        try:
+            # Cache - drzi se 5 minut
+            if "_OTE_SPOT_CACHE" not in globals():
+                globals()["_OTE_SPOT_CACHE"] = {"ts": 0, "data": None}
+            cache = globals()["_OTE_SPOT_CACHE"]
+            now = time.time()
+            if cache["data"] and (now - cache["ts"]) < 300:
+                out = dict(cache["data"]); out["_cache"] = "hit"
+                self._json(out); return
+
+            # 1) Stahni aktualni cenu (pro hour info)
+            r1 = _request_with_retry(
+                requests.get,
+                "https://spotovaelektrina.cz/api/v1/price/get-actual-price-json",
+                timeout=15,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; ceps-dashboard)"}
+            )
+            if r1.status_code != 200:
+                self._json({"error": f"OTE actual HTTP {r1.status_code}"}, 502); return
+            actual = r1.json()
+
+            current_hour = actual.get("hour")
+            current_eur = actual.get("priceEUR")
+            current_czk = actual.get("priceCZK")
+
+            # 2) Stahni 24h ceny pro statistiky
+            day_stats = None
+            tomorrow_stats = None
+            try:
+                r2 = _request_with_retry(
+                    requests.get,
+                    "https://spotovaelektrina.cz/api/v1/price/get-prices-json",
+                    timeout=15,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; ceps-dashboard)"}
+                )
+                if r2.status_code == 200:
+                    day_data = r2.json()
+                    # Format: {"hoursToday": [{"hour": 0, "priceCZK":..., "priceEur":...}, ...], "hoursTomorrow": [...]}
+                    # POZOR: API vraci "priceEur" (male r), ne "priceEUR"!
+                    hours_today = day_data.get("hoursToday", [])
+                    if hours_today:
+                        prices_eur = [h.get("priceEur") for h in hours_today if h.get("priceEur") is not None]
+                        if prices_eur:
+                            min_eur = min(prices_eur)
+                            max_eur = max(prices_eur)
+                            avg_eur = sum(prices_eur) / len(prices_eur)
+                            min_hour = next((h["hour"] for h in hours_today if h.get("priceEur") == min_eur), None)
+                            max_hour = next((h["hour"] for h in hours_today if h.get("priceEur") == max_eur), None)
+                            spread = max_eur - min_eur
+                            # Vs prumer pro aktualni hodinu
+                            vs_avg_pct = None
+                            if current_eur is not None and avg_eur > 0:
+                                vs_avg_pct = ((current_eur - avg_eur) / avg_eur) * 100
+                            day_stats = {
+                                "min_eur": round(min_eur, 2),
+                                "max_eur": round(max_eur, 2),
+                                "avg_eur": round(avg_eur, 2),
+                                "min_hour": min_hour,
+                                "max_hour": max_hour,
+                                "spread_eur": round(spread, 2),
+                                "current_vs_avg_pct": round(vs_avg_pct, 1) if vs_avg_pct is not None else None,
+                            }
+                    # Zitrejsi statistiky (pokud OTE uz publikovalo - obvykle po 14:00 CET)
+                    hours_tomorrow = day_data.get("hoursTomorrow", [])
+                    if hours_tomorrow:
+                        prices_t = [h.get("priceEur") for h in hours_tomorrow if h.get("priceEur") is not None]
+                        if prices_t:
+                            tmin = min(prices_t)
+                            tmax = max(prices_t)
+                            tavg = sum(prices_t) / len(prices_t)
+                            tmin_h = next((h["hour"] for h in hours_tomorrow if h.get("priceEur") == tmin), None)
+                            tmax_h = next((h["hour"] for h in hours_tomorrow if h.get("priceEur") == tmax), None)
+                            tomorrow_stats = {
+                                "min_eur": round(tmin, 2),
+                                "max_eur": round(tmax, 2),
+                                "avg_eur": round(tavg, 2),
+                                "min_hour": tmin_h,
+                                "max_hour": tmax_h,
+                                "spread_eur": round(tmax - tmin, 2),
+                                "published": True,
+                            }
+                        else:
+                            tomorrow_stats = {"published": False}
+                    else:
+                        tomorrow_stats = {"published": False}
+            except Exception as e:
+                print(f"  -> OTE day stats fetch failed: {e}", flush=True)
+
+            out = {
+                "price_czk": current_czk,
+                "price_eur": current_eur,
+                "hour": current_hour,
+                "day_stats": day_stats,
+                "tomorrow_stats": tomorrow_stats,
+                "source": "spotovaelektrina.cz",
+                "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss",
+            }
+            cache["ts"] = now
+            cache["data"] = {k: v for k, v in out.items() if k != "_cache"}
+            self._json(out)
+        except Exception as e:
+            print(f"  -> OTE Spot ERROR: {e}", flush=True)
+            self._json({"error": str(e)}, 502)
+
+    def _weather(self, qs):
+        """Vraci aktualni pocasi pro Prahu + zitrejsi forecast.
+        Open-Meteo API (free, bez API klice).
+        Cache 30 minut.
+        """
+        try:
+            if "_WEATHER_CACHE" not in globals():
+                globals()["_WEATHER_CACHE"] = {"ts": 0, "data": None}
+            cache = globals()["_WEATHER_CACHE"]
+            now = time.time()
+            if cache["data"] and (now - cache["ts"]) < 1800:
+                out = dict(cache["data"]); out["_cache"] = "hit"
+                self._json(out); return
+
+            # Praha souradnice
+            url = ("https://api.open-meteo.com/v1/forecast"
+                   "?latitude=50.0755&longitude=14.4378"
+                   "&current=temperature_2m,wind_speed_10m,weather_code,cloud_cover"
+                   "&daily=temperature_2m_max,temperature_2m_min,wind_speed_10m_max,weather_code,sunshine_duration"
+                   "&timezone=Europe%2FBerlin&forecast_days=2")
+
+            r = _request_with_retry(
+                requests.get, url, timeout=15,
+                headers={"User-Agent": "Mozilla/5.0 (compatible; ceps-dashboard)"}
+            )
+            if r.status_code != 200:
+                self._json({"error": f"Open-Meteo HTTP {r.status_code}"}, 502); return
+
+            data = r.json()
+            current = data.get("current", {})
+            daily = data.get("daily", {})
+
+            # WMO weather codes -> ikony emoji + text
+            def wcode_info(code):
+                if code is None: return ("", "—")
+                c = int(code)
+                if c == 0:                      return ("☀️", "jasno")
+                if c in (1, 2):                 return ("🌤️", "polojasno")
+                if c == 3:                      return ("☁️", "zataženo")
+                if c in (45, 48):               return ("🌫️", "mlha")
+                if c in (51, 53, 55, 56, 57):   return ("🌦️", "mrholení")
+                if c in (61, 63, 65, 66, 67):   return ("🌧️", "déšť")
+                if c in (71, 73, 75, 77):       return ("🌨️", "sněžení")
+                if c in (80, 81, 82):           return ("🌦️", "přeháňky")
+                if c in (85, 86):               return ("❄️", "sněhové přeháňky")
+                if c in (95, 96, 99):           return ("⛈️", "bouřka")
+                return ("", "—")
+
+            # Today (index 0)
+            today_max = daily.get("temperature_2m_max", [None, None])[0]
+            today_min = daily.get("temperature_2m_min", [None, None])[0]
+            today_wind = daily.get("wind_speed_10m_max", [None, None])[0]
+            today_code = daily.get("weather_code", [None, None])[0]
+            today_sun = daily.get("sunshine_duration", [None, None])[0]
+            today_icon, today_desc = wcode_info(today_code)
+
+            # Tomorrow (index 1)
+            tom_max = daily.get("temperature_2m_max", [None, None])[1] if len(daily.get("temperature_2m_max", [])) > 1 else None
+            tom_min = daily.get("temperature_2m_min", [None, None])[1] if len(daily.get("temperature_2m_min", [])) > 1 else None
+            tom_wind = daily.get("wind_speed_10m_max", [None, None])[1] if len(daily.get("wind_speed_10m_max", [])) > 1 else None
+            tom_code = daily.get("weather_code", [None, None])[1] if len(daily.get("weather_code", [])) > 1 else None
+            tom_sun = daily.get("sunshine_duration", [None, None])[1] if len(daily.get("sunshine_duration", [])) > 1 else None
+            tom_icon, tom_desc = wcode_info(tom_code)
+
+            out = {
+                "current": {
+                    "temp_c": current.get("temperature_2m"),
+                    "wind_ms": current.get("wind_speed_10m"),
+                    "cloud_pct": current.get("cloud_cover"),
+                    "weather_code": current.get("weather_code"),
+                },
+                "today": {
+                    "temp_max": today_max,
+                    "temp_min": today_min,
+                    "wind_max_ms": today_wind,
+                    "icon": today_icon,
+                    "desc": today_desc,
+                    "sunshine_h": round(today_sun / 3600, 1) if today_sun else None,
+                },
+                "tomorrow": {
+                    "temp_max": tom_max,
+                    "temp_min": tom_min,
+                    "wind_max_ms": tom_wind,
+                    "icon": tom_icon,
+                    "desc": tom_desc,
+                    "sunshine_h": round(tom_sun / 3600, 1) if tom_sun else None,
+                },
+                "location": "Praha",
+                "source": "open-meteo.com",
+                "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss",
+            }
+            cache["ts"] = now
+            cache["data"] = {k: v for k, v in out.items() if k != "_cache"}
+            self._json(out)
+        except Exception as e:
+            print(f"  -> Weather ERROR: {e}", flush=True)
             self._json({"error": str(e)}, 502)
 
     def _regelleistung_afrr_energy(self, qs):
@@ -776,5 +992,5 @@ if __name__ == "__main__":
     else:
         print("[keepalive] RENDER_EXTERNAL_URL not set - keepalive disabled", flush=True)
     print(f"CEPS API server -> port {port}", flush=True)
-    print(f"VERSION: regelleistung-xlsx-v6", flush=True)
+    print(f"VERSION: regelleistung-xlsx-v11-weather", flush=True)
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
