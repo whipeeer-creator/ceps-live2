@@ -32,6 +32,7 @@ header { background: #fff; border-bottom: 1px solid #e0e4ef; display: flex; alig
 .dot { width: 6px; height: 6px; border-radius: 50%; background: #43a047; }
 .dot.anim { animation: blink 1.6s ease-in-out infinite; }
 @keyframes blink { 0%,100%{opacity:1}50%{opacity:.2} }
+@keyframes spin { to { transform: rotate(360deg); } }
 .dot.err { background: #e53935; animation: none; }
 .dot.idle { background: #bbb; animation: none; }
 .hdr-info { font-size: 10px; color: #aaa; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
@@ -234,6 +235,10 @@ canvas { max-width: 100%; display: block; }
     <div style="background:#fff; position:relative; overflow:hidden; width:100%;" id="rlWrap">
       <canvas id="rlCanvas" height="320" style="width:100%;height:320px;display:block;"></canvas>
       <div id="rlChartTip"></div>
+      <div id="rlLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.85);font-size:12px;color:#1a1a2e;font-family:'JetBrains Mono',monospace;backdrop-filter:blur(2px);z-index:20;">
+        <div style="width:18px;height:18px;border:2px solid #dde;border-top-color:#1a1a2e;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:10px;"></div>
+        <span id="rlLoadingMsg">Načítám data z regelleistung.net…</span>
+      </div>
     </div>
     <div class="rl-timeline-wrap">
       <div class="rl-timeline-active" id="rlActiveSlot">—</div>
@@ -1012,6 +1017,16 @@ function rlSetStatus(msg, isErr) {
   el.classList.toggle('err', !!isErr);
 }
 
+function rlSetLoading(show, msg) {
+  const el = document.getElementById('rlLoading');
+  if (!el) return;
+  el.style.display = show ? 'flex' : 'none';
+  if (msg) {
+    const m = document.getElementById('rlLoadingMsg');
+    if (m) m.textContent = msg;
+  }
+}
+
 async function loadRegelleistungAfrr(force) {
   if (!API_URL) return;
 
@@ -1024,7 +1039,13 @@ async function loadRegelleistungAfrr(force) {
   const dateStr = (dp && dp.value) || rlBerlinDateStr(new Date());
   rlCurrentDate = dateStr;
 
+  // Spinner zobraz jen pri prvnim loadu (kdyz jeste nemame data) nebo pri force
+  const showSpinner = !rlData || force;
+  if (showSpinner) {
+    rlSetLoading(true, 'Načítám data z regelleistung.net…');
+  }
   rlSetStatus('Načítám…', false);
+
   try {
     const url = `${API_URL}/regelleistung/afrr-energy?date=${dateStr}`;
     const r = await fetch(url, { cache: 'no-store' });
@@ -1035,7 +1056,10 @@ async function loadRegelleistungAfrr(force) {
     const totalBids = Object.values(j.slots || {})
       .reduce((acc, arr) => acc + arr.length, 0);
     const slotCount = Object.keys(j.slots || {}).length;
-    rlSetStatus(`OK · ${slotCount} slotů · ${totalBids} bidů · cache=${j._cache || '?'}`, false);
+    const cacheLabel = j._cache === 'hit' ? 'cache hit'
+                     : j._cache === 'stale' ? `stale (${j._age_sec || 0}s)`
+                     : 'fresh';
+    rlSetStatus(`OK · ${slotCount} slotů · ${totalBids} bidů · ${cacheLabel}`, false);
 
     // Format fetched_at do CET
     const fetchedCet = rlFormatCet(j.fetched_at);
@@ -1072,6 +1096,12 @@ async function loadRegelleistungAfrr(force) {
   } catch (e) {
     console.error('regelleistung:', e);
     rlSetStatus(`Chyba: ${e.message}`, true);
+    if (showSpinner) {
+      rlSetLoading(true, `Chyba: ${e.message}`);
+      setTimeout(() => rlSetLoading(false), 4000);
+    }
+  } finally {
+    if (rlData) rlSetLoading(false);
   }
 }
 
@@ -1387,8 +1417,9 @@ async function loadAll() {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
     }
-    // Regelleistung má vlastní throttling 15 min uvnitř funkce
-    tasks.push(loadRegelleistungAfrr(false));
+    // Regelleistung NENI v await chain - bezi nezavisle na zbytku dashboardu.
+    // Vlastni loading state, vlastni 15min throttling, neblokuje setDot('ok').
+    loadRegelleistungAfrr(false);
 
     await Promise.allSettled(tasks);
     setDot('ok', 'Live · '+new Date().toLocaleTimeString('cs'));
