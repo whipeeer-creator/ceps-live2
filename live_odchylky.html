@@ -84,6 +84,7 @@ main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .dir-toggle { display: inline-flex; border: 1px solid #dde; border-radius: 5px; overflow: hidden; }
 .dir-toggle button { padding: 4px 12px; font-size: 11px; font-weight: 500; background: #fff; color: #777; border: none; cursor: pointer; font-family: 'Inter', sans-serif; }
 .dir-toggle button.active { background: #1a1a2e; color: #fff; }
+.dir-toggle button:disabled { background: #f4f5f9; color: #bbb; }
 .rl-status { margin-left: auto; font-size: 10px; color: #aaa; font-family: 'JetBrains Mono', monospace; }
 .rl-status.err { color: #c0392b; }
 .rl-timeline-wrap { padding: 12px 16px 16px 16px; background: #fff; border-top: 1px solid #eef0f8; }
@@ -981,6 +982,7 @@ function initRegelleistungAfrr() {
 
     document.querySelectorAll('#rlDirToggle button').forEach(btn => {
       btn.addEventListener('click', () => {
+        if (btn.disabled) return;
         document.querySelectorAll('#rlDirToggle button')
           .forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
@@ -1035,14 +1037,34 @@ async function loadRegelleistungAfrr(force) {
     const slotCount = Object.keys(j.slots || {}).length;
     rlSetStatus(`OK · ${slotCount} slotů · ${totalBids} bidů · cache=${j._cache || '?'}`, false);
 
+    // Format fetched_at do CET
+    const fetchedCet = rlFormatCet(j.fetched_at);
+
     // Update header stats
     const stats = document.getElementById('rlStats');
     if (stats) {
       stats.innerHTML = `
         <span>Slotů: ${slotCount}</span>
         <span>Bidů: ${totalBids}</span>
-        <span>Fetched: ${j.fetched_at || '—'}</span>
+        <span>Aktualizováno: ${fetchedCet}</span>
       `;
+    }
+
+    // Auto-disable directions co nejsou v datech a auto-prepni pokud aktualni neni dostupny
+    const avail = j.directions_available || [];
+    document.querySelectorAll('#rlDirToggle button').forEach(btn => {
+      const has = avail.includes(btn.dataset.dir);
+      btn.disabled = !has;
+      btn.style.opacity = has ? '1' : '0.35';
+      btn.style.cursor = has ? 'pointer' : 'not-allowed';
+      btn.title = has ? '' : 'V datech pro tento den nejsou bidy v tomto smeru';
+    });
+    if (avail.length && !avail.includes(rlCurrentDir)) {
+      // Aktualni smer neni v datech, prepnu na prvni dostupny
+      rlCurrentDir = avail[0];
+      document.querySelectorAll('#rlDirToggle button').forEach(b => {
+        b.classList.toggle('active', b.dataset.dir === rlCurrentDir);
+      });
     }
 
     rlBuildTimeline();
@@ -1050,6 +1072,23 @@ async function loadRegelleistungAfrr(force) {
   } catch (e) {
     console.error('regelleistung:', e);
     rlSetStatus(`Chyba: ${e.message}`, true);
+  }
+}
+
+// Format ISO UTC timestamp -> "HH:MM:SS CET" v Europe/Berlin
+function rlFormatCet(isoUtc) {
+  if (!isoUtc) return '—';
+  try {
+    const d = new Date(isoUtc);
+    if (isNaN(d.getTime())) return isoUtc;
+    const fmt = new Intl.DateTimeFormat('cs-CZ', {
+      timeZone: 'Europe/Berlin',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    });
+    return fmt.format(d) + ' CET';
+  } catch (e) {
+    return isoUtc;
   }
 }
 
