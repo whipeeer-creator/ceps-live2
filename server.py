@@ -5,14 +5,14 @@ Render: automaticky pres Procfile
 
 POZADAVKY (requirements.txt):
     requests
-    openpyxl>=3.1.0
+    (zadne extra knihovny - pouziva jen Python stdlib)
 """
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json, requests, xml.etree.ElementTree as ET, os, time, io, threading
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta, timezone
-# Pozn: drive jsme pouzivali openpyxl, ale je extremne pomaly (120s na 50k radku).
-# Nyni mame vlastni rychly XLSX streamer pres zipfile + iterparse.
+# Pouzivame vlastni rychly XLSX streamer pres zipfile + iterparse
+# (openpyxl je 30-50x pomalejsi - parsoval 120s misto 3s)
 
 # Nacti .env soubor (pokud existuje)
 def _load_env():
@@ -214,11 +214,9 @@ def _xlsx_iter_rows(xlsx_bytes):
         shared_strings = []
         try:
             with zf.open("xl/sharedStrings.xml") as ss_f:
-                # iterparse aby se to nemusel cely strom drzet v pameti
                 for _, elem in ET.iterparse(ss_f, events=("end",)):
                     tag = elem.tag
                     if tag == XL_NS + "si":
-                        # <si> muze obsahovat <t>text</t> nebo <r><t>text</t></r>... (rich text)
                         parts = []
                         for t in elem.iter(XL_NS + "t"):
                             if t.text: parts.append(t.text)
@@ -236,7 +234,7 @@ def _xlsx_iter_rows(xlsx_bytes):
         if sheet_path is None:
             return
 
-        # Helper: A1 styl letter -> 0-based column index. "A"=0, "Z"=25, "AA"=26
+        # Helper: A1 styl letter -> 0-based column index
         def col_index(ref):
             m = _re.match(r"([A-Z]+)", ref)
             if not m: return 0
@@ -248,20 +246,17 @@ def _xlsx_iter_rows(xlsx_bytes):
 
         with zf.open(sheet_path) as sh_f:
             current_row = []
-            current_row_idx = -1
             for event, elem in ET.iterparse(sh_f, events=("start", "end")):
                 tag = elem.tag
 
                 if event == "start" and tag == XL_NS + "row":
                     current_row = []
-                    current_row_idx = int(elem.get("r", "0"))
 
                 elif event == "end" and tag == XL_NS + "c":
-                    # <c r="A2" t="s"><v>123</v></c>
                     cell_ref = elem.get("r", "")
-                    cell_type = elem.get("t", "")  # "s" = sharedString, "n"/"" = number, "str" = inline str
+                    cell_type = elem.get("t", "")
                     v_el = elem.find(XL_NS + "v")
-                    is_el = elem.find(XL_NS + "is")  # inline string
+                    is_el = elem.find(XL_NS + "is")
 
                     if v_el is not None and v_el.text is not None:
                         if cell_type == "s":
@@ -274,7 +269,6 @@ def _xlsx_iter_rows(xlsx_bytes):
                         else:
                             val = v_el.text
                     elif is_el is not None:
-                        # Inline string
                         parts = []
                         for t in is_el.iter(XL_NS + "t"):
                             if t.text: parts.append(t.text)
@@ -282,7 +276,6 @@ def _xlsx_iter_rows(xlsx_bytes):
                     else:
                         val = ""
 
-                    # Padding pro chybejici sloupce
                     col_idx = col_index(cell_ref)
                     while len(current_row) < col_idx:
                         current_row.append("")
@@ -296,7 +289,7 @@ def _xlsx_iter_rows(xlsx_bytes):
 
 
 def parse_afrr_energy_xlsx(xlsx_bytes):
-    """Parser RESULT_LIST_ANONYMOUS pro aFRR ENERGY market (XLSX format).
+    """Parser RESULT_LIST_ANONYMOUS pro aFRR ENERGY market.
     Pouziva rychly streaming XML parser misto openpyxl.
 
     Realne sloupce v XLSX:
@@ -418,7 +411,7 @@ def parse_afrr_energy_xlsx(xlsx_bytes):
             skipped["bad_qh"] += 1
             continue
 
-        # 1-indexovani: POS_069 = 17:00-17:15
+        # 1-indexovani: POS_001 = 00:00-00:15, POS_069 = 17:00-17:15
         start_min = (qh_idx - 1) * 15
         sh, sm = divmod(start_min, 60)
         eh, em = divmod(start_min + 15, 60)
@@ -436,7 +429,7 @@ def parse_afrr_energy_xlsx(xlsx_bytes):
         slot_data[direction].append({"price": price_f, "volume_mw": vol_f})
         directions_seen.add(direction)
 
-    # Merit-order sort + kumulativni MW
+    # Merit-order sort + kumulativni MW pro graf
     slots_processed = {}
     for slot_key, dirs in raw.items():
         slot_out = {}
@@ -479,7 +472,6 @@ def parse_afrr_energy_xlsx(xlsx_bytes):
             },
         },
     }
-
 
 
 def _rl_refresh_in_background(delivery_date):
@@ -577,7 +569,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/health":
             self._json({"status": "ok", "time": datetime.now().isoformat(),
-                        "version": "regelleistung-fast-xlsx-v5"}); return
+                        "version": "regelleistung-xlsx-v6"}); return
 
         if parsed.path in ("/", "/index.html", "/live_odchylky.html"):
             self._html(); return
@@ -784,5 +776,5 @@ if __name__ == "__main__":
     else:
         print("[keepalive] RENDER_EXTERNAL_URL not set - keepalive disabled", flush=True)
     print(f"CEPS API server -> port {port}", flush=True)
-    print(f"VERSION: regelleistung-fast-xlsx-v5", flush=True)
+    print(f"VERSION: regelleistung-xlsx-v6", flush=True)
     HTTPServer(("0.0.0.0", port), Handler).serve_forever()
