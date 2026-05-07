@@ -55,7 +55,8 @@ main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 .kpi-v { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; line-height: 1; }
 .kpi-v.pos { color: #2e7d32; } .kpi-v.neg { color: #c0392b; }
 .kpi-u { font-size: 10px; font-weight: 400; color: #bbb; margin-left: 2px; }
-.kpi-s { font-size: 10px; color: #bbb; margin-top: 4px; font-family: 'JetBrains Mono', monospace; }
+.kpi-s { font-size: 10px; color: #bbb; margin-top: 4px; font-family: 'JetBrains Mono', monospace; line-height: 1.45; }
+.kpi-s b { color: #666; font-weight: 600; }
 .chart-panel { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; overflow: hidden; }
 .panel-hdr { background: #fff; border-bottom: 1px solid #eef0f8; padding: 7px 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
 .panel-title { font-size: 12px; font-weight: 600; color: #1a1a2e; }
@@ -1682,23 +1683,27 @@ async function loadWeather() {
     const today = d.today || {};
     const tom = d.tomorrow || {};
 
-    const tNow = cur.temp_c != null ? `${cur.temp_c.toFixed(0)}°C` : '—';
-    const wNow = cur.wind_ms != null ? `${cur.wind_ms.toFixed(1)} m/s` : '';
-    const icon = today.icon || '';
+    // Hlavni hodnota - aktualni teplota + ikona dneska
+    const tNow = cur.temp_c != null ? cur.temp_c.toFixed(0) : '—';
+    const wNow = cur.wind_ms != null ? cur.wind_ms.toFixed(1) : '—';
+    const iconToday = today.icon || '';
 
+    // Velke cislo: ikona + teplota
     document.getElementById('dv-W').innerHTML =
-      `${icon} ${tNow} <span style="font-size:13px;color:#888;">· vítr ${wNow}</span>`;
+      `<span style="font-size:24px;">${iconToday}</span> ${tNow}<span class="kpi-u">°C · ${wNow}m/s</span>`;
 
-    // Podtitulek: dnes range + zitra prediction
+    // Podtitulek - kompaktni 2 radky info: dnes vs zitra
     const dRange = (today.temp_min != null && today.temp_max != null)
-      ? `${today.temp_min.toFixed(0)}↔${today.temp_max.toFixed(0)}°C` : '—';
+      ? `${today.temp_min.toFixed(0)}↔${today.temp_max.toFixed(0)}°` : '—';
     const tRange = (tom.temp_min != null && tom.temp_max != null)
-      ? `${tom.temp_min.toFixed(0)}↔${tom.temp_max.toFixed(0)}°C` : '—';
+      ? `${tom.temp_min.toFixed(0)}↔${tom.temp_max.toFixed(0)}°` : '—';
     const tWind = tom.wind_max_ms != null ? `${tom.wind_max_ms.toFixed(0)}m/s` : '—';
-    const tDesc = tom.desc || '';
     const tIcon = tom.icon || '';
-    document.getElementById('ds-W').textContent =
-      `dnes: ${dRange} · zítra: ${tIcon} ${tRange}, vítr ${tWind}, ${tDesc} · upd ${fmtCet(d.fetched_at) || nowCet()}`;
+    const tSun = tom.sunshine_h != null ? `${tom.sunshine_h}h ☀️` : '';
+
+    // Strukturovany podtitulek - vse na jeden radek ale kratke
+    document.getElementById('ds-W').innerHTML =
+      `<b>dnes</b> ${dRange} · <b>zítra</b> ${tIcon} ${tRange} ${tWind} ${tSun}`;
 
     document.getElementById('crd-W').className = 'kpi';
     document.getElementById('dv-W').className = 'kpi-v';
