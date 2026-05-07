@@ -1,0 +1,1805 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ČEPS · Live Odchylky</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #f0f2f6; font-family: 'Inter', sans-serif; font-size: 12px; color: #1a1a2e; }
+#setupModal { position: fixed; inset: 0; background: rgba(30,40,80,.55); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+.modal-box { background: #fff; border-radius: 10px; padding: 26px 28px; max-width: 420px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,.18); }
+.modal-title { font-size: 16px; font-weight: 700; margin-bottom: 4px; }
+.modal-title span { color: #1565c0; }
+.modal-sub { font-size: 11px; color: #888; margin-bottom: 16px; line-height: 1.6; }
+.modal-lbl { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; display: block; }
+.modal-inp { width: 100%; background: #f4f5f9; border: 1px solid #dde; color: #1a1a2e; font-family: 'JetBrains Mono', monospace; font-size: 12px; padding: 8px 11px; border-radius: 6px; outline: none; margin-bottom: 10px; }
+.modal-inp:focus { border-color: #1565c0; }
+.modal-hint { font-size: 11px; color: #aaa; margin-bottom: 16px; line-height: 1.6; }
+.modal-hint code { color: #c0392b; background: #fff5f5; padding: 1px 4px; border-radius: 3px; font-size: 10px; font-family: 'JetBrains Mono', monospace; }
+.modal-btns { display: flex; gap: 8px; }
+.btn-p { background: #1565c0; color: #fff; border: none; font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600; padding: 8px 20px; border-radius: 6px; cursor: pointer; flex: 1; }
+.btn-p:hover { background: #1251a0; }
+.btn-s { background: #f4f5f9; border: 1px solid #dde; color: #777; font-family: 'Inter', sans-serif; font-size: 12px; padding: 8px 14px; border-radius: 6px; cursor: pointer; }
+.btn-s:hover { border-color: #1565c0; color: #1565c0; }
+header { background: #fff; border-bottom: 1px solid #e0e4ef; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; height: 42px; gap: 12px; box-shadow: 0 1px 3px rgba(0,0,0,.06); position: sticky; top: 0; z-index: 100; }
+.logo { font-size: 13px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
+.logo em { color: #1565c0; font-style: normal; }
+.hdr-mid { display: flex; align-items: center; gap: 10px; }
+.badge { display: flex; align-items: center; gap: 5px; font-size: 11px; background: #eaf5ea; border: 1px solid #b8ddb8; border-radius: 20px; padding: 2px 9px; color: #2e7d32; white-space: nowrap; }
+.badge.err { background: #ffeaea; border-color: #ffb3b3; color: #c0392b; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #43a047; }
+.dot.anim { animation: blink 1.6s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:.2} }
+@keyframes spin { to { transform: rotate(360deg); } }
+.dot.err { background: #e53935; animation: none; }
+.dot.idle { background: #bbb; animation: none; }
+.hdr-info { font-size: 10px; color: #aaa; font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+.hdr-info b { color: #555; font-weight: 500; }
+.hdr-right { display: flex; align-items: center; gap: 6px; }
+.hbtn { background: #f4f5f9; border: 1px solid #dde; color: #666; font-family: 'Inter', sans-serif; font-size: 11px; padding: 4px 10px; border-radius: 5px; cursor: pointer; transition: all .15s; }
+.hbtn:hover { border-color: #1565c0; color: #1565c0; }
+.rsel { background: #f4f5f9; border: 1px solid #dde; color: #555; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 4px 7px; border-radius: 5px; outline: none; cursor: pointer; }
+.cd { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #1565c0; min-width: 30px; }
+main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
+.err-bar { background: #fff0f0; border: 1px solid #ffb3b3; border-radius: 6px; padding: 8px 12px; color: #c0392b; font-size: 11px; display: none; }
+.err-bar code { background: #ffe0e0; padding: 1px 4px; border-radius: 3px; font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+.kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; margin-bottom: 0; }
+.kpi-row.kpi-row-wide { grid-template-columns: repeat(2,1fr); }
+.kpi-row + .kpi-row { margin-top: -2px; }
+.kpi { background: #fff; border: 1px solid #e0e4ef; border-radius: 7px; padding: 10px 12px; border-left: 3px solid #ccc; transition: border-left-color .4s; }
+.kpi.pos { border-left-color: #43a047; }
+.kpi.neg { border-left-color: #e53935; }
+.kpi-l { font-size: 10px; color: #aaa; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 5px; }
+.kpi-v { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; line-height: 1; }
+.kpi-v.pos { color: #2e7d32; } .kpi-v.neg { color: #c0392b; }
+.kpi-u { font-size: 10px; font-weight: 400; color: #bbb; margin-left: 2px; }
+.kpi-s { font-size: 10px; color: #bbb; margin-top: 4px; font-family: 'JetBrains Mono', monospace; line-height: 1.45; }
+.kpi-s b { color: #666; font-weight: 600; }
+.chart-panel { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; overflow: hidden; }
+.panel-hdr { background: #fff; border-bottom: 1px solid #eef0f8; padding: 7px 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+.panel-title { font-size: 12px; font-weight: 600; color: #1a1a2e; }
+.panel-sub { font-size: 10px; color: #bbb; }
+.panel-legend { background: #f4f5f9; border-top: 1px solid #eef0f8; padding: 5px 12px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.pleg { font-size: 10px; color: #555; display: flex; align-items: center; gap: 5px; }
+.pleg-sq { width: 18px; height: 10px; border-radius: 1px; flex-shrink: 0; }
+#toZeroChip { display: none; background: #f5c100; border-radius: 4px; padding: 2px 8px; font-size: 11px; font-weight: 700; color: #333; }
+.two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+.tbl th { text-align: left; padding: 5px 9px; color: #aaa; font-size: 10px; text-transform: uppercase; letter-spacing: .05em; border-bottom: 1px solid #eef0f8; font-weight: 500; font-family: 'Inter', sans-serif; }
+.tbl td { padding: 3px 9px; border-bottom: 1px solid rgba(0,0,0,.03); }
+.tbl tr:last-child td { border-bottom: none; }
+.tbl tr:hover td { background: #f8f9ff; }
+.vp { color: #2e7d32; font-weight: 700; } .vn { color: #c0392b; font-weight: 700; } .v0 { color: #ccc; }
+
+/* === aFRR Ladder (regelleistung.net DE) === */
+.flag-de {
+  display: inline-block;
+  width: 20px;
+  height: 14px;
+  border-radius: 2px;
+  flex-shrink: 0;
+  background: linear-gradient(to bottom, #000 0 33.33%, #DD0000 33.33% 66.66%, #FFCE00 66.66% 100%);
+  box-shadow: 0 0 0 1px rgba(0,0,0,0.1);
+}
+.rl-controls { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: #fafbfd; border-bottom: 1px solid #eef0f8; flex-wrap: wrap; }
+.rl-controls input[type="date"] { padding: 4px 8px; border: 1px solid #dde; border-radius: 5px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #1a1a2e; background: #fff; }
+.dir-toggle { display: inline-flex; border: 1px solid #dde; border-radius: 5px; overflow: hidden; }
+.dir-toggle button { padding: 4px 12px; font-size: 11px; font-weight: 500; background: #fff; color: #777; border: none; cursor: pointer; font-family: 'Inter', sans-serif; }
+.dir-toggle button.active { background: #1a1a2e; color: #fff; }
+.dir-toggle button:disabled { background: #f4f5f9; color: #bbb; }
+.rl-status { margin-left: auto; font-size: 10px; color: #aaa; font-family: 'JetBrains Mono', monospace; }
+.rl-status.err { color: #c0392b; }
+.rl-timeline-wrap { padding: 12px 16px 16px 16px; background: #fff; border-top: 1px solid #eef0f8; }
+.rl-timeline-active { text-align: center; font-size: 12px; color: #1a1a2e; font-weight: 500; margin-bottom: 8px; font-family: 'JetBrains Mono', monospace; }
+.rl-timeline-track { position: relative; height: 38px; }
+.rl-timeline-bg { position: absolute; top: 8px; left: 0; right: 0; height: 4px; background: #e6e8ee; border-radius: 2px; }
+.rl-timeline-progress { position: absolute; top: 8px; left: 0; height: 4px; background: #b9bcce; border-radius: 2px; transition: width 0.2s ease; }
+.rl-timeline-handle { position: absolute; top: 4px; width: 12px; height: 12px; border-radius: 50%; background: #1a1a2e; transform: translateX(-50%); transition: left 0.2s ease; pointer-events: none; box-shadow: 0 0 0 3px rgba(26,26,46,0.15); }
+.rl-timeline-ticks { position: absolute; top: 18px; left: 0; right: 0; height: 8px; }
+.rl-tick { position: absolute; top: 0; width: 1px; height: 6px; background: #c9cad6; transform: translateX(-50%); }
+.rl-tick.major { height: 9px; background: #8a8a9c; }
+.rl-tick.current { background: #00b050; height: 14px; top: -2px; width: 2px; }
+.rl-timeline-labels { position: absolute; top: 28px; left: 0; right: 0; height: 14px; font-size: 10px; color: #8a8a9c; font-family: 'JetBrains Mono', monospace; }
+.rl-tlabel { position: absolute; transform: translateX(-50%); white-space: nowrap; }
+.rl-timeline-slots { position: absolute; top: 0; left: 0; right: 0; height: 38px; display: flex; cursor: pointer; }
+.rl-slot-zone { flex: 1; }
+.rl-slot-zone:hover { background: rgba(21,101,192,0.04); }
+#rlChartTip { position: absolute; display: none; pointer-events: none; background: #1a1a2e; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 11px; padding: 5px 8px; border-radius: 4px; white-space: nowrap; z-index: 10; box-shadow: 0 2px 6px rgba(0,0,0,.2); line-height: 1.4; }
+
+@media(max-width:700px){ .kpi-row{grid-template-columns:repeat(2,1fr);} .kpi-row.kpi-row-wide{grid-template-columns:repeat(2,1fr);} .two-col{grid-template-columns:1fr;} }
+@media(max-width:400px){ .kpi-row{grid-template-columns:1fr;} .kpi-row.kpi-row-wide{grid-template-columns:1fr;} }
+canvas { max-width: 100%; display: block; }
+</style>
+</head>
+<body>
+<div id="setupModal">
+  <div class="modal-box">
+    <div class="modal-title">ČEPS <span>Live</span> Odchylky</div>
+    <p class="modal-sub">Zadej URL proxy serveru pro připojení na ČEPS API.</p>
+    <label class="modal-lbl">URL serveru</label>
+    <input class="modal-inp" id="apiInput" type="url" value="http://localhost:8765" placeholder="https://tvuj-server.up.railway.app">
+    <div class="modal-hint">Lokálně: <code>python server.py</code> · Sdílení: <code>?api=https://server.railway.app</code></div>
+    <div class="modal-btns">
+      <button class="btn-p" onclick="startDashboard()">Spustit →</button>
+      <button class="btn-s" onclick="startDashboard(true)">Localhost</button>
+    </div>
+  </div>
+</div>
+<header>
+  <div class="logo">ČEPS <em>LIVE</em></div>
+  <div class="hdr-mid">
+    <div class="badge" id="badge"><div class="dot idle" id="dot"></div><span id="stxt">—</span></div>
+    <div class="hdr-info">data z <b id="lastTime">—</b></div>
+    <div id="toZeroChip">to zero: —</div>
+  </div>
+  <div class="hdr-right">
+    <span class="cd" id="cd">—</span>
+    <select class="rsel" id="rsel" onchange="setRefresh(+this.value)">
+      <option value="5">5 s</option><option value="15" selected>15 s</option><option value="30">30 s</option>
+      <option value="60">60 s</option><option value="120">2 min</option>
+    </select>
+    <button class="hbtn" onclick="loadAll()">↺</button>
+    <button class="hbtn" onclick="document.getElementById('setupModal').style.display='flex'">⚙</button>
+  </div>
+</header>
+<main>
+  <div class="err-bar" id="err"></div>
+  <div class="kpi-row">
+    <div class="kpi" id="crd-O"><div class="kpi-l">Systémová odchylka</div><div class="kpi-v" id="dv-O">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-O">—</div></div>
+    <div class="kpi" id="crd-C"><div class="kpi-l">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">Kč/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
+    <div class="kpi" id="crd-F"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
+    <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
+  </div>
+  <div class="kpi-row">
+    <div class="kpi" id="crd-P"><div class="kpi-l">Spot OTE</div><div class="kpi-v" id="dv-P">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-P">—</div></div>
+    <div class="kpi" id="crd-MM"><div class="kpi-l">Min / Max dne</div><div class="kpi-v" id="dv-MM">—<span class="kpi-u">EUR</span></div><div class="kpi-s" id="ds-MM">—</div></div>
+    <div class="kpi" id="crd-SP"><div class="kpi-l">Spread dne</div><div class="kpi-v" id="dv-SP">—<span class="kpi-u">EUR</span></div><div class="kpi-s" id="ds-SP">—</div></div>
+    <div class="kpi" id="crd-VA"><div class="kpi-l">Vs průměr dne</div><div class="kpi-v" id="dv-VA">—<span class="kpi-u">%</span></div><div class="kpi-s" id="ds-VA">—</div></div>
+  </div>
+  <div class="kpi-row kpi-row-wide">
+    <div class="kpi" id="crd-W"><div class="kpi-l">Počasí · Praha</div><div class="kpi-v" id="dv-W">—</div><div class="kpi-s" id="ds-W">—</div></div>
+    <div class="kpi" id="crd-T"><div class="kpi-l">Vítr · DE-sever</div><div class="kpi-v" id="dv-T">—</div><div class="kpi-s" id="ds-T">—</div></div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title">Systémová odchylka ČR — linka + SVR aktivace</div>
+        <div class="panel-sub">minutová data · černá = odchylka · plochy = mFRR/aFRR aktivace</div>
+      </div>
+    </div>
+    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;" id="topWrap">
+      <canvas id="topCanvas" height="260" style="width:100%;height:260px;display:block;"></canvas>
+      <div id="topTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);"></div>
+      <div id="topLine" style="position:absolute;display:none;pointer-events:none;width:1px;background:rgba(26,26,46,0.3);top:0;bottom:0;z-index:9;"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#4caf50;opacity:.8"></span>mFRR− [MW]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#f44336;opacity:.8"></span>mFRR+ [MW]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#00b4d8;opacity:.8"></span>aFRR− [MW]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#ff9800;opacity:.8"></span>aFRR+ [MW]</span>
+    </div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title">15minutové bloky — průměrná odchylka [MW]</div>
+        <div class="panel-sub">červené číslo = průměr MW za 15 min · modrá = záporná · červená = kladná odchylka</div>
+      </div>
+    </div>
+    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;">
+      <canvas id="botCanvas" height="440" style="width:100%;height:440px;display:block;"></canvas>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#1565c0;opacity:.7"></span>záporná odchylka (deficit)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#e53935;opacity:.7"></span>kladná odchylka (přebytek)</span>
+    </div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title">Výroba z OZE · ČR — actual + forecast</div>
+        <div class="panel-sub">dnes 06:00–19:00 · ČEPS GenerationRES (minutová) + ENTSO-E Solar Forecast (15min step)</div>
+      </div>
+      <div id="resStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#888;display:flex;gap:14px;flex-wrap:wrap;"></div>
+    </div>
+    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;" id="resWrap">
+      <canvas id="resCanvas" height="480" style="width:100%;height:480px;display:block;"></canvas>
+      <div id="resTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);line-height:1.4;"></div>
+      <div id="resLine" style="position:absolute;display:none;pointer-events:none;width:1px;background:rgba(26,26,46,0.3);top:0;bottom:0;z-index:9;"></div>
+      <div id="resDots" style="position:absolute;top:0;left:0;pointer-events:none;z-index:11;"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#BF2837;"></span>VTE actual (ČEPS)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#5b8fc9;"></span>FVE actual (ČEPS)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#16a085;"></span>Solar Day-ahead (ENTSO-E)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#e91e63;"></span>Solar Intraday (ENTSO-E)</span>
+    </div>
+  </div>
+
+  <!-- ===================================================================== -->
+  <!-- aFRR Energy Bids · DE+AT (regelleistung.net) — merit-order ladder graf -->
+  <!-- ===================================================================== -->
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;">
+          <span class="flag-de" title="Germany"></span>
+          aFRR Energy Bids · Germany (regelleistung.net)
+        </div>
+        <div class="panel-sub">individuální anonymizované energy bidy seřazené podle ceny · 6 čtvrthodin dozadu + 6 dopředu</div>
+      </div>
+      <div id="rlStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#888;display:flex;gap:14px;flex-wrap:wrap;"></div>
+    </div>
+    <div class="rl-controls">
+      <label style="font-size:10px;color:#888;text-transform:uppercase;letter-spacing:.05em;">Datum:</label>
+      <input type="date" id="rlDatePicker">
+      <div class="dir-toggle" id="rlDirToggle">
+        <button data-dir="POS" class="active">UP (POS)</button>
+        <button data-dir="NEG">DOWN (NEG)</button>
+      </div>
+      <button class="hbtn" onclick="loadRegelleistungAfrr(true)">↻ Reload</button>
+      <span class="rl-status" id="rlStatus">—</span>
+    </div>
+    <div style="background:#fff; position:relative; overflow:hidden; width:100%;" id="rlWrap">
+      <canvas id="rlCanvas" height="320" style="width:100%;height:320px;display:block;"></canvas>
+      <div id="rlChartTip"></div>
+      <div id="rlLoading" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(255,255,255,0.85);font-size:12px;color:#1a1a2e;font-family:'JetBrains Mono',monospace;backdrop-filter:blur(2px);z-index:20;">
+        <div style="width:18px;height:18px;border:2px solid #dde;border-top-color:#1a1a2e;border-radius:50%;animation:spin 0.8s linear infinite;margin-right:10px;"></div>
+        <span id="rlLoadingMsg">Načítám data z regelleistung.net…</span>
+      </div>
+    </div>
+    <div class="rl-timeline-wrap">
+      <div class="rl-timeline-active" id="rlActiveSlot">—</div>
+      <div class="rl-timeline-track" id="rlTimelineTrack">
+        <div class="rl-timeline-bg"></div>
+        <div class="rl-timeline-progress" id="rlTimelineProgress"></div>
+        <div class="rl-timeline-handle" id="rlTimelineHandle"></div>
+        <div class="rl-timeline-ticks" id="rlTimelineTicks"></div>
+        <div class="rl-timeline-labels" id="rlTimelineLabels"></div>
+        <div class="rl-timeline-slots" id="rlTimelineSlots"></div>
+      </div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#00d540;"></span>UP bidy (cena rostoucí)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#ff5252;"></span>DOWN bidy (cena rostoucí)</span>
+      <span class="pleg" style="color:#aaa;">jednotka: EUR/MWh · zdroj: regelleistung.net</span>
+    </div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="panel-hdr"><div class="panel-title">Odhadovaná cena odchylky · Kč/MWh</div></div>
+    <div style="overflow-x:auto;padding:8px 12px;">
+      <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;min-width:100%;"></table>
+    </div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="panel-hdr"><div class="panel-title">Odchylka & aFRR · posledních 20 min</div></div>
+    <table class="tbl"><thead><tr><th>Čas</th><th>Odch.</th><th>aFRR+</th><th>aFRR−</th></tr></thead><tbody id="tb-O"></tbody></table>
+  </div>
+</main>
+
+<script>
+let API_URL = '';
+let refreshTimer = null, countdownTimer = null;
+let _topMeta = null;
+
+const urlParams = new URLSearchParams(window.location.search);
+const apiFromUrl = urlParams.get('api');
+if (apiFromUrl) document.getElementById('apiInput').value = apiFromUrl;
+
+function startDashboard(useLocal) {
+  API_URL = useLocal ? 'http://localhost:8765'
+    : document.getElementById('apiInput').value.trim().replace(/\/$/, '');
+  if (!API_URL) return;
+  document.getElementById('setupModal').style.display = 'none';
+  initRegelleistungAfrr();
+  loadAll();
+  setRefresh(+document.getElementById('rsel').value);
+}
+
+function ft(ds) {
+  if (!ds) return '';
+  const d = new Date(ds);
+  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+}
+function sign(v) { return v > 0 ? '+' : ''; }
+function vc(v)   { return v > 0.05 ? 'vp' : v < -0.05 ? 'vn' : 'v0'; }
+
+function nowCet() {
+  // Aktualni cas v CET formatu HH:MM (Europe/Prague)
+  return new Intl.DateTimeFormat('cs-CZ', {
+    timeZone: 'Europe/Prague',
+    hour: '2-digit', minute: '2-digit', hour12: false,
+  }).format(new Date());
+}
+
+function fmtCet(isoTs) {
+  // Konvertuj ISO UTC timestamp (napr. "2026-05-07T01:35:12Z") na CET HH:MM
+  // Vrati prazdny string pokud je vstup neplatny
+  if (!isoTs) return '';
+  try {
+    const dt = new Date(isoTs);
+    if (isNaN(dt.getTime())) return '';
+    return new Intl.DateTimeFormat('cs-CZ', {
+      timeZone: 'Europe/Prague',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    }).format(dt);
+  } catch(e) { return ''; }
+}
+
+function setKPI(id, val, unit, sub, fetchedAt) {
+  const v = parseFloat(val);
+  const isHz = unit === 'Hz';
+  const d = isNaN(v) ? '—' : isHz ? v.toFixed(4) : sign(v)+Math.abs(v).toFixed(1);
+  document.getElementById('dv-'+id).innerHTML = `${d}<span class="kpi-u">${unit}</span>`;
+  // Cas aktualizace - prednostne ze serveru, jinak z prohlizece
+  const updTime = fmtCet(fetchedAt) || nowCet();
+  const subText = sub ? `${sub} · upd ${updTime}` : `upd ${updTime}`;
+  document.getElementById('ds-'+id).textContent = subText;
+  const ok = isHz ? Math.abs(v-50)<=0.1 : v>=0;
+  document.getElementById('crd-'+id).className = 'kpi '+(ok?'pos':'neg');
+  document.getElementById('dv-'+id).className  = 'kpi-v '+(ok?'pos':'neg');
+}
+
+function setDot(state, txt) {
+  document.getElementById('dot').className = 'dot '+(state==='ok'?'anim':state==='err'?'err':'idle');
+  if (txt) document.getElementById('stxt').textContent = txt;
+  document.getElementById('badge').className = 'badge'+(state==='err'?' err':'');
+}
+
+async function apiFetch(method, extra={}) {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const t4 = new Date(now.getTime() - 4*60*60*1000);
+  const df = `${t4.getFullYear()}-${pad(t4.getMonth()+1)}-${pad(t4.getDate())}T${pad(t4.getHours())}:${pad(t4.getMinutes())}:00`;
+  const dt = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const p = new URLSearchParams({ method, dateFrom:df, dateTo:dt, agregation:'MI', function:'AVG', ...extra });
+  const r = await fetch(`${API_URL}/api?${p}`);
+  if (!r.ok) { const j = await r.json().catch(()=>({error:r.status})); throw new Error(j.error||r.status); }
+  return r.json();
+}
+
+function agg15(rows, col) {
+  const b = {};
+  rows.forEach(r => {
+    const d = new Date(r.date);
+    const m15 = Math.floor(d.getMinutes()/15)*15;
+    const key = `${String(d.getHours()).padStart(2,'0')}:${String(m15).padStart(2,'0')}`;
+    if (!b[key]) b[key] = [];
+    b[key].push(parseFloat(r[col])||0);
+  });
+  return Object.entries(b).map(([lbl, vals]) => ({ lbl, v: vals.reduce((a,x)=>a+x,0)/vals.length }));
+}
+
+function setupCanvas(canvas, h) {
+  const dpr = window.devicePixelRatio || 1;
+  if (!canvas.dataset.fixedH) canvas.dataset.fixedH = h;
+  const H = parseInt(canvas.dataset.fixedH);
+  const W = canvas.parentElement.clientWidth;
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, W, H };
+}
+
+function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colMm) {
+  const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||260);
+  const PAD = { top: 16, right: 64, bottom: 28, left: 44 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top  - PAD.bottom;
+  const n  = odchRows.length;
+  if (!n) return;
+
+  _topMeta = { rows: odchRows, PAD, cW, n };
+
+  const getAllVals = col => col ? odchRows.map((_,i) => parseFloat((svrRows[i]||{})[col])||0) : [];
+  const odchVals = odchRows.map(r => parseFloat(r[colO])||0);
+  const apVals   = getAllVals(colAp);
+  const amVals   = getAllVals(colAm);
+  const mpVals   = getAllVals(colMp);
+  const mmVals   = getAllVals(colMm);
+  const allV = [...odchVals,...apVals,...amVals,...mpVals,...mmVals];
+  const dMax = Math.max(0,...allV); const dMin = Math.min(0,...allV);
+  const pad  = (dMax-dMin)*0.12||30;
+  const yMax = dMax+pad; const yMin = dMin-pad; const yR = yMax-yMin;
+
+  function xP(i) { return PAD.left + (i/(n-1||1))*cW; }
+  function yP(v) { return PAD.top + cH*((v-yMin)/yR); }
+  const y0 = yP(0);
+
+  ctx.fillStyle = '#dce8f5';
+  ctx.fillRect(PAD.left, PAD.top, cW, cH);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
+  const ySteps = 8;
+  for (let i = 0; i <= ySteps; i++) {
+    const y = PAD.top + (cH/ySteps)*i;
+    ctx.beginPath(); ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+cW,y); ctx.stroke();
+  }
+
+  odchRows.forEach((r, i) => {
+    const d = new Date(r.date);
+    const mins = d.getMinutes();
+    if (mins % 15 !== 0) return;
+    const isHour = mins === 0;
+    const x = xP(i);
+    ctx.strokeStyle = isHour ? 'rgba(80,120,180,0.45)' : 'rgba(120,160,210,0.18)';
+    ctx.lineWidth   = isHour ? 1.5 : 0.8;
+    ctx.setLineDash([]);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + cH); ctx.stroke();
+    if (isHour) {
+      ctx.fillStyle = '#7090b0'; ctx.font = '10px JetBrains Mono, monospace'; ctx.textAlign = 'center';
+      ctx.fillText(ft(r.date), x, PAD.top + cH + 16);
+    }
+  });
+
+  ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2; ctx.setLineDash([]);
+  ctx.beginPath(); ctx.moveTo(PAD.left,y0); ctx.lineTo(PAD.left+cW,y0); ctx.stroke();
+
+  const tgt15 = agg15(odchRows, colO);
+  ctx.strokeStyle = '#e53935'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  let prevX = null;
+  tgt15.forEach((b, bi) => {
+    const startIdx = Math.floor(bi * n / tgt15.length);
+    const endIdx   = Math.floor((bi+1) * n / tgt15.length);
+    const x1 = xP(startIdx); const x2 = xP(Math.min(endIdx, n-1));
+    const y  = yP(b.v);
+    if (prevX === null) ctx.moveTo(x1, y); else ctx.lineTo(x1, y);
+    ctx.lineTo(x2, y); prevX = x2;
+  });
+  ctx.stroke();
+
+  const fillPath = () => {
+    ctx.beginPath();
+    ctx.moveTo(xP(0), y0);
+    odchVals.forEach((v, i) => ctx.lineTo(xP(i), yP(v)));
+    ctx.lineTo(xP(n-1), y0);
+    ctx.closePath();
+  };
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(PAD.left, PAD.top, cW, y0 - PAD.top);
+  ctx.clip();
+  fillPath();
+  ctx.fillStyle = 'rgba(210,20,20,0.22)';
+  ctx.fill();
+  ctx.restore();
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(PAD.left, y0, cW, PAD.top + cH - y0);
+  ctx.clip();
+  fillPath();
+  ctx.fillStyle = 'rgba(120,120,140,0.12)';
+  ctx.fill();
+  ctx.restore();
+
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  odchVals.forEach((v, i) => { const x=xP(i),y=yP(v); if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y); });
+  ctx.stroke();
+
+  if (colMm) {
+    ctx.fillStyle = 'rgba(76,175,80,0.55)';
+    mmVals.forEach((v, i) => {
+      if (!v) return;
+      const x = xP(i); const bw = cW/(n-1||1);
+      const yTop = v > 0 ? yP(v) : y0; const yBot = v > 0 ? y0 : yP(v);
+      ctx.fillRect(x-bw/2, yTop, bw, yBot-yTop);
+    });
+  }
+  if (colMp) {
+    ctx.fillStyle = 'rgba(244,67,54,0.55)';
+    mpVals.forEach((v, i) => {
+      if (!v) return;
+      const x = xP(i); const bw = cW/(n-1||1);
+      const yTop = v > 0 ? yP(v) : y0; const yBot = v > 0 ? y0 : yP(v);
+      ctx.fillRect(x-bw/2, yTop, bw, yBot-yTop);
+    });
+  }
+  if (colAm) {
+    ctx.fillStyle = 'rgba(0,180,216,0.7)';
+    amVals.forEach((v, i) => {
+      if (!v) return;
+      const x = xP(i); const bw = cW/(n-1||1);
+      const yTop = y0; const yBot = yP(Math.abs(v));
+      ctx.fillRect(x-bw/2, yTop, bw, yBot-yTop);
+    });
+  }
+  if (colAp) {
+    ctx.fillStyle = 'rgba(255,152,0,0.65)';
+    apVals.forEach((v, i) => {
+      if (!v) return;
+      const x = xP(i); const bw = cW/(n-1||1);
+      const yTop = yP(-Math.abs(v)); const yBot = y0;
+      ctx.fillRect(x-bw/2, yTop, bw, yBot-yTop);
+    });
+  }
+
+  ctx.fillStyle = '#6688aa'; ctx.font = '10px JetBrains Mono, monospace'; ctx.textAlign = 'right';
+  const yTicks = [-250,-200,-150,-100,-50,0,50,100,150,200,250].filter(v => v>=yMin && v<=yMax);
+  yTicks.forEach(v => { ctx.fillText(-v, PAD.left-5, yP(v)+3); });
+  ctx.textAlign = 'left';
+  yTicks.filter((_,i)=>i%2===0).forEach(v => { ctx.fillText(-v, PAD.left+cW+4, yP(v)+3); });
+
+  const lastV = odchVals[odchVals.length-1];
+  if (!isNaN(lastV)) {
+    const toZ = Math.abs(lastV).toFixed(1);
+    ctx.font = 'bold 11px Inter, sans-serif';
+    const chipTxt = `to zero: ${toZ}`;
+    const cw2 = ctx.measureText(chipTxt).width + 14;
+    ctx.fillStyle = '#f5c100';
+    ctx.beginPath(); ctx.roundRect(PAD.left+cW-cw2+60, PAD.top+2, cw2, 18, 3); ctx.fill();
+    ctx.fillStyle = '#333'; ctx.fillText(chipTxt, PAD.left+cW-cw2+67, PAD.top+14);
+    document.getElementById('toZeroChip').style.display='inline-block';
+    document.getElementById('toZeroChip').textContent=`to zero: ${toZ}`;
+  }
+}
+
+(function() {
+  const canvas = document.getElementById('topCanvas');
+  const tip    = document.getElementById('topTip');
+  const line   = document.getElementById('topLine');
+  canvas.addEventListener('mousemove', e => {
+    if (!_topMeta) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx   = e.clientX - rect.left;
+    const { rows, PAD, cW, n } = _topMeta;
+    if (mx < PAD.left || mx > PAD.left + cW) { tip.style.display='none'; line.style.display='none'; return; }
+    const idx = Math.max(0, Math.min(n-1, Math.round((mx - PAD.left) / cW * (n-1))));
+    const r = rows[idx];
+    if (!r) return;
+    tip.textContent = ft(r.date);
+    tip.style.display = 'block';
+    tip.style.left = Math.min(mx + 10, rect.width - 60) + 'px';
+    line.style.display = 'block';
+    line.style.left = mx + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => { tip.style.display='none'; line.style.display='none'; });
+})();
+
+function drawBotChart(canvas, odch15, ap15, am15) {
+  const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||220);
+  const PAD = { top: 30, right: 14, bottom: 44, left: 44 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top  - PAD.bottom;
+  const n  = odch15.length;
+  if (!n) return;
+
+  const vals = odch15.map(b=>b.v);
+  const absMax = Math.max(30, ...vals.map(v=>Math.abs(v)*1.15));
+  const dMax = absMax; const dMin = -absMax;
+  const yR   = dMax-dMin;
+
+  function xP(i) { return PAD.left + (i+0.5)*(cW/n); }
+  function yP(v) { return PAD.top + cH*(1-(v-dMin)/yR); }
+  const y0 = yP(0);
+  const bw = Math.max(4, cW/n - 3);
+
+  ctx.fillStyle = '#dce8f5';
+  ctx.fillRect(PAD.left, PAD.top, cW, cH);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
+  const gSteps = 6;
+  for (let i=0;i<=gSteps;i++) {
+    const y = PAD.top+(cH/gSteps)*i;
+    ctx.beginPath(); ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+cW,y); ctx.stroke();
+  }
+
+  ctx.strokeStyle = 'rgba(100,140,200,0.3)'; ctx.lineWidth = 1;
+  odch15.forEach((b, i) => {
+    if (b.lbl && b.lbl.endsWith(':00')) {
+      const x = xP(i)-bw/2;
+      ctx.beginPath(); ctx.moveTo(x,PAD.top); ctx.lineTo(x,PAD.top+cH); ctx.stroke();
+    }
+  });
+
+  vals.forEach((v, i) => {
+    ctx.fillStyle = v >= 0 ? 'rgba(21,101,192,0.5)' : 'rgba(229,57,53,0.5)';
+    const x = xP(i)-bw/2;
+    const yTop = v >= 0 ? y0 : yP(Math.abs(v)); const yBot = v >= 0 ? yP(-Math.abs(v)) : y0;
+    ctx.fillRect(x, yTop, bw, yBot-yTop);
+    ctx.strokeStyle = v >= 0 ? 'rgba(21,101,192,0.8)' : 'rgba(229,57,53,0.8)'; ctx.lineWidth = 1;
+    ctx.strokeRect(x, yTop, bw, yBot-yTop);
+  });
+
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(PAD.left,y0); ctx.lineTo(PAD.left+cW,y0); ctx.stroke();
+
+  ctx.fillStyle = '#6688aa'; ctx.font = '10px JetBrains Mono, monospace'; ctx.textAlign = 'right';
+  for (let i=0;i<=gSteps;i++) {
+    const v = dMin+(yR/gSteps)*(gSteps-i);
+    ctx.fillText(Math.round(v), PAD.left-5, PAD.top+(cH/gSteps)*i+3);
+  }
+
+  ctx.textAlign = 'center'; ctx.fillStyle = '#6688aa'; ctx.font = '9px JetBrains Mono, monospace';
+  odch15.forEach((b, i) => {
+    if (b.lbl && (b.lbl.endsWith(':00') || n<=12)) ctx.fillText(b.lbl, xP(i), PAD.top+cH+14);
+  });
+
+  ctx.font = 'bold 9px JetBrains Mono, monospace'; ctx.textAlign = 'center';
+  vals.forEach((v, i) => {
+    const x = xP(i);
+    const txt = v >= 0 ? '-' + Math.abs(v).toFixed(1) : Math.abs(v).toFixed(1);
+    const tw = ctx.measureText(txt).width;
+    const bh = 12, bw2 = tw + 6;
+    const ly = v >= 0 ? yP(-Math.abs(v)) + 1 : yP(Math.abs(v)) - bh - 1;
+    ctx.fillStyle = v >= 0 ? '#1565c0' : '#c0392b';
+    ctx.beginPath(); ctx.roundRect(x-bw2/2, ly, bw2, bh, 2); ctx.fill();
+    ctx.fillStyle = '#fff'; ctx.fillText(txt, x, ly+bh-2.5);
+  });
+}
+
+async function loadMain() {
+  const [dO, dS] = await Promise.all([
+    apiFetch('AktualniSystemovaOdchylkaCR'),
+    apiFetch('AktivaceSVRvCR', { para1:'all' })
+  ]);
+  if (!dO.rows.length) return;
+
+  const colO = dO.columns[0];
+  const gc   = kw => dS.columns.find(c => c.includes(kw)) || null;
+  const colAp=gc('aFRR+'), colAm=gc('aFRR-'), colMp=gc('mFRR+'), colMm=gc('mFRR-');
+  const svrSync = dO.rows.map((r, i) => dS.rows[i] || {});
+
+  const lastO = dO.rows[dO.rows.length-1];
+  const lastS = dS.rows[dS.rows.length-1];
+  const lO  = parseFloat(lastO[colO])||0;
+  const lAp = colAp ? parseFloat(lastS[colAp])||0 : 0;
+  const lAm = colAm ? parseFloat(lastS[colAm])||0 : 0;
+  const avg = dO.rows.reduce((a,r)=>a+(parseFloat(r[colO])||0),0)/dO.rows.length;
+  document.getElementById('lastTime').textContent = ft(lastO.date);
+  setKPI('O', lO, 'MW', `prům. dne: ${sign(avg)}${avg.toFixed(1)} MW`, dO.fetched_at);
+  setKPI('S', lAp||lAm, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at);
+
+  drawTopChart(document.getElementById('topCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
+
+  const odch15 = agg15(dO.rows, colO);
+  const ap15   = colAp ? agg15(dS.rows, colAp) : odch15.map(b=>({lbl:b.lbl,v:0}));
+  const am15   = colAm ? agg15(dS.rows, colAm) : odch15.map(b=>({lbl:b.lbl,v:0}));
+  drawBotChart(document.getElementById('botCanvas'), odch15, ap15, am15);
+
+  const tbody = document.getElementById('tb-O');
+  tbody.innerHTML = '';
+  dO.rows.slice(-20).reverse().forEach((r, i) => {
+    const od = parseFloat(r[colO])||0;
+    const sr = (dS.rows.slice(-20).reverse())[i] || {};
+    const ap2 = colAp ? parseFloat(sr[colAp])||0 : 0;
+    const am2 = colAm ? parseFloat(sr[colAm])||0 : 0;
+    tbody.insertAdjacentHTML('beforeend',`<tr>
+      <td>${ft(r.date)}</td><td class="${vc(od)}">${sign(od)}${od.toFixed(2)}</td>
+      <td class="${vc(ap2)}">${ap2?'+'+ap2.toFixed(3):'0'}</td>
+      <td class="${vc(am2)}">${am2?am2.toFixed(3):'0'}</td>
+    </tr>`);
+  });
+}
+
+const RES_COLOR_MAP = [
+  { match: /VTE|vetrn|wind/i,        color: '#BF2837' },
+  { match: /FVE|fotovolt|solar|pv/i, color: '#5b8fc9' },
+];
+const RES_FALLBACK = ['#43a047','#ffb300','#9c27b0','#26a69a','#7e57c2'];
+
+function resColorFor(colName, idx) {
+  for (const m of RES_COLOR_MAP) if (m.match.test(colName)) return m.color;
+  return RES_FALLBACK[idx % RES_FALLBACK.length];
+}
+
+async function loadGenerationRES() {
+  try {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const ymd = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+    const p = new URLSearchParams({
+      method: 'GenerationRES',
+      dateFrom: `${ymd}T06:00:00`,
+      dateTo:   `${ymd}T19:00:00`,
+      agregation: 'MI',
+      function: 'AVG',
+      version: 'RT',
+      para1: 'all',
+    });
+
+    const [cepsRes, entsoeRes] = await Promise.allSettled([
+      fetch(`${API_URL}/api?${p}`).then(r => r.ok ? r.json() : null),
+      fetch(`${API_URL}/entsoe/solar`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+
+    const d = cepsRes.status === 'fulfilled' ? cepsRes.value : null;
+    const sol = entsoeRes.status === 'fulfilled' ? entsoeRes.value : null;
+
+    if (!d || !d.rows || !d.rows.length) return;
+    const cols = (d.columns || []).filter(c => c !== 'Date' && c !== 'Interval' && c !== 'date');
+    const canvas = document.getElementById('resCanvas');
+    if (!canvas) return;
+
+    const daPoints = (sol && sol.day_ahead) || [];
+    const idPoints = (sol && sol.intraday)  || [];
+    drawResChart(canvas, d.rows, cols, daPoints, idPoints);
+    renderResStats(d.rows, cols, daPoints, idPoints);
+  } catch(e) { console.warn('GenerationRES:', e); }
+}
+
+function renderResStats(rows, cols, daPoints, idPoints) {
+  const last = rows[rows.length - 1];
+  if (!last) return;
+  let total = 0;
+  const parts = cols.map((c, i) => {
+    const v = parseFloat(last[c]) || 0;
+    total += v;
+    return `<span style="color:${resColorFor(c,i)};font-weight:600;">${c}: ${v.toFixed(0)} MW</span>`;
+  });
+  parts.unshift(`<span style="color:#1565c0;font-weight:700;">Σ ${total.toFixed(0)} MW</span>`);
+
+  if (daPoints && daPoints.length) {
+    const peakDA = Math.max(...daPoints.map(p => p.value || 0));
+    parts.push(`<span style="color:#16a085;font-weight:600;">DA peak: ${peakDA.toFixed(0)} MW</span>`);
+  }
+  if (idPoints && idPoints.length) {
+    const peakID = Math.max(...idPoints.map(p => p.value || 0));
+    parts.push(`<span style="color:#e91e63;font-weight:600;">ID peak: ${peakID.toFixed(0)} MW</span>`);
+  }
+
+  const stats = document.getElementById('resStats');
+  if (stats) stats.innerHTML = parts.join(' · ');
+}
+
+let _resMeta = null;
+
+function drawResChart(canvas, rows, cols, daPoints, idPoints) {
+  const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||480);
+  const PAD = { top: 14, right: 14, bottom: 42, left: 54 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+  const n = rows.length;
+  if (!n) return;
+
+  const dayBase = new Date(rows[0].date || rows[0].Date);
+  dayBase.setHours(0, 0, 0, 0);
+  const tStart = new Date(dayBase); tStart.setHours(6, 0, 0, 0);
+  const tEnd   = new Date(dayBase); tEnd.setHours(19, 0, 0, 0);
+  const tStartMs = tStart.getTime();
+  const tRangeMs = tEnd.getTime() - tStartMs;
+
+  const cepsVals = rows.flatMap(r => cols.map(c => parseFloat(r[c]) || 0));
+  const daVals = (daPoints || []).map(p => p.value || 0);
+  const idVals = (idPoints || []).map(p => p.value || 0);
+  const vMax = Math.max(1, ...cepsVals, ...daVals, ...idVals) * 1.08;
+
+  function xT(ms) { return PAD.left + ((ms - tStartMs) / tRangeMs) * cW; }
+  function xP(i) {
+    const ts = rows[i].date || rows[i].Date;
+    return xT(new Date(ts).getTime());
+  }
+  function yP(v) { return PAD.top + cH * (1 - v / vMax); }
+
+  _resMeta = { rows, cols, PAD, cW, cH, n, W, H, xP, yP, xT, vMax, tStartMs, tRangeMs, daPoints: daPoints || [], idPoints: idPoints || [] };
+
+  ctx.fillStyle = '#dce8f5';
+  ctx.fillRect(PAD.left, PAD.top, cW, cH);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const y = PAD.top + (cH/4)*i;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left+cW, y); ctx.stroke();
+  }
+
+  ctx.font = '10px JetBrains Mono, monospace'; ctx.textAlign = 'center';
+  for (let h = 6; h <= 19; h++) {
+    const t = new Date(dayBase); t.setHours(h, 0, 0, 0);
+    const x = xT(t.getTime());
+    ctx.strokeStyle = 'rgba(80,120,180,0.25)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + cH); ctx.stroke();
+    ctx.fillStyle = '#7090b0';
+    ctx.font = '10px JetBrains Mono, monospace';
+    ctx.fillText(String(h).padStart(2,'0')+':00', x, PAD.top+cH+15);
+  }
+  const dateStr = String(dayBase.getDate()).padStart(2,'0') + '.' +
+                  String(dayBase.getMonth()+1).padStart(2,'0') + '.' +
+                  dayBase.getFullYear();
+  const x6 = xT(tStartMs);
+  ctx.fillStyle = '#5070a0';
+  ctx.font = 'bold 10px JetBrains Mono, monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(dateStr, x6, PAD.top+cH+30);
+  ctx.textAlign = 'center';
+
+  function drawStep(points, color) {
+    if (!points || !points.length) return;
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    let started = false;
+    points.forEach((p) => {
+      const ms = new Date(p.ts).getTime();
+      if (ms + 15*60*1000 < tStartMs || ms > tStartMs + tRangeMs) return;
+      const x1 = Math.max(PAD.left, xT(ms));
+      const x2 = Math.min(PAD.left + cW, xT(ms + 15*60*1000));
+      const y  = yP(p.value || 0);
+      if (!started) { ctx.moveTo(x1, y); started = true; }
+      else ctx.lineTo(x1, y);
+      ctx.lineTo(x2, y);
+    });
+    ctx.stroke();
+  }
+  drawStep(daPoints, '#16a085');
+  drawStep(idPoints, '#e91e63');
+
+  cols.forEach((col, ci) => {
+    ctx.strokeStyle = resColorFor(col, ci);
+    ctx.lineWidth = 1.8;
+    ctx.beginPath();
+    let started = false;
+    rows.forEach((r, i) => {
+      const ts = r.date || r.Date;
+      const ms = new Date(ts).getTime();
+      if (ms < tStartMs || ms > tStartMs + tRangeMs) return;
+      const x = xP(i), y = yP(parseFloat(r[col]) || 0);
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  });
+
+  ctx.fillStyle = '#6688aa'; ctx.font = '9px JetBrains Mono, monospace'; ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const v = Math.round(vMax * (4-i) / 4);
+    ctx.fillText(v.toLocaleString('cs')+' MW', PAD.left-4, PAD.top+(cH/4)*i+3);
+  }
+}
+
+(function() {
+  const canvas = document.getElementById('resCanvas');
+  if (!canvas) return;
+  const tip  = document.getElementById('resTip');
+  const line = document.getElementById('resLine');
+  const dots = document.getElementById('resDots');
+
+  canvas.addEventListener('mousemove', e => {
+    if (!_resMeta) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx   = e.clientX - rect.left;
+    const my   = e.clientY - rect.top;
+    const { rows, cols, PAD, cW, cH, n, xP, yP, tStartMs, tRangeMs, daPoints, idPoints } = _resMeta;
+    if (mx < PAD.left || mx > PAD.left + cW || my < PAD.top || my > PAD.top + cH) {
+      tip.style.display='none'; line.style.display='none'; dots.innerHTML='';
+      return;
+    }
+    const targetMs = tStartMs + ((mx - PAD.left) / cW) * tRangeMs;
+    let idx = 0, minDiff = Infinity;
+    for (let i = 0; i < n; i++) {
+      const ts = rows[i].date || rows[i].Date;
+      if (!ts) continue;
+      const diff = Math.abs(new Date(ts).getTime() - targetMs);
+      if (diff < minDiff) { minDiff = diff; idx = i; }
+    }
+    const r = rows[idx];
+    if (!r) return;
+
+    const ts = r.date || r.Date;
+    const d = ts ? new Date(ts) : null;
+    const timeStr = d ? `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : '';
+
+    const findForecastVal = (points) => {
+      if (!points || !points.length) return null;
+      for (const p of points) {
+        const pms = new Date(p.ts).getTime();
+        if (pms <= targetMs && targetMs < pms + 15*60*1000) return p.value;
+      }
+      return null;
+    };
+    const daVal = findForecastVal(daPoints);
+    const idVal = findForecastVal(idPoints);
+
+    let total = 0;
+    const lines = cols.map((c, ci) => {
+      const v = parseFloat(r[c]) || 0;
+      total += v;
+      const color = resColorFor(c, ci);
+      return `<span style="color:${color};">●</span> ${c}: <b>${v.toFixed(0)} MW</b>`;
+    });
+    lines.unshift(`<b style="color:#fff;">${timeStr}</b>  <span style="color:#aaa;">Σ ${total.toFixed(0)} MW</span>`);
+    if (daVal !== null) lines.push(`<span style="color:#16a085;">●</span> Solar DA: <b>${daVal.toFixed(0)} MW</b>`);
+    if (idVal !== null) lines.push(`<span style="color:#e91e63;">●</span> Solar ID: <b>${idVal.toFixed(0)} MW</b>`);
+    tip.innerHTML = lines.join('<br>');
+
+    const x = xP(idx);
+    const tipW = 180;
+    const left = x + 10 + tipW > rect.width ? x - tipW - 10 : x + 10;
+    tip.style.left = left + 'px';
+    tip.style.display = 'block';
+
+    line.style.display = 'block';
+    line.style.left = x + 'px';
+
+    let dotsHtml = '';
+    cols.forEach((c, ci) => {
+      const v = parseFloat(r[c]) || 0;
+      const y = yP(v);
+      const color = resColorFor(c, ci);
+      dotsHtml += `<div style="position:absolute;left:${x-4}px;top:${y-4}px;width:8px;height:8px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>`;
+    });
+    if (daVal !== null) {
+      const y = yP(daVal);
+      dotsHtml += `<div style="position:absolute;left:${x-4}px;top:${y-4}px;width:8px;height:8px;border-radius:50%;background:#16a085;border:2px solid #fff;box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>`;
+    }
+    if (idVal !== null) {
+      const y = yP(idVal);
+      dotsHtml += `<div style="position:absolute;left:${x-4}px;top:${y-4}px;width:8px;height:8px;border-radius:50%;background:#e91e63;border:2px solid #fff;box-shadow:0 0 3px rgba(0,0,0,0.3);"></div>`;
+    }
+    dots.innerHTML = dotsHtml;
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    tip.style.display='none';
+    line.style.display='none';
+    dots.innerHTML='';
+  });
+})();
+
+async function loadFreq() {
+  try {
+    const d = await apiFetch('AktualniCenaRE');
+    if (!d.rows.length) return;
+    const col = 'aFRR [EUR/MWh]';
+    const last = d.rows[d.rows.length-1];
+    const v = parseFloat(last[col]) || 0;
+    setKPI('F', v, 'EUR/MWh', `aFRR · ${ft(last.date)}`, d.fetched_at);
+  } catch(e) {}
+}
+
+// =============================================================
+// aFRR Energy Bids · DE+AT (regelleistung.net) - merit-order ladder
+// =============================================================
+const RL_REFRESH_MS = 15 * 60 * 1000;
+const RL_SLOTS_BACK = 6;
+const RL_SLOTS_FWD  = 6;
+
+let rlData       = null;
+let rlCurrentDir = 'POS';
+let rlSlotIdx    = RL_SLOTS_BACK;
+let rlCurrentDate = null;
+let rlTimelineSlots = [];
+let _rlMeta = null;
+let _rlLastLoad = 0;
+
+function rlPad(n) { return n < 10 ? '0' + n : '' + n; }
+
+function rlBerlinDateStr(d) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Berlin',
+    year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(d);
+  const yyyy = parts.find(p => p.type === 'year').value;
+  const mm   = parts.find(p => p.type === 'month').value;
+  const dd   = parts.find(p => p.type === 'day').value;
+  return `${yyyy}-${mm}-${dd}`;
+}
+
+function rlBerlinQhIdx(d) {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/Berlin', hour12: false,
+    hour: '2-digit', minute: '2-digit'
+  }).formatToParts(d);
+  const h = parseInt(parts.find(p => p.type === 'hour').value, 10);
+  const m = parseInt(parts.find(p => p.type === 'minute').value, 10);
+  return h * 4 + Math.floor(m / 15);
+}
+
+function rlQhIdxToSlotKey(qh) {
+  while (qh < 0) qh += 96;
+  while (qh > 95) qh -= 96;
+  const startMin = qh * 15;
+  const sh = Math.floor(startMin / 60);
+  const sm = startMin % 60;
+  let eh = Math.floor((startMin + 15) / 60);
+  let em = (startMin + 15) % 60;
+  if (eh === 24) { eh = 0; em = 0; }
+  return `${rlPad(sh)}:${rlPad(sm)}-${rlPad(eh)}:${rlPad(em)}`;
+}
+
+function initRegelleistungAfrr() {
+  // Inicializace (volá se po startDashboard)
+  const todayBerlin = rlBerlinDateStr(new Date());
+  const dp = document.getElementById('rlDatePicker');
+  if (dp && !dp.value) dp.value = todayBerlin;
+
+  // Event listeners (jen jednou)
+  if (!dp.dataset.bound) {
+    dp.dataset.bound = '1';
+    dp.addEventListener('change', e => {
+      rlCurrentDate = e.target.value;
+      loadRegelleistungAfrr(true);
+    });
+
+    document.querySelectorAll('#rlDirToggle button').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#rlDirToggle button')
+          .forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        rlCurrentDir = btn.dataset.dir;
+        console.log('[regelleistung] toggle direction ->', rlCurrentDir);
+        rlRender();
+      });
+    });
+
+    // Re-build timeline každou minutu
+    setInterval(() => {
+      if (rlData) {
+        const oldSelected = rlTimelineSlots[rlSlotIdx];
+        rlBuildTimeline();
+        const newIdx = rlTimelineSlots.indexOf(oldSelected);
+        if (newIdx >= 0) rlSlotIdx = newIdx;
+        rlDrawTimeline();
+        rlRender();
+      }
+    }, 60 * 1000);
+  }
+}
+
+function rlSetStatus(msg, isErr) {
+  const el = document.getElementById('rlStatus');
+  if (!el) return;
+  el.textContent = msg;
+  el.classList.toggle('err', !!isErr);
+}
+
+function rlSetLoading(show, msg) {
+  const el = document.getElementById('rlLoading');
+  if (!el) return;
+  el.style.display = show ? 'flex' : 'none';
+  if (msg) {
+    const m = document.getElementById('rlLoadingMsg');
+    if (m) m.textContent = msg;
+  }
+}
+
+async function loadRegelleistungAfrr(force) {
+  if (!API_URL) return;
+
+  // Throttling 15 min - pokud nevynuceno
+  const now = Date.now();
+  if (!force && (now - _rlLastLoad) < RL_REFRESH_MS) return;
+  _rlLastLoad = now;
+
+  const dp = document.getElementById('rlDatePicker');
+  const dateStr = (dp && dp.value) || rlBerlinDateStr(new Date());
+  rlCurrentDate = dateStr;
+
+  // Spinner zobraz jen pri prvnim loadu (kdyz jeste nemame data) nebo pri force
+  const showSpinner = !rlData || force;
+  if (showSpinner) {
+    rlSetLoading(true, 'Načítám data z regelleistung.net…');
+  }
+  rlSetStatus('Načítám…', false);
+
+  try {
+    const url = `${API_URL}/regelleistung/afrr-energy?date=${dateStr}`;
+    const r = await fetch(url, { cache: 'no-store' });
+    const j = await r.json();
+    if (!r.ok || j.error) throw new Error(j.error || `HTTP ${r.status}`);
+
+    rlData = j;
+    // Spocitej bidy - novy format (server vraci slot jako objekt {pos:{bids:[]}, neg:{bids:[]}})
+    // i fallback pro stary format (slot je pole)
+    const totalBids = Object.values(j.slots || {}).reduce((acc, slot) => {
+      if (Array.isArray(slot)) return acc + slot.length;
+      let n = 0;
+      if (slot && slot.pos && slot.pos.bids) n += slot.pos.bids.length;
+      if (slot && slot.neg && slot.neg.bids) n += slot.neg.bids.length;
+      return acc + n;
+    }, 0);
+    const slotCount = Object.keys(j.slots || {}).length;
+    const cacheLabel = j._cache === 'hit' ? 'cache hit'
+                     : j._cache === 'stale' ? `stale (${j._age_sec || 0}s)`
+                     : 'fresh';
+    rlSetStatus(`OK · ${slotCount} slotů · ${totalBids} bidů · ${cacheLabel}`, false);
+
+    // Format fetched_at do CET
+    const fetchedCet = rlFormatCet(j.fetched_at);
+
+    // Update header stats
+    const stats = document.getElementById('rlStats');
+    if (stats) {
+      stats.innerHTML = `
+        <span>Slotů: ${slotCount}</span>
+        <span>Bidů: ${totalBids}</span>
+        <span>Aktualizováno: ${fetchedCet}</span>
+      `;
+    }
+
+    // Tlacitka POS/NEG - vzdy aktivni. Pokud data v urcitem smeru nejsou,
+    // graf se vykresli prazdny (s textem "zadna data"), ale klik vzdy funguje.
+    document.querySelectorAll('#rlDirToggle button').forEach(btn => {
+      btn.disabled = false;
+      btn.style.opacity = '1';
+      btn.style.cursor = 'pointer';
+      btn.title = '';
+    });
+    const avail = j.directions_available || [];
+    console.log('[regelleistung] directions_available:', avail,
+                'current:', rlCurrentDir,
+                'slots:', Object.keys(j.slots || {}).length);
+
+    rlBuildTimeline();
+    rlRender();
+  } catch (e) {
+    console.error('regelleistung:', e);
+    rlSetStatus(`Chyba: ${e.message}`, true);
+    if (showSpinner) {
+      rlSetLoading(true, `Chyba: ${e.message}`);
+      setTimeout(() => rlSetLoading(false), 4000);
+    }
+  } finally {
+    if (rlData) rlSetLoading(false);
+  }
+}
+
+// Format ISO UTC timestamp -> "HH:MM:SS CET" v Europe/Berlin
+function rlFormatCet(isoUtc) {
+  if (!isoUtc) return '—';
+  try {
+    const d = new Date(isoUtc);
+    if (isNaN(d.getTime())) return isoUtc;
+    const fmt = new Intl.DateTimeFormat('cs-CZ', {
+      timeZone: 'Europe/Berlin',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false,
+    });
+    return fmt.format(d) + ' CET';
+  } catch (e) {
+    return isoUtc;
+  }
+}
+
+function rlBuildTimeline() {
+  const now = new Date();
+  const nowQh = rlBerlinQhIdx(now);
+  rlTimelineSlots = [];
+  for (let i = -RL_SLOTS_BACK; i < RL_SLOTS_FWD; i++) {
+    rlTimelineSlots.push(rlQhIdxToSlotKey(nowQh + i));
+  }
+  rlSlotIdx = RL_SLOTS_BACK;
+  rlDrawTimeline();
+}
+
+function rlDrawTimeline() {
+  const ticks = document.getElementById('rlTimelineTicks');
+  const labels = document.getElementById('rlTimelineLabels');
+  const slotsEl = document.getElementById('rlTimelineSlots');
+  const handle = document.getElementById('rlTimelineHandle');
+  const progress = document.getElementById('rlTimelineProgress');
+
+  if (!ticks || !labels || !slotsEl) return;
+
+  ticks.innerHTML = '';
+  labels.innerHTML = '';
+  slotsEl.innerHTML = '';
+
+  const N = rlTimelineSlots.length;
+
+  rlTimelineSlots.forEach((slot, i) => {
+    const pct = (i / (N - 1)) * 100;
+    const tick = document.createElement('div');
+    tick.className = 'rl-tick';
+    if (i === RL_SLOTS_BACK) tick.classList.add('current');
+    else if (i % 4 === 0) tick.classList.add('major');
+    tick.style.left = pct + '%';
+    ticks.appendChild(tick);
+
+    if (i % 4 === 0 || i === N - 1) {
+      const lbl = document.createElement('div');
+      lbl.className = 'rl-tlabel';
+      lbl.style.left = pct + '%';
+      lbl.textContent = slot.split('-')[0];
+      labels.appendChild(lbl);
+    }
+
+    const zone = document.createElement('div');
+    zone.className = 'rl-slot-zone';
+    zone.title = slot;
+    zone.addEventListener('click', () => {
+      rlSlotIdx = i;
+      rlDrawTimeline();
+      rlRender();
+    });
+    slotsEl.appendChild(zone);
+  });
+
+  const handlePct = (rlSlotIdx / (N - 1)) * 100;
+  handle.style.left = handlePct + '%';
+  progress.style.width = handlePct + '%';
+}
+
+function rlRender() {
+  if (!rlData) return;
+  const slotKey = rlTimelineSlots[rlSlotIdx];
+  if (!slotKey) return;
+
+  const activeEl = document.getElementById('rlActiveSlot');
+  if (activeEl) {
+    activeEl.textContent = `${rlCurrentDate}, ${slotKey} (Europe/Berlin)`;
+  }
+
+  // Backend nyni vraci slot jako objekt {pos: {bids: [...], total_mw, ...}, neg: {...}}
+  // Pokud je to stary format (pole bidu), vyradime fallback.
+  const slot = (rlData.slots || {})[slotKey];
+  let ladder = null;
+
+  if (slot && typeof slot === 'object' && !Array.isArray(slot)) {
+    // Novy format - vyber smer
+    const dirKey = rlCurrentDir.toLowerCase();
+    if (slot[dirKey] && slot[dirKey].bids) {
+      ladder = slot[dirKey].bids;
+    }
+    console.log('[regelleistung] render', slotKey, rlCurrentDir,
+                '- avail:', Object.keys(slot),
+                'ladder len:', ladder ? ladder.length : 0);
+  } else if (Array.isArray(slot)) {
+    // Stary format - merit-order na klientu (fallback pokud server jeste nema novy parser)
+    const filtered = slot.filter(b => b.direction === rlCurrentDir);
+    filtered.sort((a, b) => a.price - b.price);
+    let cum = 0;
+    ladder = filtered.map(b => {
+      cum += b.volume_mw;
+      return { price: b.price, volume_mw: b.volume_mw, cum_mw: cum };
+    });
+  }
+
+  rlDrawLadder(document.getElementById('rlCanvas'), ladder || []);
+}
+
+function rlDrawLadder(canvas, ladder) {
+  if (!canvas) return;
+  const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||320);
+  const PAD = { top: 18, right: 24, bottom: 32, left: 60 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, W, H);
+
+  // Žádná data
+  if (!ladder || !ladder.length) {
+    ctx.fillStyle = '#aaa';
+    ctx.font = '12px Inter, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Pro tento slot zatím nejsou publikovaná data', W/2, H/2);
+    _rlMeta = null;
+    return;
+  }
+
+  const n = ladder.length;
+  const totalMW = ladder[ladder.length - 1].cum_mw;
+
+  // Cenové rozsahy - cap na 95-percentil aby extreme prices nezdeformovaly graf
+  const prices = ladder.map(b => b.price);
+  const finitePrices = prices.filter(v => Number.isFinite(v));
+  const sortedPrices = [...finitePrices].sort((a, b) => a - b);
+  const p95 = sortedPrices[Math.min(sortedPrices.length - 1, Math.floor(sortedPrices.length * 0.95))] || 0;
+  const minP = sortedPrices[0] || 0;
+  const maxP = sortedPrices[sortedPrices.length - 1] || 20;
+
+  // Y rozsah: jdeme od 0 (nebo nejnižší ceny pokud jsou záporné) do p95*1.3 (nebo maxP)
+  const yMax = Math.max(20, Math.min(maxP, Math.max(p95 * 1.3, p95 + 5)));
+  const yMin = Math.min(0, minP);
+  const yR = yMax - yMin;
+
+  // X rozsah: 0 -> totalMW
+  const xToPx = mw => PAD.left + (mw / totalMW) * cW;
+  const yToPx = pr => PAD.top + cH * (1 - (pr - yMin) / yR);
+  const y0 = yToPx(0);
+
+  // Pozadí grafu
+  ctx.fillStyle = '#fafbfd';
+  ctx.fillRect(PAD.left, PAD.top, cW, cH);
+
+  // Horizontální gridlines (cena)
+  ctx.strokeStyle = '#eef0f7'; ctx.lineWidth = 1;
+  const ySteps = 5;
+  for (let i = 0; i <= ySteps; i++) {
+    const y = PAD.top + (cH / ySteps) * i;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
+  }
+
+  // Vertikální gridlines (MW) - rozumné kroky
+  const niceMwStep = (() => {
+    const target = totalMW / 8;
+    const pow10 = Math.pow(10, Math.floor(Math.log10(target)));
+    const candidates = [1, 2, 5, 10].map(c => c * pow10);
+    return candidates.find(c => c >= target * 0.7) || pow10;
+  })();
+  ctx.strokeStyle = '#eef0f7';
+  for (let mw = 0; mw <= totalMW; mw += niceMwStep) {
+    const x = xToPx(mw);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + cH); ctx.stroke();
+  }
+
+  // Zero line (cena = 0) zvýrazněna
+  if (yMin < 0 && y0 >= PAD.top && y0 <= PAD.top + cH) {
+    ctx.strokeStyle = '#bbb'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y0); ctx.lineTo(PAD.left + cW, y0); ctx.stroke();
+  }
+
+  // Step-chart fill - každý bid = obdélník (schod ladderu)
+  const barColor = rlCurrentDir === 'POS' ? '#00d540' : '#ff5252';
+  const fillColor = rlCurrentDir === 'POS' ? 'rgba(0,213,64,0.7)' : 'rgba(255,82,82,0.7)';
+
+  ctx.fillStyle = fillColor;
+  let prevX = PAD.left;
+  ladder.forEach(b => {
+    const xRight = xToPx(b.cum_mw);
+    const cappedPrice = Math.max(yMin, Math.min(yMax, b.price));
+    const yT = yToPx(cappedPrice);
+    // Vykresli obdélník (od prevX po xRight, od yT po y0 nebo cH)
+    const yBottom = b.price >= 0 ? y0 : yT;
+    const yTop    = b.price >= 0 ? yT : y0;
+    const h2 = Math.abs(yBottom - yTop);
+    const yStart = Math.min(yBottom, yTop);
+    if (xRight > prevX && h2 > 0) {
+      ctx.fillRect(prevX, yStart, xRight - prevX, h2);
+    }
+    prevX = xRight;
+  });
+
+  // Outline ladderu (linie schodů)
+  ctx.strokeStyle = barColor;
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  ctx.moveTo(PAD.left, y0);
+  let px = PAD.left;
+  ladder.forEach(b => {
+    const xRight = xToPx(b.cum_mw);
+    const cappedPrice = Math.max(yMin, Math.min(yMax, b.price));
+    const y = yToPx(cappedPrice);
+    // Vertikální skok (z předchozí ceny na novou)
+    ctx.lineTo(px, y);
+    // Horizontální segment (po dobu šířky bidu)
+    ctx.lineTo(xRight, y);
+    px = xRight;
+  });
+  ctx.lineTo(px, y0);
+  ctx.stroke();
+
+  // Y axis ticks (cena)
+  ctx.fillStyle = '#888';
+  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= ySteps; i++) {
+    const v = yMin + (yR / ySteps) * (ySteps - i);
+    const y = PAD.top + (cH / ySteps) * i;
+    ctx.fillText(Math.round(v).toLocaleString(), PAD.left - 5, y + 3);
+  }
+
+  // X axis ticks (kumulativní MW)
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#888';
+  for (let mw = 0; mw <= totalMW; mw += niceMwStep) {
+    const x = xToPx(mw);
+    ctx.fillText(Math.round(mw).toLocaleString(), x, PAD.top + cH + 16);
+  }
+
+  // Popisky os
+  ctx.fillStyle = '#888';
+  ctx.font = '9px JetBrains Mono, monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText('EUR/MWh', PAD.left, PAD.top - 5);
+  ctx.textAlign = 'right';
+  ctx.fillText('kumulativní MW', PAD.left + cW, PAD.top + cH + 28);
+
+  // Total MW indikátor v pravém horním rohu
+  ctx.fillStyle = '#1a1a2e';
+  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(`Σ ${Math.round(totalMW)} MW · ${n} bidů`, PAD.left + cW, PAD.top - 5);
+
+  _rlMeta = { ladder, PAD, cW, cH, n, totalMW, xToPx, yToPx, yMin, yMax, y0 };
+}
+
+(function() {
+  const canvas = document.getElementById('rlCanvas');
+  if (!canvas) return;
+  const tip = document.getElementById('rlChartTip');
+
+  canvas.addEventListener('mousemove', e => {
+    if (!_rlMeta) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+    const { ladder, PAD, cW, cH, n, totalMW, xToPx, yToPx } = _rlMeta;
+    if (mx < PAD.left || mx > PAD.left + cW || my < PAD.top || my > PAD.top + cH) {
+      tip.style.display = 'none';
+      _rlRedraw();
+      return;
+    }
+    // Kumulativní MW pod kurzorem
+    const mwAtCursor = ((mx - PAD.left) / cW) * totalMW;
+    // Najdi bid jehož cum_mw >= mwAtCursor (binary search by se hodil ale n<=200 = OK)
+    let bidIdx = 0;
+    for (let i = 0; i < n; i++) {
+      if (ladder[i].cum_mw >= mwAtCursor) { bidIdx = i; break; }
+      bidIdx = i;
+    }
+    const b = ladder[bidIdx];
+    if (!b) return;
+
+    // Marginální cena při tomto MW = cena tohoto bidu
+    // (protože step-chart: každý schod má konstantní cenu na svém intervalu)
+    const marginalPrice = b.price;
+
+    tip.innerHTML = `
+      <b>${rlCurrentDir} bid #${bidIdx + 1} / ${n}</b><br>
+      Při aktivaci: <b>${mwAtCursor.toFixed(1)} MW</b><br>
+      Marginální cena: <b style="color:${rlCurrentDir==='POS'?'#4caf50':'#ff5252'};">${marginalPrice.toFixed(2)} EUR/MWh</b><br>
+      <span style="color:#aaa;">Bid: ${b.volume_mw.toFixed(1)} MW @ ${b.price.toFixed(2)}</span><br>
+      <span style="color:#aaa;">Kumulativně: ${b.cum_mw.toFixed(1)} MW</span>
+    `;
+    tip.style.display = 'block';
+    const tipW = 230;
+    const left = mx + 12 + tipW > rect.width ? mx - tipW - 8 : mx + 12;
+    tip.style.left = left + 'px';
+    tip.style.top = Math.max(8, my - 70) + 'px';
+
+    // Překresli graf + přidej crosshair
+    _rlRedraw();
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    // Vertikální linka
+    ctx.strokeStyle = 'rgba(26,26,46,0.5)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath();
+    ctx.moveTo(mx, PAD.top);
+    ctx.lineTo(mx, PAD.top + cH);
+    ctx.stroke();
+    // Horizontální linka v úrovni marginální ceny
+    const yMarg = yToPx(Math.max(_rlMeta.yMin, Math.min(_rlMeta.yMax, marginalPrice)));
+    ctx.beginPath();
+    ctx.moveTo(PAD.left, yMarg);
+    ctx.lineTo(PAD.left + cW, yMarg);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    // Tečka v průsečíku
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    ctx.arc(mx, yMarg, 4, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.restore();
+  });
+  canvas.addEventListener('mouseleave', () => {
+    tip.style.display = 'none';
+    _rlRedraw();
+  });
+})();
+
+// Helper: překreslí ladder bez crosshair (volá se z hover handleru)
+function _rlRedraw() {
+  if (!rlData) return;
+  const slotKey = rlTimelineSlots[rlSlotIdx];
+  if (!slotKey) return;
+  const slot = (rlData.slots || {})[slotKey];
+  let ladder = null;
+  if (slot && typeof slot === 'object' && !Array.isArray(slot)) {
+    const dirKey = rlCurrentDir.toLowerCase();
+    if (slot[dirKey] && slot[dirKey].bids) ladder = slot[dirKey].bids;
+  } else if (Array.isArray(slot)) {
+    const filtered = slot.filter(b => b.direction === rlCurrentDir);
+    filtered.sort((a, b) => a.price - b.price);
+    let cum = 0;
+    ladder = filtered.map(b => {
+      cum += b.volume_mw;
+      return { price: b.price, volume_mw: b.volume_mw, cum_mw: cum };
+    });
+  }
+  rlDrawLadder(document.getElementById('rlCanvas'), ladder || []);
+}
+
+// ============================================================
+// Tabulka cen + ostatní
+// ============================================================
+async function loadCenaTable() {
+  try {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const df = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T00:00:00`;
+    const dt = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T23:59:59`;
+    const p = new URLSearchParams({ method:'OdhadovanaCenaOdchylky', dateFrom:df, dateTo:dt });
+    const r = await fetch(`${API_URL}/api?${p}`);
+    const d = await r.json();
+    if (!d.rows || !d.rows.length) return;
+
+    const col = 'Estimated price [Kč/MWh]';
+    const rows = d.rows.map(r => {
+      const [start] = r['Interval'].split('-');
+      const [h, m] = start.split(':').map(Number);
+      return { h, m, v: parseFloat(r[col]) || 0 };
+    });
+
+    const hours = [...new Set(rows.map(r => r.h))].sort((a,b)=>a-b);
+    const minutes = [0, 15, 30, 45];
+    const vals = rows.map(r => r.v).filter(v => v !== 0);
+    const vAbsMax = Math.max(...vals.map(v => Math.abs(v)), 1);
+
+    function cellColor(v) {
+      if (v === 0) return '#c8d8e8';
+      const ratio = Math.min(1, Math.abs(v) / vAbsMax);
+      if (v < 0) {
+        const r = Math.round(120 - ratio * 99);
+        const g = Math.round(160 - ratio * 59);
+        const b = Math.round(210 - ratio * 18);
+        return `rgb(${r},${g},${b})`;
+      } else {
+        const r = Math.round(180 + ratio * 60);
+        const g = Math.round(80 - ratio * 60);
+        const b = Math.round(80 - ratio * 60);
+        return `rgb(${r},${g},${b})`;
+      }
+    }
+
+    const tbl = document.getElementById('tbl-cena');
+    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;min-width:40px;"></th>';
+    hours.forEach(h => {
+      html += `<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;text-align:center;min-width:52px;">H${String(h).padStart(2,'0')}</th>`;
+    });
+    html += '</tr></thead><tbody>';
+
+    minutes.forEach(m => {
+      html += `<tr><td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;">:${String(m).padStart(2,'0')}</td>`;
+      hours.forEach(h => {
+        const row = rows.find(r => r.h === h && r.m === m);
+        const v = row ? row.v : 0;
+        const bg = cellColor(v);
+        const txt = v === 0 ? '0' : Math.round(v).toLocaleString('cs');
+        html += `<td style="padding:3px 6px;background:${bg};border:1px solid #dde;text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
+      });
+      html += '</tr>';
+    });
+    html += '</tbody>';
+    tbl.innerHTML = html;
+  } catch(e) {}
+}
+
+async function loadCena() {
+  const d = await apiFetch('OdhadovanaCenaOdchylky');
+  const fRows = d.rows.filter(r => parseFloat(r[d.columns[0]]) > 0);
+  if (!fRows.length) return;
+  const priceCol = d.columns.find(c=>/price|estim/i.test(c))||d.columns[0];
+  const intCol   = d.columns.find(c=>c==='Interval')||'';
+  const last     = fRows[fRows.length-1];
+  setKPI('C', parseFloat(last[priceCol])||0, 'Kč/MWh', `interval: ${last[intCol]||'—'}`, d.fetched_at);
+}
+
+// Throttling pro pomalé endpointy
+let _lastResLoad = 0;
+let _lastCenaTableLoad = 0;
+const RES_THROTTLE_MS  = 60 * 1000;
+const CENA_TABLE_THROTTLE_MS = 60 * 1000;
+
+async function loadOteSpot() {
+  // OTE day-ahead spotová cena + denní statistiky (cache 5min na backendu)
+  try {
+    const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) return;
+
+    // === Spot OTE (aktuální cena) ===
+    if (d.price_eur != null) {
+      const eur = parseFloat(d.price_eur);
+      const czk = parseFloat(d.price_czk);
+      const hour = d.hour != null ? `h${d.hour}` : '';
+      // Hodinovy interval napr. h14 -> "14:00-15:00"
+      const hourInterval = d.hour != null
+        ? `${String(d.hour).padStart(2,'0')}:00-${String((d.hour+1)%24).padStart(2,'0')}:00`
+        : '';
+      document.getElementById('dv-P').innerHTML =
+        `${eur.toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
+      document.getElementById('ds-P').textContent =
+        `${Math.round(czk).toLocaleString('cs')} Kč · ${hourInterval} · upd ${fmtCet(d.fetched_at) || nowCet()}`;
+      const card = document.getElementById('crd-P');
+      if (eur < 50)       { card.className = 'kpi pos'; document.getElementById('dv-P').className = 'kpi-v pos'; }
+      else if (eur > 150) { card.className = 'kpi neg'; document.getElementById('dv-P').className = 'kpi-v neg'; }
+      else                { card.className = 'kpi';     document.getElementById('dv-P').className = 'kpi-v'; }
+    }
+
+    // === Min / Max dne, Spread, Vs průměr ===
+    const stats = d.day_stats;
+    if (stats) {
+      // 1) Min / Max dne
+      const minE = stats.min_eur, maxE = stats.max_eur;
+      // Hodinove intervaly (napr. 14 -> "14-15h")
+      const fmtHourInt = h => h != null
+        ? `${String(h).padStart(2,'0')}-${String((h+1)%24).padStart(2,'0')}h`
+        : '—';
+      const minInt = fmtHourInt(stats.min_hour);
+      const maxInt = fmtHourInt(stats.max_hour);
+      document.getElementById('dv-MM').innerHTML =
+        `${Math.round(minE)} / ${Math.round(maxE)}<span class="kpi-u">EUR</span>`;
+      document.getElementById('ds-MM').textContent =
+        `min: ${minInt} · max: ${maxInt}`;
+      // Vždy neutrální — toto je informativní KPI
+      document.getElementById('crd-MM').className = 'kpi';
+      document.getElementById('dv-MM').className = 'kpi-v';
+
+      // 2) Spread dne
+      const spread = stats.spread_eur;
+      document.getElementById('dv-SP').innerHTML =
+        `${Math.round(spread)}<span class="kpi-u">EUR</span>`;
+      // Spread > 100 EUR = výhodný den pro arbitráž
+      let spreadLabel = 'malý spread';
+      if (spread >= 200) spreadLabel = '⭐ výborný pro arbitráž';
+      else if (spread >= 100) spreadLabel = '✓ dobrý pro arbitráž';
+      else if (spread >= 50) spreadLabel = 'průměrný';
+      document.getElementById('ds-SP').textContent = `${spreadLabel} · ${minInt}→${maxInt}`;
+      const cardSP = document.getElementById('crd-SP');
+      if (spread >= 100) { cardSP.className = 'kpi pos'; document.getElementById('dv-SP').className = 'kpi-v pos'; }
+      else               { cardSP.className = 'kpi';     document.getElementById('dv-SP').className = 'kpi-v'; }
+
+      // 3) Vs průměr dne (kolik % nad/pod průměrem aktuální hodina)
+      const vsAvg = stats.current_vs_avg_pct;
+      if (vsAvg != null) {
+        const sign = vsAvg > 0 ? '+' : '';
+        document.getElementById('dv-VA').innerHTML =
+          `${sign}${vsAvg.toFixed(0)}<span class="kpi-u">%</span>`;
+        const avg = stats.avg_eur;
+        let label = `prům 24h: ${Math.round(avg)} EUR`;
+        if (vsAvg < -20)      label += ' · LEVNÉ ✓';
+        else if (vsAvg > 20)  label += ' · DRAHÉ ⚠';
+        document.getElementById('ds-VA').textContent = label;
+        const cardVA = document.getElementById('crd-VA');
+        // Pod průměrem = zelená (kupuj), nad průměrem = červená (prodávej)
+        if (vsAvg < -10)      { cardVA.className = 'kpi pos'; document.getElementById('dv-VA').className = 'kpi-v pos'; }
+        else if (vsAvg > 10)  { cardVA.className = 'kpi neg'; document.getElementById('dv-VA').className = 'kpi-v neg'; }
+        else                  { cardVA.className = 'kpi';     document.getElementById('dv-VA').className = 'kpi-v'; }
+      }
+    }
+  } catch (e) { console.warn('OTE spot:', e); }
+}
+
+async function loadWeather() {
+  // Pocasi - Praha (Open-Meteo, cache 30min na backendu)
+  try {
+    const r = await fetch(`${API_URL}/weather`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) return;
+
+    const cur = d.current || {};
+    const today = d.today || {};
+    const tom = d.tomorrow || {};
+
+    // Hlavni hodnota - aktualni teplota + ikona dneska
+    const tNow = cur.temp_c != null ? cur.temp_c.toFixed(0) : '—';
+    const wNow = cur.wind_ms != null ? cur.wind_ms.toFixed(1) : '—';
+    const iconToday = today.icon || '';
+
+    // Velke cislo: ikona + teplota
+    document.getElementById('dv-W').innerHTML =
+      `<span style="font-size:24px;">${iconToday}</span> ${tNow}<span class="kpi-u">°C · ${wNow}m/s</span>`;
+
+    // Podtitulek - kompaktni 2 radky info: dnes vs zitra
+    const dRange = (today.temp_min != null && today.temp_max != null)
+      ? `${today.temp_min.toFixed(0)}↔${today.temp_max.toFixed(0)}°` : '—';
+    const tRange = (tom.temp_min != null && tom.temp_max != null)
+      ? `${tom.temp_min.toFixed(0)}↔${tom.temp_max.toFixed(0)}°` : '—';
+    const tWind = tom.wind_max_ms != null ? `${tom.wind_max_ms.toFixed(0)}m/s` : '—';
+    const tIcon = tom.icon || '';
+    const tSun = tom.sunshine_h != null ? `${tom.sunshine_h}h ☀️` : '';
+
+    // Strukturovany podtitulek - vse na jeden radek ale kratke
+    document.getElementById('ds-W').innerHTML =
+      `<b>dnes</b> ${dRange} · <b>zítra</b> ${tIcon} ${tRange} ${tWind} ${tSun}`;
+
+    document.getElementById('crd-W').className = 'kpi';
+    document.getElementById('dv-W').className = 'kpi-v';
+  } catch (e) { console.warn('weather:', e); }
+}
+
+async function loadWindDe() {
+  // Vitr v severnim Nemecku - prumer ze 3 mest (Hamburg/Bremerhaven/Husum)
+  // Ve stylu KPI Pocasi Praha - stejne poradi hodnot
+  try {
+    const r = await fetch(`${API_URL}/wind-de`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) return;
+
+    const cur = d.current || {};
+    const today = d.today || {};
+    const tom = d.tomorrow || {};
+
+    // Velke cislo: ikona + teplota + vitr (stejne jako Praha)
+    const tNow = cur.temp_c != null ? cur.temp_c.toFixed(0) : '—';
+    const wNow = cur.wind_ms != null ? cur.wind_ms.toFixed(1) : '—';
+    const iconToday = today.icon || '';
+
+    document.getElementById('dv-T').innerHTML =
+      `<span style="font-size:24px;">${iconToday}</span> ${tNow}<span class="kpi-u">°C · ${wNow}m/s</span>`;
+
+    // Podtitulek - dnes vs zitra (stejne jako Praha)
+    const dRange = (today.temp_min != null && today.temp_max != null)
+      ? `${today.temp_min.toFixed(0)}↔${today.temp_max.toFixed(0)}°` : '—';
+    const tRange = (tom.temp_min != null && tom.temp_max != null)
+      ? `${tom.temp_min.toFixed(0)}↔${tom.temp_max.toFixed(0)}°` : '—';
+    const tWind = tom.wind_max_ms != null ? `${tom.wind_max_ms.toFixed(0)}m/s` : '—';
+    const tIcon = tom.icon || '';
+    const tSun = tom.sunshine_h != null ? `${tom.sunshine_h}h ☀️` : '';
+
+    document.getElementById('ds-T').innerHTML =
+      `<b>dnes</b> ${dRange} · <b>zítra</b> ${tIcon} ${tRange} ${tWind} ${tSun}`;
+
+    // Barevne signaly podle aktualniho vetru:
+    // <5 m/s = malo vetru -> drahe ceny (cervena)
+    // 5-10 m/s = normalni
+    // >10 m/s = vetrno -> levnejsi ceny (zelena)
+    const card = document.getElementById('crd-T');
+    const dvT = document.getElementById('dv-T');
+    if (cur.wind_ms != null) {
+      if (cur.wind_ms >= 10)      { card.className = 'kpi pos'; dvT.className = 'kpi-v pos'; }
+      else if (cur.wind_ms < 5)   { card.className = 'kpi neg'; dvT.className = 'kpi-v neg'; }
+      else                        { card.className = 'kpi';     dvT.className = 'kpi-v'; }
+    } else {
+      card.className = 'kpi';
+      dvT.className = 'kpi-v';
+    }
+  } catch (e) { console.warn('wind-de:', e); }
+}
+
+async function loadAll() {
+  if (!API_URL) return;
+  setDot('idle', 'Načítám…');
+  document.getElementById('err').style.display = 'none';
+  try {
+    const tasks = [loadMain(), loadFreq(), loadCena(), loadOteSpot(), loadWeather(), loadWindDe()];
+
+    const now = Date.now();
+    if (now - _lastCenaTableLoad > CENA_TABLE_THROTTLE_MS) {
+      _lastCenaTableLoad = now;
+      tasks.push(loadCenaTable());
+    }
+    if (now - _lastResLoad > RES_THROTTLE_MS) {
+      _lastResLoad = now;
+      tasks.push(loadGenerationRES());
+    }
+    // Regelleistung NENI v await chain - bezi nezavisle na zbytku dashboardu.
+    // Vlastni loading state, vlastni 15min throttling, neblokuje setDot('ok').
+    loadRegelleistungAfrr(false);
+
+    await Promise.allSettled(tasks);
+    setDot('ok', 'Live · '+new Date().toLocaleTimeString('cs'));
+  } catch(e) {
+    setDot('err', 'Chyba');
+    const el=document.getElementById('err');
+    el.innerHTML=`Nelze připojit <code>${API_URL}</code> — spusť <code>python server.py</code>`;
+    el.style.display='block';
+  }
+}
+
+function setRefresh(sec) {
+  if (refreshTimer)   clearInterval(refreshTimer);
+  if (countdownTimer) clearInterval(countdownTimer);
+  let rem = sec;
+  document.getElementById('cd').textContent = rem+'s';
+  countdownTimer = setInterval(()=>{ rem=Math.max(0,rem-1); document.getElementById('cd').textContent=rem+'s'; if(rem<=0)rem=sec; }, 1000);
+  refreshTimer   = setInterval(()=>{ loadAll(); rem=sec; }, sec*1000);
+}
+
+window.addEventListener('resize', ()=>{ if(API_URL) loadAll(); });
+window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ if(API_URL) loadAll(); }, 200); });
+if (apiFromUrl) startDashboard(false);
+</script>
+</body>
+</html>
