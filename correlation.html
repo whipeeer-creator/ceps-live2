@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Korelace · VDT × Výroba</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    margin: 0;
+    padding: 16px;
+    background: #f5f5f7;
+    color: #1a1a1a;
+    font-size: 13px;
+  }
+  h1 {
+    font-size: 18px;
+    margin: 0 0 4px 0;
+    font-weight: 600;
+  }
+  .sub { color: #666; font-size: 12px; margin-bottom: 16px; }
+  .controls {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    margin-bottom: 16px;
+    align-items: center;
+  }
+  .controls input, .controls button, .controls select {
+    padding: 6px 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 12px;
+    background: white;
+  }
+  .controls button {
+    cursor: pointer;
+    background: #007aff;
+    color: white;
+    border: none;
+    font-weight: 500;
+  }
+  .controls button:hover { background: #0056b3; }
+  .status {
+    margin-left: auto;
+    font-size: 11px;
+    color: #888;
+  }
+  .status.ok { color: #27ae60; }
+  .status.err { color: #e74c3c; }
+
+  .kpis {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .kpi {
+    background: white;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border-left: 3px solid #ddd;
+  }
+  .kpi.alert { border-left-color: #e74c3c; }
+  .kpi.opportunity { border-left-color: #27ae60; }
+  .kpi-label { font-size: 10px; color: #888; text-transform: uppercase; }
+  .kpi-value {
+    font-size: 16px;
+    font-weight: 600;
+    margin-top: 2px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .kpi-sub { font-size: 10px; color: #666; margin-top: 2px; }
+
+  .chart-card {
+    background: white;
+    padding: 12px;
+    border-radius: 10px;
+    margin-bottom: 12px;
+  }
+  .chart-title {
+    font-size: 13px;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+  }
+  .chart-sub {
+    font-size: 11px;
+    color: #888;
+    margin-bottom: 8px;
+  }
+  canvas { width: 100% !important; }
+
+  .alerts {
+    background: white;
+    border-radius: 10px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .alerts table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .alerts th {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 2px solid #eee;
+    color: #888;
+    font-weight: 500;
+    text-transform: uppercase;
+    font-size: 10px;
+  }
+  .alerts td {
+    padding: 6px 8px;
+    border-bottom: 1px solid #f0f0f0;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .badge.buy { background: #d4edda; color: #155724; }
+  .badge.sell { background: #f8d7da; color: #721c24; }
+
+  .legend {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 6px;
+    font-size: 11px;
+  }
+  .legend-item { display: flex; align-items: center; gap: 4px; }
+  .legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 2px;
+    display: inline-block;
+  }
+  .legend-line {
+    width: 16px;
+    height: 2px;
+    display: inline-block;
+  }
+
+  .footer {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid #ddd;
+    font-size: 11px;
+    color: #888;
+    text-align: center;
+  }
+
+  .modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .modal.show { display: flex; }
+  .modal-card {
+    background: white;
+    padding: 24px;
+    border-radius: 12px;
+    max-width: 400px;
+    width: 100%;
+  }
+  .modal-card h2 { margin: 0 0 8px 0; font-size: 16px; }
+  .modal-card p { margin: 0 0 12px 0; font-size: 12px; color: #666; }
+  .modal-card input {
+    width: 100%;
+    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 13px;
+    margin-bottom: 12px;
+  }
+  .modal-card button {
+    width: 100%;
+    padding: 10px;
+    background: #007aff;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<h1>Korelace · VDT × Výroba (FVE/VTE)</h1>
+<div class="sub">VDT poslední cena vs. výroba FVE a VTE. Cross detektor: kdy se cena rozjede s výrobou. Posledních 24h.</div>
+
+<div class="controls">
+  <button onclick="loadAll()">↻ Refresh</button>
+  <select id="refreshSel" onchange="setRefresh(+this.value)">
+    <option value="15">15 s</option>
+    <option value="30">30 s</option>
+    <option value="60" selected>60 s</option>
+    <option value="120">2 min</option>
+    <option value="0">manuální</option>
+  </select>
+  <button onclick="changeApi()">⚙ Server</button>
+  <span class="status" id="status">—</span>
+</div>
+
+<div class="kpis" id="kpis">
+  <div class="kpi"><div class="kpi-label">VDT poslední</div><div class="kpi-value" id="kpi-vdt">—</div><div class="kpi-sub" id="kpi-vdt-sub">€/MWh</div></div>
+  <div class="kpi"><div class="kpi-label">FVE actual</div><div class="kpi-value" id="kpi-fve-actual">—</div><div class="kpi-sub">MW</div></div>
+  <div class="kpi"><div class="kpi-label">FVE forecast</div><div class="kpi-value" id="kpi-fve-forecast">—</div><div class="kpi-sub" id="kpi-fve-error">forecast vs actual</div></div>
+  <div class="kpi"><div class="kpi-label">VTE actual</div><div class="kpi-value" id="kpi-vte-actual">—</div><div class="kpi-sub">MW</div></div>
+  <div class="kpi"><div class="kpi-label">Expected price</div><div class="kpi-value" id="kpi-expected">—</div><div class="kpi-sub">model dle výroby</div></div>
+  <div class="kpi" id="kpi-signal-card"><div class="kpi-label">Signál</div><div class="kpi-value" id="kpi-signal">—</div><div class="kpi-sub" id="kpi-signal-sub">akce</div></div>
+</div>
+
+<div class="chart-card">
+  <h3 class="chart-title">VDT cena × Výroba (24h)</h3>
+  <div class="chart-sub">Červená: VDT poslední cena · Oranžová: FVE actual · Zelená čárk.: FVE forecast · Šedá: VTE</div>
+  <canvas id="mainChart" height="380"></canvas>
+  <div class="legend">
+    <div class="legend-item"><span class="legend-line" style="background:#e74c3c"></span>VDT poslední (€)</div>
+    <div class="legend-item"><span class="legend-color" style="background:#ff9500"></span>FVE actual (MW)</div>
+    <div class="legend-item"><span class="legend-line" style="background:#34c759"></span>FVE forecast (MW)</div>
+    <div class="legend-item"><span class="legend-line" style="background:#8e8e93"></span>VTE actual (MW)</div>
+    <div class="legend-item"><span class="legend-color" style="background:#e74c3c;border-radius:50%"></span>Cross alert</div>
+  </div>
+</div>
+
+<div class="chart-card">
+  <h3 class="chart-title">Divergence: VDT cena vs. Expected (model)</h3>
+  <div class="chart-sub">🟢 Záporná: cena pod očekávanou podle výroby → KUPUJ · 🔴 Kladná: cena nad očekávanou → PRODEJ</div>
+  <canvas id="divergenceChart" height="160"></canvas>
+</div>
+
+<div class="alerts">
+  <h3 class="chart-title">Cross příležitosti — VDT vs. Výroba</h3>
+  <div class="chart-sub">Detekované rozjety > 25 € od modelové ceny</div>
+  <table id="alertsTable">
+    <thead>
+      <tr>
+        <th>Čas</th>
+        <th>VDT</th>
+        <th>Expected</th>
+        <th>Diff</th>
+        <th>FVE</th>
+        <th>Signál</th>
+        <th>Akce</th>
+      </tr>
+    </thead>
+    <tbody id="alertsBody">
+      <tr><td colspan="7" style="text-align:center;color:#888">Načítám...</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="footer">
+  Data: ČEPS API · OTE-CR (VDT XLSX) · ENTSO-E<br>
+  VDT = vnitrodenní trh, poslední cena za QH s ~1h zpožděním
+</div>
+
+<div class="modal" id="apiModal">
+  <div class="modal-card">
+    <h2>Server URL</h2>
+    <p>Zadej URL tvého proxy serveru s endpointem <code>/ote/vdt</code>.</p>
+    <input id="apiInput" type="url" value="https://ceps-live2.onrender.com" placeholder="https://...">
+    <button onclick="saveApi()">Uložit</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+
+<script>
+let API_URL = localStorage.getItem('ceps_api_url') || 'https://ceps-live2.onrender.com';
+let refreshInterval = 60;
+let refreshTimer = null;
+const ALERT_THRESHOLD = 25; // €/MWh divergence
+
+function changeApi() {
+  document.getElementById('apiInput').value = API_URL;
+  document.getElementById('apiModal').classList.add('show');
+}
+function saveApi() {
+  const url = document.getElementById('apiInput').value.trim().replace(/\/$/, '');
+  if (url) {
+    API_URL = url;
+    localStorage.setItem('ceps_api_url', url);
+  }
+  document.getElementById('apiModal').classList.remove('show');
+  loadAll();
+}
+
+function setRefresh(sec) {
+  refreshInterval = sec;
+  if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  if (sec > 0) refreshTimer = setInterval(loadAll, sec * 1000);
+}
+
+function setStatus(text, type = '') {
+  const el = document.getElementById('status');
+  el.textContent = text;
+  el.className = 'status ' + type;
+}
+
+async function fetchJson(path) {
+  try {
+    const r = await fetch(`${API_URL}${path}`, { cache: 'no-store' });
+    if (!r.ok) {
+      console.warn(`Fetch ${path}: HTTP ${r.status}`);
+      return null;
+    }
+    return await r.json();
+  } catch (e) {
+    console.error(`Fetch ${path}:`, e);
+    return null;
+  }
+}
+
+function fmtDate(d) { return d.toISOString().slice(0, 10); }
+
+async function loadAll() {
+  setStatus('Načítám...', '');
+
+  const now = new Date();
+  const today = fmtDate(now);
+  const yesterday = fmtDate(new Date(now.getTime() - 24 * 3600 * 1000));
+
+  const [vdtToday, vdtYesterday, solar] = await Promise.all([
+    fetchJson(`/ote/vdt?date=${today}`),
+    fetchJson(`/ote/vdt?date=${yesterday}`),
+    fetchJson(`/entsoe/solar?date=${today}`),
+  ]);
+
+  const series = parseData(vdtToday, vdtYesterday, solar);
+
+  if (!series.timestamps.length) {
+    setStatus('Žádná data — zkontroluj API URL', 'err');
+    return;
+  }
+
+  computeExpected(series);
+  const alerts = findAlerts(series);
+
+  renderKPIs(series);
+  renderMainChart(series, alerts);
+  renderDivergenceChart(series);
+  renderAlerts(alerts);
+
+  setStatus(`OK · ${new Date().toLocaleTimeString('cs')}`, 'ok');
+}
+
+function parseData(vdtToday, vdtYesterday, solar) {
+  const series = {
+    timestamps: [],
+    vdtPrices: [],
+    fveActual: [],
+    fveForecastDA: [],
+    vteActual: [],
+    expected: [],
+    divergence: []
+  };
+
+  // === VDT ===
+  const vdtMap = new Map();
+  for (const vdtData of [vdtYesterday, vdtToday]) {
+    if (!vdtData || !vdtData.data) continue;
+    for (const row of vdtData.data) {
+      const ts = parseTimestamp(row.timestamp);
+      if (ts === null) continue;
+      const last = pickNum(row.last, row.last_price);
+      if (last !== null) vdtMap.set(ts, last);
+    }
+  }
+
+  // === Solar / FVE / VTE ===
+  const solarMap = new Map();
+  if (solar) {
+    const da = solar.day_ahead || solar.forecast_da || [];
+    const id = solar.intraday || solar.forecast_id || [];
+    
+    for (const row of da) {
+      const ts = parseTimestamp(row.timestamp || row.dt);
+      if (ts !== null) {
+        if (!solarMap.has(ts)) solarMap.set(ts, {});
+        solarMap.get(ts).fveDA = pickNum(row.value, row.solar);
+      }
+    }
+    for (const row of id) {
+      const ts = parseTimestamp(row.timestamp || row.dt);
+      if (ts !== null) {
+        if (!solarMap.has(ts)) solarMap.set(ts, {});
+        solarMap.get(ts).fveActual = pickNum(row.value, row.solar);
+      }
+    }
+  }
+
+  // VDT timestampy jako základ
+  const sortedTs = [...vdtMap.keys()].sort();
+  
+  for (const ts of sortedTs) {
+    series.timestamps.push(new Date(ts));
+    series.vdtPrices.push(vdtMap.get(ts));
+    
+    const solarBest = findClosestKey(solarMap, ts, 15 * 60 * 1000);
+    if (solarBest !== null) {
+      const s = solarMap.get(solarBest);
+      series.fveActual.push(s.fveActual ?? null);
+      series.fveForecastDA.push(s.fveDA ?? null);
+      series.vteActual.push(s.vteActual ?? null);
+    } else {
+      series.fveActual.push(null);
+      series.fveForecastDA.push(null);
+      series.vteActual.push(null);
+    }
+  }
+
+  return series;
+}
+
+// Expected price model — cena podle výroby + denního cyklu
+function computeExpected(series) {
+  const validPrices = series.vdtPrices.filter(p => p != null);
+  const validFVE = series.fveActual.filter(f => f != null);
+  
+  if (validPrices.length === 0) {
+    series.expected = series.timestamps.map(() => null);
+    series.divergence = series.timestamps.map(() => null);
+    return;
+  }
+
+  const avgPrice = validPrices.reduce((a,b) => a+b, 0) / validPrices.length;
+  const maxFVE = validFVE.length > 0 ? Math.max(...validFVE) : 1;
+  const minFVE = validFVE.length > 0 ? Math.min(...validFVE) : 0;
+  const rangeFVE = Math.max(1, maxFVE - minFVE);
+  const spreadFactor = avgPrice * 0.6;
+
+  for (let i = 0; i < series.timestamps.length; i++) {
+    const fve = series.fveActual[i];
+    const price = series.vdtPrices[i];
+    const ts = series.timestamps[i];
+    
+    if (price == null) {
+      series.expected.push(null);
+      series.divergence.push(null);
+      continue;
+    }
+
+    let exp = avgPrice;
+    if (fve != null && rangeFVE > 1) {
+      const fveNorm = (fve - minFVE) / rangeFVE;
+      exp = avgPrice - fveNorm * spreadFactor;
+    }
+    
+    // Hodinový multiplier (typický profil ČR)
+    const hour = ts.getHours();
+    let mult = 1.0;
+    if (hour >= 6 && hour <= 8) mult = 1.3;
+    else if (hour >= 18 && hour <= 20) mult = 1.5;
+    else if (hour >= 12 && hour <= 14) mult = 0.7;
+    else if (hour >= 0 && hour <= 5) mult = 0.9;
+    
+    exp = exp * mult;
+    
+    series.expected.push(exp);
+    series.divergence.push(price - exp);
+  }
+}
+
+function parseTimestamp(s) {
+  if (!s) return null;
+  const t = new Date(s).getTime();
+  return isNaN(t) ? null : t;
+}
+
+function pickNum(...vals) {
+  for (const v of vals) {
+    if (v !== null && v !== undefined && !isNaN(parseFloat(v))) {
+      return parseFloat(v);
+    }
+  }
+  return null;
+}
+
+function findClosestKey(map, target, maxDist) {
+  let best = null;
+  let bestDiff = Infinity;
+  for (const k of map.keys()) {
+    const diff = Math.abs(k - target);
+    if (diff < bestDiff && diff <= maxDist) {
+      bestDiff = diff;
+      best = k;
+    }
+  }
+  return best;
+}
+
+function findAlerts(series) {
+  const alerts = [];
+  for (let i = 0; i < series.timestamps.length; i++) {
+    const div = series.divergence[i];
+    if (div == null) continue;
+    
+    if (Math.abs(div) >= ALERT_THRESHOLD) {
+      alerts.push({
+        timestamp: series.timestamps[i],
+        vdt: series.vdtPrices[i],
+        expected: series.expected[i],
+        divergence: div,
+        fve: series.fveActual[i],
+        action: div > 0 ? 'sell' : 'buy',
+        index: i
+      });
+    }
+  }
+  return alerts;
+}
+
+function renderKPIs(series) {
+  const now = Date.now();
+  let currentIdx = -1;
+  
+  for (let i = 0; i < series.timestamps.length; i++) {
+    if (series.timestamps[i].getTime() > now) break;
+    if (series.vdtPrices[i] !== null) currentIdx = i;
+  }
+  
+  if (currentIdx < 0) return;
+
+  const vdt = series.vdtPrices[currentIdx];
+  const fveA = series.fveActual[currentIdx];
+  const fveF = series.fveForecastDA[currentIdx];
+  const vte = series.vteActual[currentIdx];
+  const expected = series.expected[currentIdx];
+  const divergence = series.divergence[currentIdx];
+
+  if (vdt !== null) {
+    document.getElementById('kpi-vdt').textContent = vdt.toFixed(1);
+    const ts = series.timestamps[currentIdx];
+    const lag = Math.round((now - ts.getTime()) / 60000);
+    document.getElementById('kpi-vdt-sub').textContent = 
+      `${ts.getHours().toString().padStart(2,'0')}:${ts.getMinutes().toString().padStart(2,'0')} (-${lag} min)`;
+  }
+  
+  document.getElementById('kpi-fve-actual').textContent = fveA !== null ? Math.round(fveA) : '—';
+  document.getElementById('kpi-fve-forecast').textContent = fveF !== null ? Math.round(fveF) : '—';
+  document.getElementById('kpi-vte-actual').textContent = vte !== null ? Math.round(vte) : '—';
+  
+  if (fveA !== null && fveF !== null) {
+    const err = fveA - fveF;
+    const errPct = fveF > 0 ? (err / fveF * 100) : 0;
+    const sign = err >= 0 ? '+' : '';
+    document.getElementById('kpi-fve-error').textContent = `${sign}${Math.round(err)} MW (${sign}${errPct.toFixed(1)}%)`;
+  }
+
+  document.getElementById('kpi-expected').textContent = expected !== null ? expected.toFixed(1) : '—';
+
+  const sigCard = document.getElementById('kpi-signal-card');
+  if (divergence !== null) {
+    if (divergence > ALERT_THRESHOLD) {
+      document.getElementById('kpi-signal').textContent = '🔴 PRODEJ';
+      document.getElementById('kpi-signal-sub').textContent = `+${divergence.toFixed(1)} € drahé`;
+      sigCard.className = 'kpi alert';
+    } else if (divergence < -ALERT_THRESHOLD) {
+      document.getElementById('kpi-signal').textContent = '🟢 NÁKUP';
+      document.getElementById('kpi-signal-sub').textContent = `${divergence.toFixed(1)} € levné`;
+      sigCard.className = 'kpi opportunity';
+    } else {
+      document.getElementById('kpi-signal').textContent = 'NORMÁL';
+      document.getElementById('kpi-signal-sub').textContent = 'cena odpovídá výrobě';
+      sigCard.className = 'kpi';
+    }
+  }
+}
+
+let mainChart = null;
+let divChart = null;
+
+function renderMainChart(series, alerts) {
+  const ctx = document.getElementById('mainChart').getContext('2d');
+  const alertPoints = alerts.map(a => ({ x: a.timestamp, y: a.vdt }));
+
+  const data = {
+    datasets: [
+      {
+        label: 'VDT poslední',
+        data: series.timestamps.map((t, i) => ({ x: t, y: series.vdtPrices[i] })),
+        borderColor: '#e74c3c',
+        backgroundColor: 'transparent',
+        yAxisID: 'yPrice',
+        tension: 0.1,
+        borderWidth: 2,
+        pointRadius: 0,
+        spanGaps: false
+      },
+      {
+        label: 'FVE actual',
+        data: series.timestamps.map((t, i) => ({ x: t, y: series.fveActual[i] })),
+        borderColor: '#ff9500',
+        backgroundColor: 'rgba(255, 149, 0, 0.1)',
+        yAxisID: 'yMW',
+        tension: 0.1,
+        borderWidth: 1,
+        pointRadius: 0,
+        fill: true,
+        spanGaps: true
+      },
+      {
+        label: 'FVE forecast DA',
+        data: series.timestamps.map((t, i) => ({ x: t, y: series.fveForecastDA[i] })),
+        borderColor: '#34c759',
+        backgroundColor: 'transparent',
+        yAxisID: 'yMW',
+        tension: 0.1,
+        borderWidth: 1.5,
+        borderDash: [5, 3],
+        pointRadius: 0,
+        spanGaps: true
+      },
+      {
+        label: 'VTE actual',
+        data: series.timestamps.map((t, i) => ({ x: t, y: series.vteActual[i] })),
+        borderColor: '#8e8e93',
+        backgroundColor: 'transparent',
+        yAxisID: 'yMW',
+        tension: 0.1,
+        borderWidth: 1,
+        pointRadius: 0,
+        spanGaps: true
+      },
+      {
+        label: 'Cross alerts',
+        data: alertPoints,
+        borderColor: '#e74c3c',
+        backgroundColor: '#e74c3c',
+        yAxisID: 'yPrice',
+        showLine: false,
+        pointRadius: 5,
+        pointStyle: 'circle'
+      }
+    ]
+  };
+
+  const config = {
+    type: 'line',
+    data: data,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const v = ctx.parsed.y;
+              if (v == null) return '';
+              const unit = ctx.dataset.yAxisID === 'yPrice' ? ' €' : ' MW';
+              return `${ctx.dataset.label}: ${v.toFixed(1)}${unit}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
+          grid: { display: false }
+        },
+        yPrice: {
+          type: 'linear',
+          position: 'left',
+          title: { display: true, text: '€/MWh' },
+          grid: { color: 'rgba(0,0,0,0.05)' }
+        },
+        yMW: {
+          type: 'linear',
+          position: 'right',
+          title: { display: true, text: 'MW' },
+          grid: { display: false }
+        }
+      }
+    }
+  };
+
+  if (mainChart) {
+    mainChart.data = data;
+    mainChart.update('none');
+  } else {
+    mainChart = new Chart(ctx, config);
+  }
+}
+
+function renderDivergenceChart(series) {
+  const ctx = document.getElementById('divergenceChart').getContext('2d');
+
+  const colors = series.divergence.map(d => {
+    if (d === null) return 'rgba(150,150,150,0.3)';
+    if (d > ALERT_THRESHOLD) return 'rgba(231, 76, 60, 0.7)';
+    if (d < -ALERT_THRESHOLD) return 'rgba(39, 174, 96, 0.7)';
+    return 'rgba(150,150,150,0.4)';
+  });
+
+  const data = {
+    labels: series.timestamps,
+    datasets: [{
+      label: 'VDT − Expected',
+      data: series.divergence,
+      backgroundColor: colors,
+      borderColor: colors,
+      borderWidth: 0
+    }]
+  };
+
+  const config = {
+    type: 'bar',
+    data: data,
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => {
+              const v = ctx.parsed.y;
+              if (v == null) return '';
+              const sign = v >= 0 ? '+' : '';
+              return `Divergence: ${sign}${v.toFixed(1)} €/MWh`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'hour', displayFormats: { hour: 'HH:mm' } },
+          grid: { display: false }
+        },
+        y: {
+          title: { display: true, text: 'Δ €/MWh' },
+          grid: { color: (ctx) => ctx.tick.value === 0 ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.05)' }
+        }
+      }
+    }
+  };
+
+  if (divChart) {
+    divChart.data = data;
+    divChart.update('none');
+  } else {
+    divChart = new Chart(ctx, config);
+  }
+}
+
+function renderAlerts(alerts) {
+  const tbody = document.getElementById('alertsBody');
+  if (!alerts.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#888">Žádné cross příležitosti — cena odpovídá výrobě</td></tr>';
+    return;
+  }
+
+  const sorted = [...alerts].sort((a,b) => b.timestamp - a.timestamp).slice(0, 25);
+  
+  tbody.innerHTML = sorted.map(a => {
+    const time = a.timestamp.toLocaleString('cs', {
+      month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit'
+    });
+    const fve = a.fve != null ? Math.round(a.fve) + ' MW' : '—';
+    const sign = a.divergence >= 0 ? '+' : '';
+    const badge = a.action === 'buy'
+      ? '<span class="badge buy">🟢 BUY</span>'
+      : '<span class="badge sell">🔴 SELL</span>';
+    const action = a.action === 'buy' ? 'Levně, kupuj' : 'Drahé, prodej';
+    
+    return `<tr>
+      <td>${time}</td>
+      <td>${a.vdt.toFixed(1)} €</td>
+      <td>${a.expected.toFixed(1)} €</td>
+      <td style="color:${a.divergence > 0 ? '#e74c3c' : '#27ae60'};font-weight:600">
+        ${sign}${a.divergence.toFixed(1)} €
+      </td>
+      <td>${fve}</td>
+      <td>${badge}</td>
+      <td>${action}</td>
+    </tr>`;
+  }).join('');
+}
+
+window.addEventListener('load', () => {
+  if (!localStorage.getItem('ceps_api_url')) {
+    changeApi();
+  } else {
+    loadAll();
+    setRefresh(60);
+  }
+});
+</script>
+
+</body>
+</html>
