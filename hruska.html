@@ -832,7 +832,7 @@ function setupVwInteraction() {
     }
     if (h.showRlAct) {
       const p = nearest(h.rlActPts);
-      if (p) html += `<span style="color:#a4b0be;font-weight:600;">Residual actual${pct(p.v, h.rlActRange).toFixed(0)}%</span>`;
+      if (p) html += `<span style="color:#a4b0be;font-weight:600;">Residual actual ${pct(p.v, h.rlActRange).toFixed(0)}%</span>`;
     }
     if (h.showRlFc) {
       const p = nearest(h.rlFcPts);
