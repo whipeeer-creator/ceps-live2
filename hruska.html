@@ -103,9 +103,7 @@ canvas { max-width: 100%; display: block; }
     <!-- Tooltip nad grafem -->
     <div id="vwTip" style="background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:12px;padding:8px 14px;display:flex;gap:18px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #2c3e50;min-height:36px;"></div>
     <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;" id="vwWrap">
-      <canvas id="vwCanvas" height="220" style="width:100%;height:220px;display:block;background:#fff;"></canvas>
-      <div style="height:1px;background:#bcd;width:100%;"></div>
-      <canvas id="vwCanvas2" height="320" style="width:100%;height:320px;display:block;"></canvas>
+      <canvas id="vwCanvas" height="500" style="width:100%;height:500px;display:block;"></canvas>
       <div id="vwLine" style="position:absolute;display:none;pointer-events:none;width:1px;background:rgba(26,26,46,0.3);top:0;bottom:0;z-index:9;"></div>
     </div>
     <div class="panel-legend" id="vwLegend">
@@ -270,14 +268,12 @@ async function loadVdtWind() {
 // Stav viewportu pro pan/zoom (perzistuje mezi rendery)
 window._vwView = window._vwView || { offsetMs: 0, spanH: 24 };  // default: 24h okno (jeden den)
 
-// Wrapper: kreslí oba grafy se sdíleným viewportem
+// Wrapper: kreslí jeden graf
 function drawAllCharts(vdtAll, residual, smard) {
-  // Uložit data pro re-render
   if (vdtAll !== undefined || residual !== undefined || smard !== undefined) {
     window._vwData = { vdtAll, residual, smard };
   }
-  drawVdtWind(document.getElementById('vwCanvas'));   // horní = VDT
-  drawVdtWind(document.getElementById('vwCanvas2'));  // dolní = Residual
+  drawVdtWind(document.getElementById('vwCanvas'));
 }
 
 function drawVdtWind(canvas, vdtAll, residual, smard) {
@@ -292,22 +288,12 @@ function drawVdtWind(canvas, vdtAll, residual, smard) {
   residual = data.residual;
   smard = data.smard;
   
-  // Mode: vwCanvas = VDT (horní), vwCanvas2 = Residual (dolní)
-  const isVdtChart = canvas.id === 'vwCanvas';
-  const isResChart = canvas.id === 'vwCanvas2';
-  
-  // Toggle states - filtrované podle canvasu
-  const _showVdt    = document.getElementById('vw-tg-vdt')?.checked ?? true;
-  const _showRlFc   = document.getElementById('vw-tg-rlfc')?.checked ?? true;
-  const _showRlDelta = document.getElementById('vw-tg-rldelta')?.checked ?? true;
-  const _showSmard  = document.getElementById('vw-tg-smard')?.checked ?? true;
-  
-  const showVdt     = isVdtChart ? _showVdt : false;
-  const showRlAct   = false;
-  const showRlFc    = isResChart ? _showRlFc : false;
-  const showRlDelta = isResChart ? _showRlDelta : false;
-  const showSmard   = isResChart ? _showSmard : false;
-  
+  // Toggle states
+  const showVdt    = document.getElementById('vw-tg-vdt')?.checked ?? true;
+  const showRlAct  = false;  // ENTSO-E actual smazán, SMARD ho nahrazuje
+  const showRlFc   = document.getElementById('vw-tg-rlfc')?.checked ?? true;
+  const showRlDelta = document.getElementById('vw-tg-rldelta')?.checked ?? true;
+  const showSmard  = document.getElementById('vw-tg-smard')?.checked ?? true;
   // Vypnuté indikátory (zachováno aby drawVdtWind nehavarovala)
   const showWAct = false, showWDa = false, showWId = false;
   const showTrend = false, showBoll = false, showMavg = false, showRsi = false;
@@ -850,28 +836,19 @@ function drawVdtWind(canvas, vdtAll, residual, smard) {
   // Legend - rozsah pod grafem (např. "VDT: -100 to 500€")
   const fmtRange = (r, unit, scale) => `${(r.min*scale).toFixed(0)}-${(r.max*scale).toFixed(0)}${unit}`;
   
-  // Uloz pro hover - jen z prvního canvasu (vwCanvas/VDT) aby tooltip fungoval správně
-  // Show flags jsou agregované z OBOU canvasů (čteme aktuální stav toggles)
-  if (isVdtChart) {
-    window._vwHover = {
-      xMin, xMax, ml, mr, mt, mb, pw, ph, W, H,
-      vdtPts, windActPts, windDaPts, windIdPts, rlActPts, rlFcPts, rlDeltaPts, smardPts,
-      vdtRange: vdtRangeAll, windActRange, windDaRange, windIdRange,
-      rlActRange: rlActRangeAll, rlFcRange: rlFcRangeAll, rlDeltaRange: deltaRangeCAll, smardRange,
-      // Agregát: pro tooltip čteme aktuální stav VŠECH togglů
-      showVdt: _showVdt,
-      showWAct: false, showWDa: false, showWId: false,
-      showRlAct: false,
-      showRlFc: _showRlFc,
-      showRlDelta: _showRlDelta,
-      showSmard: _showSmard,
-      dataMin, dataMax,
-      yNorm
-    };
-  }
+  // Uloz pro hover
+  window._vwHover = {
+    xMin, xMax, ml, mr, mt, mb, pw, ph, W, H,
+    vdtPts, windActPts, windDaPts, windIdPts, rlActPts, rlFcPts, rlDeltaPts, smardPts,
+    vdtRange: vdtRangeAll, windActRange, windDaRange, windIdRange,
+    rlActRange: rlActRangeAll, rlFcRange: rlFcRangeAll, rlDeltaRange: deltaRangeCAll, smardRange,
+    showVdt, showWAct, showWDa, showWId, showRlAct, showRlFc, showRlDelta, showSmard,
+    dataMin, dataMax,
+    yNorm
+  };
   
-  // Aktualizovat hover tip s nejnovějšími hodnotami (pokud user nehovuje právě teď)
-  if (isVdtChart && window._showLatestTipFn && !window._userHovering) {
+  // Aktualizovat hover tip s nejnovějšími hodnotami
+  if (window._showLatestTipFn && !window._userHovering) {
     window._showLatestTipFn();
   }
 }
@@ -1186,91 +1163,6 @@ function setupVwInteraction() {
   
   canvas.style.cursor = 'grab';
   
-  // === Druhý canvas (vwCanvas2) - jen pan/touch/wheel, ne hover ===
-  const c2 = document.getElementById('vwCanvas2');
-  if (c2 && !c2._vwSetup) {
-    c2._vwSetup = true;
-    
-    // Mouse pan
-    let p2 = false, p2Start = 0, p2StartOff = 0;
-    c2.addEventListener('mousedown', (e) => {
-      p2 = true;
-      p2Start = e.clientX;
-      p2StartOff = window._vwView.offsetMs;
-      c2.style.cursor = 'grabbing';
-      
-      try {
-        const h = window._vwHover;
-        if (h) {
-          const rect = c2.getBoundingClientRect();
-          const mx = e.clientX - rect.left;
-          if (mx >= h.ml && mx <= h.W - h.mr) {
-            window._vwPivot = h.xMin + ((mx - h.ml) / h.pw) * (h.xMax - h.xMin);
-            if (typeof updatePivotTooltip === 'function') updatePivotTooltip();
-          }
-        }
-      } catch(err) { console.warn('pivot c2 err:', err); }
-      
-      e.preventDefault();
-    });
-    window.addEventListener('mousemove', (e) => {
-      if (!p2) return;
-      const h = window._vwHover;
-      if (!h) return;
-      const dx = e.clientX - p2Start;
-      const msPerPx = (h.xMax - h.xMin) / h.pw;
-      window._vwView.offsetMs = p2StartOff - dx * msPerPx;
-      scheduleRedraw();
-    });
-    window.addEventListener('mouseup', () => {
-      if (p2) { p2 = false; c2.style.cursor = 'grab'; }
-    });
-    
-    // Touch pan
-    let t2 = false, t2Start = 0, t2StartOff = 0;
-    c2.addEventListener('touchstart', (e) => {
-      if (e.touches.length === 1) {
-        t2 = true;
-        t2Start = e.touches[0].clientX;
-        t2StartOff = window._vwView.offsetMs;
-        
-        try {
-          const h = window._vwHover;
-          if (h) {
-            const rect = c2.getBoundingClientRect();
-            const mx = e.touches[0].clientX - rect.left;
-            if (mx >= h.ml && mx <= h.W - h.mr) {
-              window._vwPivot = h.xMin + ((mx - h.ml) / h.pw) * (h.xMax - h.xMin);
-              if (typeof updatePivotTooltip === 'function') updatePivotTooltip();
-            }
-          }
-        } catch(err) {}
-      }
-    }, { passive: true });
-    c2.addEventListener('touchmove', (e) => {
-      if (!t2 || e.touches.length !== 1) return;
-      const h = window._vwHover;
-      if (!h) return;
-      const dx = e.touches[0].clientX - t2Start;
-      const msPerPx = (h.xMax - h.xMin) / h.pw;
-      window._vwView.offsetMs = t2StartOff - dx * msPerPx;
-      scheduleRedraw();
-      e.preventDefault();
-    }, { passive: false });
-    c2.addEventListener('touchend', () => { t2 = false; }, { passive: true });
-    
-    // Wheel zoom
-    c2.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const factor = e.deltaY > 0 ? 1.2 : 1/1.2;
-      let newSpan = window._vwView.spanH * factor;
-      newSpan = Math.max(2, Math.min(168, newSpan));
-      window._vwView.spanH = newSpan;
-      drawAllCharts();
-    }, { passive: false });
-    
-    c2.style.cursor = 'grab';
-  }
 }
 
 // Spustit setup po prvním načtení
