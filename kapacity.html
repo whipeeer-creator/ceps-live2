@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Kapacity · CZ cross-border</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #f0f2f6; font-family: 'Inter', sans-serif; font-size: 12px; color: #1a1a2e; }
+
+header { background: #fff; border-bottom: 1px solid #e0e4ef; display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; gap: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+.logo { font-size: 14px; font-weight: 700; letter-spacing: .04em; }
+.logo em { color: #1565c0; font-style: normal; font-weight: 500; }
+.hbtn { background: #f4f5f9; border: 1px solid #dde; color: #666; font-family: 'Inter', sans-serif; font-size: 11px; padding: 6px 12px; border-radius: 5px; cursor: pointer; }
+.hbtn:hover { border-color: #1565c0; color: #1565c0; }
+.hdr-info { font-size: 10px; color: #666; font-family: 'JetBrains Mono', monospace; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #43a047; display: inline-block; margin-right: 5px; }
+.dot.err { background: #e53935; }
+.dot.idle { background: #bbb; }
+
+main { padding: 12px; max-width: 1400px; margin: 0 auto; }
+
+.summary { background: #fff; border: 1px solid #e0e4ef; border-radius: 7px; padding: 10px 14px; margin-bottom: 10px; }
+.summary h3 { font-size: 13px; margin-bottom: 4px; color: #1565c0; }
+.summary .info { color: #666; font-size: 11px; line-height: 1.5; }
+
+.kpi-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 10px; }
+.kpi { background: #fff; border: 1px solid #e0e4ef; border-radius: 7px; padding: 10px 12px; border-left: 3px solid #1565c0; }
+.kpi-l { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 4px; }
+.kpi-v { font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 700; line-height: 1; }
+.kpi-u { font-size: 11px; font-weight: 400; color: #666; margin-left: 3px; }
+.kpi-v.pos { color: #43a047; }
+.kpi-v.neg { color: #e53935; }
+.kpi-sub { font-size: 9px; color: #888; margin-top: 4px; }
+
+.chart-grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.chart-panel { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; overflow: hidden; }
+.panel-hdr { padding: 8px 14px; border-bottom: 1px solid #eef0f8; display: flex; justify-content: space-between; align-items: center; }
+.panel-title { font-size: 13px; font-weight: 600; }
+.panel-net { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; }
+.panel-net.pos { color: #43a047; }
+.panel-net.neg { color: #e53935; }
+.panel-body { padding: 0; background: #fafbff; height: 180px; overflow: hidden; }
+
+canvas { max-width: 100%; display: block; }
+.legend { background: #f4f5f9; border-top: 1px solid #eef0f8; padding: 5px 12px; display: flex; gap: 14px; font-size: 10px; color: #555; flex-wrap: wrap; }
+.lg-sq { width: 12px; height: 8px; display: inline-block; vertical-align: middle; margin-right: 4px; border-radius: 1px; }
+
+@media(min-width:900px){ .chart-grid { grid-template-columns: 1fr 1fr; } .kpi-row { grid-template-columns: repeat(4, 1fr); } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">KAPACITY <em>· CZ cross-border</em></div>
+  <div class="hdr-info">
+    <span class="dot" id="statusDot"></span>
+    <span id="statusText">—</span>
+  </div>
+  <div>
+    <button class="hbtn" onclick="loadCapacity()">↻ Refresh</button>
+  </div>
+</header>
+
+<main>
+  <div class="summary">
+    <h3>CZ Net flow ↔ sousedi (posledních 24h)</h3>
+    <div class="info">
+      Pozitivní (zelená) = import do CZ. Negativní (červená) = export z CZ.
+      Data: ENTSO-E Physical Flows · zpoždění ~1h.
+    </div>
+  </div>
+  
+  <div class="kpi-row">
+    <div class="kpi">
+      <div class="kpi-l">🇩🇪 CZ ↔ DE</div>
+      <div class="kpi-v" id="kv-de">—<span class="kpi-u">MW</span></div>
+      <div class="kpi-sub" id="kvs-de">—</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-l">🇦🇹 CZ ↔ AT</div>
+      <div class="kpi-v" id="kv-at">—<span class="kpi-u">MW</span></div>
+      <div class="kpi-sub" id="kvs-at">—</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-l">🇸🇰 CZ ↔ SK</div>
+      <div class="kpi-v" id="kv-sk">—<span class="kpi-u">MW</span></div>
+      <div class="kpi-sub" id="kvs-sk">—</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-l">🇵🇱 CZ ↔ PL</div>
+      <div class="kpi-v" id="kv-pl">—<span class="kpi-u">MW</span></div>
+      <div class="kpi-sub" id="kvs-pl">—</div>
+    </div>
+  </div>
+  
+  <div class="chart-grid">
+    <div class="chart-panel">
+      <div class="panel-hdr">
+        <div class="panel-title">🇩🇪 CZ ↔ DE</div>
+        <div class="panel-net" id="net-de">—</div>
+      </div>
+      <div class="panel-body"><canvas id="cv-de" height="180" style="width:100%;height:180px;"></canvas></div>
+      <div class="legend">
+        <span><span class="lg-sq" style="background:rgba(67,160,71,.4);"></span>Net (filled)</span>
+        <span><span class="lg-sq" style="background:#43a047;border:1px dashed #43a047;"></span>Import</span>
+        <span><span class="lg-sq" style="background:#e53935;border:1px dashed #e53935;"></span>Export</span>
+      </div>
+    </div>
+    
+    <div class="chart-panel">
+      <div class="panel-hdr">
+        <div class="panel-title">🇦🇹 CZ ↔ AT</div>
+        <div class="panel-net" id="net-at">—</div>
+      </div>
+      <div class="panel-body"><canvas id="cv-at" height="180" style="width:100%;height:180px;"></canvas></div>
+      <div class="legend">
+        <span><span class="lg-sq" style="background:rgba(67,160,71,.4);"></span>Net (filled)</span>
+        <span><span class="lg-sq" style="background:#43a047;border:1px dashed #43a047;"></span>Import</span>
+        <span><span class="lg-sq" style="background:#e53935;border:1px dashed #e53935;"></span>Export</span>
+      </div>
+    </div>
+    
+    <div class="chart-panel">
+      <div class="panel-hdr">
+        <div class="panel-title">🇸🇰 CZ ↔ SK</div>
+        <div class="panel-net" id="net-sk">—</div>
+      </div>
+      <div class="panel-body"><canvas id="cv-sk" height="180" style="width:100%;height:180px;"></canvas></div>
+      <div class="legend">
+        <span><span class="lg-sq" style="background:rgba(67,160,71,.4);"></span>Net (filled)</span>
+        <span><span class="lg-sq" style="background:#43a047;border:1px dashed #43a047;"></span>Import</span>
+        <span><span class="lg-sq" style="background:#e53935;border:1px dashed #e53935;"></span>Export</span>
+      </div>
+    </div>
+    
+    <div class="chart-panel">
+      <div class="panel-hdr">
+        <div class="panel-title">🇵🇱 CZ ↔ PL</div>
+        <div class="panel-net" id="net-pl">—</div>
+      </div>
+      <div class="panel-body"><canvas id="cv-pl" height="180" style="width:100%;height:180px;"></canvas></div>
+      <div class="legend">
+        <span><span class="lg-sq" style="background:rgba(67,160,71,.4);"></span>Net (filled)</span>
+        <span><span class="lg-sq" style="background:#43a047;border:1px dashed #43a047;"></span>Import</span>
+        <span><span class="lg-sq" style="background:#e53935;border:1px dashed #e53935;"></span>Export</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+window.API_URL = window.API_URL || window.location.origin;
+
+function setStatus(text, type) {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  if (dot) dot.className = 'dot' + (type ? ' ' + type : '');
+  if (txt) txt.textContent = text;
+}
+
+function setupCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  // Pevná výška - bere se z CSS, ne z resize parenta
+  const H = 180;
+  const W = canvas.parentElement.clientWidth || 600;
+  // Nastavit BACKING store (vnitřní rozlišení)
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  // Nastavit VISIBLE size přímo na canvas (nesahá to do parenta)
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
+  canvas.style.display = 'block';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { ctx, W, H };
+}
+
+function drawBorder(canvas, data) {
+  if (!canvas) return;
+  const { ctx, W, H } = setupCanvas(canvas);
+  ctx.clearRect(0, 0, W, H);
+  
+  const ml = 55, mr = 12, mt = 12, mb = 28;
+  const pw = W - ml - mr;
+  const ph = H - mt - mb;
+  
+  if (!data || !data.length) {
+    ctx.fillStyle = '#888';
+    ctx.font = '12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Žádná data', W/2, H/2);
+    return;
+  }
+  
+  // Time + Y range
+  let xMin = Infinity, xMax = -Infinity;
+  let absMax = 0;
+  for (const p of data) {
+    const ts = new Date(p.ts).getTime();
+    if (ts < xMin) xMin = ts;
+    if (ts > xMax) xMax = ts;
+    const m1 = Math.abs(p.net_mw || 0);
+    const m2 = Math.abs(p.in_mw || 0);
+    const m3 = Math.abs(p.out_mw || 0);
+    if (m1 > absMax) absMax = m1;
+    if (m2 > absMax) absMax = m2;
+    if (m3 > absMax) absMax = m3;
+  }
+  absMax = absMax * 1.15 || 100;
+  const yMin = -absMax, yMax = absMax;
+  
+  const x = (ts) => ml + ((ts - xMin) / (xMax - xMin)) * pw;
+  const y = (v) => mt + (1 - (v - yMin) / (yMax - yMin)) * ph;
+  const zeroY = y(0);
+  
+  // Pozadí - zelená/červená zóna
+  ctx.fillStyle = 'rgba(67, 160, 71, 0.04)';
+  ctx.fillRect(ml, mt, pw, zeroY - mt);
+  ctx.fillStyle = 'rgba(229, 57, 53, 0.04)';
+  ctx.fillRect(ml, zeroY, pw, mt + ph - zeroY);
+  
+  // Grid + Y labels (5 ticks)
+  ctx.strokeStyle = 'rgba(0,0,0,0.06)';
+  ctx.fillStyle = '#888';
+  ctx.font = '10px monospace';
+  ctx.textAlign = 'right';
+  ctx.lineWidth = 1;
+  for (let i = -2; i <= 2; i++) {
+    const v = (absMax * i) / 2;
+    const yPos = y(v);
+    if (yPos < mt - 1 || yPos > mt + ph + 1) continue;
+    ctx.beginPath(); ctx.moveTo(ml, yPos); ctx.lineTo(W - mr, yPos); ctx.stroke();
+    ctx.fillText(Math.round(v) + ' MW', ml - 4, yPos + 3);
+  }
+  
+  // Zero line bold
+  ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(ml, zeroY); ctx.lineTo(W - mr, zeroY); ctx.stroke();
+  
+  // X-axis labels
+  ctx.fillStyle = '#666';
+  ctx.textAlign = 'center';
+  const totalH = (xMax - xMin) / 3600000;
+  const stepH = totalH > 24 ? 6 : (totalH > 12 ? 3 : 2);
+  const stepMs = stepH * 3600000;
+  const startTs = Math.ceil(xMin / stepMs) * stepMs;
+  for (let t = startTs; t <= xMax; t += stepMs) {
+    const xp = x(t);
+    if (xp < ml || xp > W - mr) continue;
+    const dt = new Date(t);
+    const hh = String(dt.getHours()).padStart(2,'0');
+    ctx.fillText(hh + ':00', xp, H - 8);
+  }
+  
+  // Filled area pro NET
+  ctx.fillStyle = 'rgba(67, 160, 71, 0.35)';
+  ctx.beginPath();
+  let started = false;
+  for (const p of data) {
+    if (p.net_mw == null || p.net_mw < 0) continue;
+    const xp = x(new Date(p.ts).getTime());
+    const yp = y(p.net_mw);
+    if (!started) { ctx.moveTo(xp, zeroY); started = true; }
+    ctx.lineTo(xp, yp);
+  }
+  if (started) {
+    // close to zero on right
+    const lastPos = data.filter(p => p.net_mw >= 0).pop();
+    if (lastPos) ctx.lineTo(x(new Date(lastPos.ts).getTime()), zeroY);
+    ctx.closePath();
+    ctx.fill();
+  }
+  
+  // Negative net (red filled)
+  ctx.fillStyle = 'rgba(229, 57, 53, 0.35)';
+  ctx.beginPath();
+  started = false;
+  for (const p of data) {
+    if (p.net_mw == null || p.net_mw > 0) continue;
+    const xp = x(new Date(p.ts).getTime());
+    const yp = y(p.net_mw);
+    if (!started) { ctx.moveTo(xp, zeroY); started = true; }
+    ctx.lineTo(xp, yp);
+  }
+  if (started) {
+    const lastNeg = data.filter(p => p.net_mw <= 0).pop();
+    if (lastNeg) ctx.lineTo(x(new Date(lastNeg.ts).getTime()), zeroY);
+    ctx.closePath();
+    ctx.fill();
+  }
+  
+  // Net line
+  ctx.strokeStyle = '#1a1a2e';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  let first = true;
+  for (const p of data) {
+    if (p.net_mw == null) continue;
+    const xp = x(new Date(p.ts).getTime());
+    const yp = y(p.net_mw);
+    if (first) { ctx.moveTo(xp, yp); first = false; }
+    else ctx.lineTo(xp, yp);
+  }
+  ctx.stroke();
+  
+  // Import dashed (zelená)
+  ctx.strokeStyle = '#43a047';
+  ctx.lineWidth = 1;
+  ctx.setLineDash([3, 3]);
+  ctx.beginPath();
+  first = true;
+  for (const p of data) {
+    if (p.in_mw == null || p.in_mw <= 0) continue;
+    const xp = x(new Date(p.ts).getTime());
+    const yp = y(p.in_mw);
+    if (first) { ctx.moveTo(xp, yp); first = false; }
+    else ctx.lineTo(xp, yp);
+  }
+  ctx.stroke();
+  
+  // Export dashed (červená - jako negativní)
+  ctx.strokeStyle = '#e53935';
+  ctx.beginPath();
+  first = true;
+  for (const p of data) {
+    if (p.out_mw == null || p.out_mw <= 0) continue;
+    const xp = x(new Date(p.ts).getTime());
+    const yp = y(-p.out_mw);
+    if (first) { ctx.moveTo(xp, yp); first = false; }
+    else ctx.lineTo(xp, yp);
+  }
+  ctx.stroke();
+  ctx.setLineDash([]);
+}
+
+function updateKpi(borderKey, data) {
+  const kvEl = document.getElementById('kv-' + borderKey);
+  const kvsEl = document.getElementById('kvs-' + borderKey);
+  const netEl = document.getElementById('net-' + borderKey);
+  
+  if (!data || !data.length) {
+    if (kvEl) kvEl.innerHTML = '—<span class="kpi-u">MW</span>';
+    if (kvsEl) kvsEl.textContent = 'žádná data';
+    if (netEl) netEl.textContent = '—';
+    return;
+  }
+  
+  // Poslední bod = aktuální
+  const last = data[data.length - 1];
+  const net = last.net_mw || 0;
+  const inMw = last.in_mw || 0;
+  const outMw = last.out_mw || 0;
+  
+  if (kvEl) {
+    kvEl.className = 'kpi-v ' + (net >= 0 ? 'pos' : 'neg');
+    const sign = net >= 0 ? '+' : '';
+    kvEl.innerHTML = `${sign}${Math.round(net)}<span class="kpi-u">MW</span>`;
+  }
+  if (kvsEl) {
+    kvsEl.textContent = `import ${Math.round(inMw)} · export ${Math.round(outMw)}`;
+  }
+  if (netEl) {
+    netEl.className = 'panel-net ' + (net >= 0 ? 'pos' : 'neg');
+    const sign = net >= 0 ? '+' : '';
+    const dir = net >= 0 ? '⬇ import' : '⬆ export';
+    netEl.textContent = `${sign}${Math.round(net)} MW · ${dir}`;
+  }
+}
+
+async function loadCapacity() {
+  setStatus('Načítám…', 'idle');
+  try {
+    const resp = await fetch(`${window.API_URL}/entsoe/cross-border`, { cache: 'no-store' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error);
+    
+    const borders = data.borders || {};
+    
+    drawBorder(document.getElementById('cv-de'), borders.CZ_DE || []);
+    drawBorder(document.getElementById('cv-at'), borders.CZ_AT || []);
+    drawBorder(document.getElementById('cv-sk'), borders.CZ_SK || []);
+    drawBorder(document.getElementById('cv-pl'), borders.CZ_PL || []);
+    
+    updateKpi('de', borders.CZ_DE);
+    updateKpi('at', borders.CZ_AT);
+    updateKpi('sk', borders.CZ_SK);
+    updateKpi('pl', borders.CZ_PL);
+    
+    const cacheInfo = data._cache === 'hit' ? ' · cache' : '';
+    setStatus('Live · ' + new Date().toLocaleTimeString('cs') + cacheInfo, '');
+  } catch (e) {
+    console.error('loadCapacity:', e);
+    setStatus('Chyba: ' + e.message, 'err');
+  }
+}
+
+let _resizeTimer = null;
+window.addEventListener('resize', () => {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(loadCapacity, 200);
+});
+
+window.addEventListener('load', () => {
+  loadCapacity();
+  setInterval(loadCapacity, 5 * 60 * 1000);  // Refresh každých 5 min
+});
+</script>
+
+</body>
+</html>
