@@ -342,7 +342,9 @@ function drawVdtWind(canvas, vdtAll, residual, smard) {
     for (const r of smard.data) {
       const ts = new Date(r.berlin_time || r.ts).getTime();
       if (isNaN(ts)) continue;
-      if (r.residual_mw != null) smardPts.push({ ts, v: r.residual_mw });
+      // SMARD endpoint vrací residual_load_actual_mw
+      const val = r.residual_load_actual_mw ?? r.residual_mw;
+      if (val != null) smardPts.push({ ts, v: val });
     }
   }
   smardPts.sort((a,b) => a.ts - b.ts);
