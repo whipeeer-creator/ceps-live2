@@ -255,7 +255,7 @@ async function loadVdtWind() {
   });
   
   // Residual - kreslí se jak dorazí
-  fetchWithTimeout(`${API_URL}/entsoe/residual-load`, 15000).then(d => {
+  fetchWithTimeout(`${API_URL}/entsoe/residual`, 15000).then(d => {
     _residualData = d;
     progressiveRender();
     updateStatus();
