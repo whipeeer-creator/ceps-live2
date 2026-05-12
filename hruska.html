@@ -446,19 +446,22 @@ function drawVdtWind(canvas, vdtAll, residual, smard) {
   // Y-osa pro VYKRESLENÍ křivek
   // VDT (horní graf) = viewport range (vyplňuje okno)
   // Residual (dolní graf) = FIXNÍ range z celých dat → křivky se nehnou při pan
-  const vdtRange     = minMaxView(vdtPts, xMin, xMax)     || minMaxAll(vdtPts);
-  const windActRange = minMaxView(windActPts, xMin, xMax) || minMaxAll(windActPts);
-  const windDaRange  = minMaxView(windDaPts, xMin, xMax)  || minMaxAll(windDaPts);
-  const windIdRange  = minMaxView(windIdPts, xMin, xMax)  || minMaxAll(windIdPts);
-  const rlActRange   = minMaxView(rlActPts, xMin, xMax)   || minMaxAll(rlActPts);
-  // Forecast a SMARD: FIXNÍ Y range cached - 1× spočítané, neměnné při pan/zoom
+  // VDT, Forecast, SMARD: FIXNÍ Y range cached - 1× spočítané, neměnné při pan/zoom
   if (!window._fixedRanges) window._fixedRanges = {};
+  if (!window._fixedRanges.vdt || (window._fixedRanges.vdt.min === 0 && window._fixedRanges.vdt.max === 1)) {
+    if (vdtPts.length) window._fixedRanges.vdt = minMaxAll(vdtPts);
+  }
   if (!window._fixedRanges.rlFc || (window._fixedRanges.rlFc.min === 0 && window._fixedRanges.rlFc.max === 1)) {
     if (rlFcPts.length) window._fixedRanges.rlFc = minMaxAll(rlFcPts);
   }
   if (!window._fixedRanges.smard || (window._fixedRanges.smard.min === 0 && window._fixedRanges.smard.max === 1)) {
     if (smardPts.length) window._fixedRanges.smard = minMaxAll(smardPts);
   }
+  const vdtRange   = window._fixedRanges.vdt   || minMaxAll(vdtPts);
+  const windActRange = minMaxView(windActPts, xMin, xMax) || minMaxAll(windActPts);
+  const windDaRange  = minMaxView(windDaPts, xMin, xMax)  || minMaxAll(windDaPts);
+  const windIdRange  = minMaxView(windIdPts, xMin, xMax)  || minMaxAll(windIdPts);
+  const rlActRange   = minMaxView(rlActPts, xMin, xMax)   || minMaxAll(rlActPts);
   const rlFcRange  = window._fixedRanges.rlFc  || minMaxAll(rlFcPts);
   const smardRange = window._fixedRanges.smard || minMaxAll(smardPts);
   
