@@ -2435,28 +2435,29 @@ async function loadSpotTable(country, tableId) {
       }
     }
     
-    // Current hour highlight
-    const curHour = now.getHours();
+    // Current hour highlight - posunute H01-H24
+    const curHour = now.getHours() + 1;
     
     const tbl = document.getElementById(tableId);
-    // STEJNA STRUKTURA jako loadCenaTable - vsech 24 hodin, sloupce width:52px, prvni sloupec width:40px
-    // aby byly hodiny zarovnane mezi tabulkami
+    // STEJNA STRUKTURA jako loadCenaTable - H01-H24
     const priceByHour = {};
     rows.forEach(row => { priceByHour[row.hour] = row.price_eur; });
     
     let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
-    for (let h = 0; h < 24; h++) {
+    for (let h = 1; h <= 24; h++) {
       const isCur = h === curHour;
       html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
     }
     html += '</tr></thead><tbody><tr>';
     html += `<td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;font-weight:600;">€/MWh</td>`;
-    for (let h = 0; h < 24; h++) {
-      if (!(h in priceByHour)) {
+    for (let h = 1; h <= 24; h++) {
+      // tabulka H1-H24, data hour 0-23 → mapping h-1
+      const dataH = h - 1;
+      if (!(dataH in priceByHour)) {
         html += `<td style="padding:3px 6px;background:#c8d8e8;border:1px solid #dde;text-align:center;color:#888;">—</td>`;
         continue;
       }
-      const v = priceByHour[h];
+      const v = priceByHour[dataH];
       const bg = cellColor(v);
       const txt = Math.round(v);
       const isCur = h === curHour;
@@ -2488,9 +2489,9 @@ async function loadCenaTable() {
       return { h, m, v: parseFloat(r[col]) || 0 };
     });
 
-    // VŽDY 24 hodin pro zarovnání s ostatními tabulkami
+    // VŽDY 24 hodin pro zarovnání s ostatními tabulkami - H01 az H24
     const hours = [];
-    for (let h = 0; h < 24; h++) hours.push(h);
+    for (let h = 1; h <= 24; h++) hours.push(h);
     const minutes = [0, 15, 30, 45];
     const vals = rows.map(r => r.v).filter(v => v !== 0);
     const vAbsMax = Math.max(...vals.map(v => Math.abs(v)), 1);
@@ -2512,7 +2513,7 @@ async function loadCenaTable() {
     }
 
     const tbl = document.getElementById('tbl-cena');
-    const curHour = now.getHours();
+    const curHour = now.getHours() + 1;  // 0-23 -> H01-H24
     let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
     hours.forEach(h => {
       const isCur = h === curHour;
@@ -2523,7 +2524,9 @@ async function loadCenaTable() {
     minutes.forEach(m => {
       html += `<tr><td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;">:${String(m).padStart(2,'0')}</td>`;
       hours.forEach(h => {
-        const row = rows.find(r => r.h === h && r.m === m);
+        // h = 1-24 (tabulka), data ma 0-23 -> data hour = h-1
+        const dataH = h - 1;
+        const row = rows.find(r => r.h === dataH && r.m === m);
         const v = row ? row.v : 0;
         const bg = cellColor(v);
         const txt = v === 0 ? '0' : Math.round(v).toLocaleString('cs');
