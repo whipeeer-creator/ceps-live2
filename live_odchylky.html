@@ -174,6 +174,9 @@ canvas { max-width: 100%; display: block; }
     <div class="kpi" id="crd-F"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
     <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
   </div>
+  <div class="kpi-row">
+    <div class="kpi" id="crd-SO" style="grid-column: span 2;"><div class="kpi-l">Systémová soustava</div><div class="kpi-v" id="dv-SO">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-SO">🟢 Buy → potřebujeme soustavu mínus &nbsp;·&nbsp; 🔴 Sell → potřebujeme soustavu plus</div></div>
+  </div>
 
   <div class="chart-panel">
     <div class="panel-hdr">
@@ -758,10 +761,22 @@ async function loadMain() {
   const avg = dO.rows.reduce((a,r)=>a+(parseFloat(r[colO])||0),0)/dO.rows.length;
   document.getElementById('lastTime').textContent = ft(lastO.date);
   // Aktualni regulace - znamenko stejne jako graf
-  // Graf - (deficit, modra) = KPI ukazuje minus
-  // Graf + (prebytek, cervena) = KPI ukazuje plus
   setKPI('O', lO, 'MW', `prům. dne: ${sign(avg)}${avg.toFixed(1)} MW`, dO.fetched_at,
     {greenBelow: -100, redAbove: 100});
+  
+  // Systemova odchylka - INVERZNI k aktualni regulaci
+  // Regulace = co soustava DOPLNUJE (+ = chybi, - = prebyva)
+  // Systemova odchylka = stav soustavy (- = chybi, + = prebyva)
+  const lSO = -lO;
+  const dvSO = document.getElementById('dv-SO');
+  if (dvSO) {
+    // Cervena pro zaporne (chybi v soustave = potrebujeme + = Sell)
+    // Zelena pro kladne (prebyva v soustave = potrebujeme - = Buy)
+    const soColor = lSO < 0 ? '#c0392b' : '#27ae60';
+    const soSign = lSO > 0 ? '+' : '';
+    dvSO.innerHTML = `<span style="color:${soColor};">${soSign}${lSO.toFixed(1)}</span><span class="kpi-u">MW</span>`;
+  }
+  
   // aFRR aktivni - <30 zelena (klid), >100 cervena (stres), mezi = oranzova
   setKPI('S', lAp||lAm, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
     {greenBelow: 30, redAbove: 100});
