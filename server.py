@@ -668,7 +668,7 @@ class Handler(BaseHTTPRequestHandler):
             self._ote_vdt_range(qs); return
         
         # Staticke HTML soubory (hruska.html, kapacity.html)
-        if parsed.path in ("/hruska.html", "/kapacity.html"):
+        if parsed.path in ("/hruska.html", "/kapacity.html", "/hory.html"):
             try:
                 import os
                 fname = parsed.path.lstrip("/")
