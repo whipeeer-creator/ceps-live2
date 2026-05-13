@@ -1056,7 +1056,7 @@ function drawCenaRE(canvas, d, d2, d3, d4, d5) {
       .sort((a, b) => a.min - b.min);
   }
 
-  // VDT (15min last cena - server vraci Kc/MWh, prevedeme na EUR)
+  // VDT (15min last cena - OTE uz vraci v EUR/MWh)
   let vdtPoints = [];
   if (d5 && d5.data && d5.data.length) {
     vdtPoints = d5.data.map(p => {
@@ -1064,9 +1064,7 @@ function drawCenaRE(canvas, d, d2, d3, d4, d5) {
       const ts = p.timestamp || p.ts || '';
       const m = ts.match(/T(\d{2}):(\d{2})/);
       if (m) minStart = parseInt(m[1]) * 60 + parseInt(m[2]);
-      // Kc -> EUR (KURZ_KC_EUR = 24.5)
-      const priceKc = parseFloat(p.last);
-      const priceEur = priceKc / KURZ_KC_EUR;
+      const priceEur = parseFloat(p.last);
       return { min: minStart, vdt: priceEur };
     }).filter(p => Number.isFinite(p.min) && Number.isFinite(p.vdt))
       .sort((a, b) => a.min - b.min);
