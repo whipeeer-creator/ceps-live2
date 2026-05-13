@@ -351,6 +351,23 @@ function startDashboard(useLocal) {
   setRefresh(+document.getElementById('rsel').value);
 }
 
+// AUTO-START pokud bezi z onrender.com nebo bezi na vlastnim hostu - vezmi origin
+(function autoStart() {
+  if (apiFromUrl) return;  // pokud je ?api=... necham dialog
+  const origin = window.location.origin;
+  if (origin && !origin.startsWith('file://')) {
+    API_URL = origin;
+    document.addEventListener('DOMContentLoaded', () => {
+      const modal = document.getElementById('setupModal');
+      if (modal) modal.style.display = 'none';
+      initRegelleistungAfrr();
+      loadAll();
+      const rsel = document.getElementById('rsel');
+      if (rsel) setRefresh(+rsel.value);
+    });
+  }
+})();
+
 // Toggle listeners for cena RE graf - registrovany v DOMContentLoaded
 // at se aktivuji bez ohledu na to jestli se vola startDashboard nebo injected init
 document.addEventListener('DOMContentLoaded', () => {
