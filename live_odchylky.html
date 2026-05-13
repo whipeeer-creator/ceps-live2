@@ -170,7 +170,7 @@ canvas { max-width: 100%; display: block; }
   <div class="err-bar" id="err"></div>
   <div class="kpi-row">
     <div class="kpi" id="crd-O"><div class="kpi-l">Aktuální regulace</div><div class="kpi-v" id="dv-O">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-O">—</div></div>
-    <div class="kpi" id="crd-C"><div class="kpi-l">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
+    <div class="kpi" id="crd-C"><div class="kpi-l" style="font-weight:700;color:#1a1a2e;">ČEPS</div><div class="kpi-l" style="font-size:10px;">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
     <div class="kpi" id="crd-F"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
     <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
   </div>
@@ -203,7 +203,6 @@ canvas { max-width: 100%; display: block; }
     <div class="panel-hdr">
       <div>
         <div class="panel-title">Systémová soustava</div>
-        <div class="panel-sub">vertikálně otočená regulace · plus = potřebujeme soustavu mínus (Buy) · mínus = potřebujeme plus (Sell)</div>
       </div>
     </div>
     <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;" id="topWrap2">
@@ -220,13 +219,12 @@ canvas { max-width: 100%; display: block; }
   </div>
 
   <div class="chart-panel">
-    <div class="panel-hdr"><div class="panel-title">Ceny — odchylka & spot (CZ/DE)</div></div>
+    <div class="panel-hdr"><div class="panel-title">ČEPS - CENY</div></div>
     <div id="spotTablesWrap" style="overflow-x:auto;padding:8px 12px;">
-      <div style="font-size:10px;color:#666;margin-bottom:3px;font-family:'JetBrains Mono',monospace;">Odhadovaná cena odchylky · EUR/MWh</div>
       <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ spot cena (DA) · EUR/MWh</div>
+      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">CZ DT</div>
       <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE spot cena (DA) · EUR/MWh</div>
+      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">DE DT</div>
       <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
     </div>
   </div>
@@ -1353,7 +1351,21 @@ function drawCenaRE(canvas, d, d2, d3, d4, d5) {
     if (odchPoints.length) {
       const odchMatch = odchPoints.find(p => min >= p.min && min < p.min + 15);
       if (odchMatch) {
-        html += `<span style="color:#5b8fc9;">Odch:</span> <b>${odchMatch.odch.toFixed(1)} €</b>`;
+        html += `<span style="color:#5b8fc9;">Odch:</span> <b>${odchMatch.odch.toFixed(1)} €</b><br>`;
+      }
+    }
+    // DA spot CZ (hodinova granularita)
+    if (daPoints.length) {
+      const daMatch = daPoints.find(p => min >= p.min && min < p.min + 60);
+      if (daMatch) {
+        html += `<span style="color:#6c5ce7;">DA:</span> <b>${daMatch.da.toFixed(1)} €</b><br>`;
+      }
+    }
+    // VDT (15min granularita)
+    if (vdtPoints.length) {
+      const vdtMatch = vdtPoints.find(p => min >= p.min && min < p.min + 15);
+      if (vdtMatch) {
+        html += `<span style="color:#27ae60;">VDT:</span> <b>${vdtMatch.vdt.toFixed(1)} €</b>`;
       }
     }
     tip.innerHTML = html;
