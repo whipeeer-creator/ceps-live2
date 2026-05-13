@@ -826,7 +826,6 @@ async function loadMain() {
     {greenBelow: 30, redAbove: 100});
 
   drawTopChart(document.getElementById('topCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
-  drawTopChart(document.getElementById('topCanvas2'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm, true);
 
   const odch15 = agg15(dO.rows, colO);
   const ap15   = colAp ? agg15(dS.rows, colAp) : odch15.map(b=>({lbl:b.lbl,v:0}));
