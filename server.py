@@ -891,6 +891,10 @@ class Handler(BaseHTTPRequestHandler):
                 wind_total = (wo or 0) + (woff or 0)
                 if d is None:
                     continue  # bez demand nemuzeme spocitat residual
+                # Pokud chybi wind I solar forecast (oba = 0), preskoc
+                # (forecast pro D+2 ENTSO-E nepublikuje, dostali bychom jen demand jako residual)
+                if wind_total == 0 and (s or 0) == 0:
+                    continue
                 residual = d - wind_total - (s or 0)
                 # Convert UTC ts to Berlin local time pro frontend
                 dt_utc = datetime.strptime(ts.replace("Z", ""), "%Y-%m-%dT%H:%M").replace(tzinfo=timezone.utc)
