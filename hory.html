@@ -2468,28 +2468,30 @@ function _rlRedraw() {
 async function loadSpotTable(country, tableId) {
   // Spot cena DA pro CZ/DE - 24 hodin × 1 řádek
   try {
+    const tbl0 = document.getElementById(tableId);
+    if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#888;">načítám ${country}...</td></tr>`;
     const now = new Date();
     const pad = n => String(n).padStart(2,'0');
     const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
     
     let rows = [];
     if (country === 'CZ') {
-      // CZ - dnesni 15min DA ceny z /spot/prices (dnesni datum)
+      // CZ - dnesni 15min DA ceny z /spot/prices
       const r = await fetch(`${API_URL}/spot/prices?country=CZ&date=${today}`, { cache: 'no-store' });
-      if (!r.ok) return;
+      if (!r.ok) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">CZ HTTP ${r.status}</td></tr>`; return; }
       const d = await r.json();
-      if (d.error || !d.data || !d.data.length) return;
-      // Vezmi jen :00 (hodinove agregace) pro tabulku H01-H24
+      if (d.error) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">CZ ERR: ${d.error}</td></tr>`; return; }
+      if (!d.data || !d.data.length) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">CZ no data</td></tr>`; return; }
       rows = d.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
-      if (!rows.length) return;
+      if (!rows.length) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">CZ 0 rows</td></tr>`; return; }
     } else {
       // DE - z energy-charts.info via /spot/prices - posun o den zpatky
       const yest = new Date(now.getTime() - 24*3600*1000);
       const yestStr = `${yest.getFullYear()}-${pad(yest.getMonth()+1)}-${pad(yest.getDate())}`;
       const r = await fetch(`${API_URL}/spot/prices?country=${country}&date=${yestStr}`, { cache: 'no-store' });
-      if (!r.ok) return;
+      if (!r.ok) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">DE HTTP ${r.status}</td></tr>`; return; }
       const d = await r.json();
-      if (d.error || !d.data || !d.data.length) return;
+      if (d.error || !d.data || !d.data.length) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">DE no data</td></tr>`; return; }
       rows = d.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
     }
     
@@ -2560,6 +2562,8 @@ async function loadSpotTable(country, tableId) {
     tbl.innerHTML = html;
   } catch (e) {
     console.warn(`spot ${country}:`, e);
+    const tblE = document.getElementById(tableId);
+    if (tblE) tblE.innerHTML = `<tr><td style="padding:4px;color:#c00;">ERR ${country}: ${e.message}</td></tr>`;
   }
 }
 
