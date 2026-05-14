@@ -2069,7 +2069,8 @@ function rlDrawTimeline() {
       const lbl = document.createElement('div');
       lbl.className = 'rl-tlabel';
       lbl.style.left = pct + '%';
-      lbl.textContent = slot.split('-')[0];
+      // 09:00 -> 9 (odstran vedouci 0 i :00)
+      lbl.textContent = slot.split('-')[0].replace(/^0/, '').replace(/:00$/, '');
       labels.appendChild(lbl);
     }
 
@@ -2537,9 +2538,11 @@ async function loadSpotTable(country, tableId) {
     let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
     for (let h = 1; h <= 24; h++) {
       const isCur = h === curHour;
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
+      const fromHr = String(h-1).padStart(2,'0');
+      const toHr = String(h).padStart(2,'0');
+      const labelColor = isCur ? '#fff' : '#666';
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
     }
-    html += '</tr></thead><tbody><tr>';
     html += `<td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;font-weight:600;">€/MWh</td>`;
     for (let h = 1; h <= 24; h++) {
       // HXX = interval (XX-1)-XX, hour=XX-1 v datech
@@ -2612,7 +2615,10 @@ async function loadCenaTable() {
     let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
     hours.forEach(h => {
       const isCur = h === curHour;
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
+      const fromHr = String(h-1).padStart(2,'0');
+      const toHr = String(h).padStart(2,'0');
+      const labelColor = isCur ? '#fff' : '#666';
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
     });
     html += '</tr></thead><tbody>';
 
