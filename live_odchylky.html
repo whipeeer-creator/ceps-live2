@@ -364,6 +364,23 @@ const urlParams = new URLSearchParams(window.location.search);
 const apiFromUrl = urlParams.get('api');
 if (apiFromUrl) document.getElementById('apiInput').value = apiFromUrl;
 
+// AUTO-START: pokud bezi na render.com (nebo jakekoliv https), automaticky spust
+(function autoStart(){
+  try {
+    const origin = window.location.origin;
+    if (origin && origin !== 'null' && !origin.startsWith('file:')) {
+      document.getElementById('apiInput').value = apiFromUrl || origin;
+      setTimeout(() => {
+        API_URL = (apiFromUrl || origin).replace(/\/$/, '');
+        document.getElementById('setupModal').style.display = 'none';
+        initRegelleistungAfrr();
+        loadAll();
+        setRefresh(+document.getElementById('rsel').value);
+      }, 100);
+    }
+  } catch(e) {}
+})();
+
 function startDashboard(useLocal) {
   API_URL = useLocal ? 'http://localhost:8765'
     : document.getElementById('apiInput').value.trim().replace(/\/$/, '');
