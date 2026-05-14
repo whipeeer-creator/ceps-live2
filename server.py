@@ -598,7 +598,25 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"status": "ok", "time": datetime.now().isoformat(),
                         "version": "v42-vdt-range"}); return
 
-        if parsed.path in ("/", "/index.html", "/live_odchylky.html"):
+        if parsed.path in ("/", "/index.html", "/hory.html"):
+            # NEW landing: hory.html (cista verze bez Systemove soustavy)
+            try:
+                import os
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                fpath = os.path.join(base_dir, "hory.html")
+                if os.path.exists(fpath):
+                    with open(fpath, "rb") as f:
+                        content = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(content)))
+                    self.send_header("Cache-Control", "no-cache")
+                    self.end_headers()
+                    self.wfile.write(content)
+                    return
+            except Exception:
+                pass
+            # fallback: live_odchylky.html
             self._html(); return
 
         if parsed.path == "/entsoe/solar":
@@ -667,8 +685,8 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/ote/vdt/range":
             self._ote_vdt_range(qs); return
         
-        # Staticke HTML soubory (hruska.html, kapacity.html)
-        if parsed.path in ("/hruska.html", "/kapacity.html", "/hory.html"):
+        # Staticke HTML soubory (hruska.html, kapacity.html, live_odchylky.html)
+        if parsed.path in ("/hruska.html", "/kapacity.html", "/live_odchylky.html"):
             try:
                 import os
                 fname = parsed.path.lstrip("/")
