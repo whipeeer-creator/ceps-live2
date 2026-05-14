@@ -2474,16 +2474,13 @@ async function loadSpotTable(country, tableId) {
     
     let rows = [];
     if (country === 'CZ') {
-      // CZ - dnesni DA ceny z /ote/spot (spotovaelektrina.cz)
-      const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
+      // CZ - dnesni 15min DA ceny z /spot/prices (dnesni datum)
+      const r = await fetch(`${API_URL}/spot/prices?country=CZ&date=${today}`, { cache: 'no-store' });
       if (!r.ok) return;
       const d = await r.json();
-      // Server vraci hours_today = [{hour, priceCZK, priceEur}, ...]
-      const ht = d.hours_today || d.hoursToday || [];
-      rows = ht.map(p => ({ 
-        hour: p.hour, 
-        price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
-      })).filter(p => Number.isFinite(p.price_eur));
+      if (d.error || !d.data || !d.data.length) return;
+      // Vezmi jen :00 (hodinove agregace) pro tabulku H01-H24
+      rows = d.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
       if (!rows.length) return;
     } else {
       // DE - z energy-charts.info via /spot/prices - posun o den zpatky
