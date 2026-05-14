@@ -341,6 +341,23 @@ const urlParams = new URLSearchParams(window.location.search);
 const apiFromUrl = urlParams.get('api');
 if (apiFromUrl) document.getElementById('apiInput').value = apiFromUrl;
 
+// AUTO-START: pokud bezi na render.com (nebo jakekoliv https), automaticky spust
+(function autoStart(){
+  try {
+    const origin = window.location.origin;
+    if (origin && origin !== 'null' && !origin.startsWith('file:')) {
+      document.getElementById('apiInput').value = apiFromUrl || origin;
+      setTimeout(() => {
+        API_URL = (apiFromUrl || origin).replace(/\/$/, '');
+        document.getElementById('setupModal').style.display = 'none';
+        initRegelleistungAfrr();
+        loadAll();
+        setRefresh(+document.getElementById('rsel').value);
+      }, 100);
+    }
+  } catch(e) {}
+})();
+
 function startDashboard(useLocal) {
   API_URL = useLocal ? 'http://localhost:8765'
     : document.getElementById('apiInput').value.trim().replace(/\/$/, '');
@@ -350,23 +367,6 @@ function startDashboard(useLocal) {
   loadAll();
   setRefresh(+document.getElementById('rsel').value);
 }
-
-// AUTO-START pokud bezi z onrender.com nebo bezi na vlastnim hostu - vezmi origin
-(function autoStart() {
-  if (apiFromUrl) return;  // pokud je ?api=... necham dialog
-  const origin = window.location.origin;
-  if (origin && !origin.startsWith('file://')) {
-    API_URL = origin;
-    document.addEventListener('DOMContentLoaded', () => {
-      const modal = document.getElementById('setupModal');
-      if (modal) modal.style.display = 'none';
-      initRegelleistungAfrr();
-      loadAll();
-      const rsel = document.getElementById('rsel');
-      if (rsel) setRefresh(+rsel.value);
-    });
-  }
-})();
 
 // Toggle listeners for cena RE graf - registrovany v DOMContentLoaded
 // at se aktivuji bez ohledu na to jestli se vola startDashboard nebo injected init
@@ -2069,8 +2069,7 @@ function rlDrawTimeline() {
       const lbl = document.createElement('div');
       lbl.className = 'rl-tlabel';
       lbl.style.left = pct + '%';
-      // 09:00 -> 9 (odstran vedouci 0 i :00)
-      lbl.textContent = slot.split('-')[0].replace(/^0/, '').replace(/:00$/, '');
+      lbl.textContent = slot.split('-')[0];
       labels.appendChild(lbl);
     }
 
@@ -2468,30 +2467,31 @@ function _rlRedraw() {
 async function loadSpotTable(country, tableId) {
   // Spot cena DA pro CZ/DE - 24 hodin × 1 řádek
   try {
-    const tbl0 = document.getElementById(tableId);
-    if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#888;">načítám ${country}...</td></tr>`;
     const now = new Date();
     const pad = n => String(n).padStart(2,'0');
     const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
     
     let rows = [];
     if (country === 'CZ') {
-      // CZ - dnesni 15min DA ceny z /spot/prices
-      const r = await fetch(`${API_URL}/spot/prices?country=CZ&date=${today}`, { cache: 'no-store' });
-      if (!r.ok) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">CZ HTTP ${r.status}</td></tr>`; return; }
+      // CZ - dnesni DA ceny z /ote/spot (spotovaelektrina.cz)
+      const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
+      if (!r.ok) return;
       const d = await r.json();
-      if (d.error) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">CZ ERR: ${d.error}</td></tr>`; return; }
-      if (!d.data || !d.data.length) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">CZ no data</td></tr>`; return; }
-      rows = d.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
-      if (!rows.length) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">CZ 0 rows</td></tr>`; return; }
+      // Server vraci hours_today = [{hour, priceCZK, priceEur}, ...]
+      const ht = d.hours_today || d.hoursToday || [];
+      rows = ht.map(p => ({ 
+        hour: p.hour, 
+        price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
+      })).filter(p => Number.isFinite(p.price_eur));
+      if (!rows.length) return;
     } else {
       // DE - z energy-charts.info via /spot/prices - posun o den zpatky
       const yest = new Date(now.getTime() - 24*3600*1000);
       const yestStr = `${yest.getFullYear()}-${pad(yest.getMonth()+1)}-${pad(yest.getDate())}`;
       const r = await fetch(`${API_URL}/spot/prices?country=${country}&date=${yestStr}`, { cache: 'no-store' });
-      if (!r.ok) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">DE HTTP ${r.status}</td></tr>`; return; }
+      if (!r.ok) return;
       const d = await r.json();
-      if (d.error || !d.data || !d.data.length) { if (tbl0) tbl0.innerHTML = `<tr><td style="padding:4px;color:#c00;">DE no data</td></tr>`; return; }
+      if (d.error || !d.data || !d.data.length) return;
       rows = d.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
     }
     
@@ -2542,6 +2542,7 @@ async function loadSpotTable(country, tableId) {
       const labelColor = isCur ? '#fff' : '#666';
       html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
     }
+    html += '</tr></thead><tbody><tr>';
     html += `<td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;font-weight:600;">€/MWh</td>`;
     for (let h = 1; h <= 24; h++) {
       // HXX = interval (XX-1)-XX, hour=XX-1 v datech
@@ -2562,8 +2563,6 @@ async function loadSpotTable(country, tableId) {
     tbl.innerHTML = html;
   } catch (e) {
     console.warn(`spot ${country}:`, e);
-    const tblE = document.getElementById(tableId);
-    if (tblE) tblE.innerHTML = `<tr><td style="padding:4px;color:#c00;">ERR ${country}: ${e.message}</td></tr>`;
   }
 }
 
