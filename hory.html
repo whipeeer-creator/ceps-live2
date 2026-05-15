@@ -1669,15 +1669,14 @@ function drawResChart(canvas, rows, cols, daPoints, idPoints) {
     ctx.lineWidth = 1.8;
     ctx.beginPath();
     let started = false;
+    // Hladka linie - bod uprostred 15min intervalu (linearni interpolace)
     points.forEach((p) => {
       const ms = new Date(p.ts).getTime();
       if (ms + 15*60*1000 < tStartMs || ms > tStartMs + tRangeMs) return;
-      const x1 = Math.max(PAD.left, xT(ms));
-      const x2 = Math.min(PAD.left + cW, xT(ms + 15*60*1000));
-      const y  = yP(p.value || 0);
-      if (!started) { ctx.moveTo(x1, y); started = true; }
-      else ctx.lineTo(x1, y);
-      ctx.lineTo(x2, y);
+      const xMid = xT(ms + 7.5*60*1000);
+      const y = yP(p.value || 0);
+      if (!started) { ctx.moveTo(xMid, y); started = true; }
+      else ctx.lineTo(xMid, y);
     });
     ctx.stroke();
   }
