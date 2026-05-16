@@ -3394,16 +3394,30 @@ async function loadAll() {
   const errEl = document.getElementById('err');
   if (errEl) errEl.style.display = 'none';
   const tasks = [];
-  const loaders = [
-    'loadMain', 'loadFreq', 'loadCena', 'loadCenaRE', 'loadOteSpot', 'loadQh',
-    'loadWeather', 'loadForecastDe', 'loadWindDe', 'loadGenerationRES',
-    'loadMagma', 'loadVdtKpi', 'loadCenaTable', 'load7dStats', 'loadYearlyProfile'
-  ];
-  for (const name of loaders) {
+  const tryCall = (name, fn) => {
     try {
-      if (typeof window[name] === 'function') tasks.push(Promise.resolve(window[name]()).catch(e => console.warn(name, e)));
+      if (typeof fn === 'function') {
+        const p = fn();
+        if (p && typeof p.catch === 'function') tasks.push(p.catch(e => console.warn(name, e)));
+        else tasks.push(Promise.resolve(p));
+      }
     } catch(e) { console.warn(name, e); }
-  }
+  };
+  tryCall('loadMain', typeof loadMain !== 'undefined' && loadMain);
+  tryCall('loadFreq', typeof loadFreq !== 'undefined' && loadFreq);
+  tryCall('loadCena', typeof loadCena !== 'undefined' && loadCena);
+  tryCall('loadCenaRE', typeof loadCenaRE !== 'undefined' && loadCenaRE);
+  tryCall('loadOteSpot', typeof loadOteSpot !== 'undefined' && loadOteSpot);
+  tryCall('loadQh', typeof loadQh !== 'undefined' && loadQh);
+  tryCall('loadWeather', typeof loadWeather !== 'undefined' && loadWeather);
+  tryCall('loadForecastDe', typeof loadForecastDe !== 'undefined' && loadForecastDe);
+  tryCall('loadWindDe', typeof loadWindDe !== 'undefined' && loadWindDe);
+  tryCall('loadGenerationRES', typeof loadGenerationRES !== 'undefined' && loadGenerationRES);
+  tryCall('loadMagma', typeof loadMagma !== 'undefined' && loadMagma);
+  tryCall('loadVdtKpi', typeof loadVdtKpi !== 'undefined' && loadVdtKpi);
+  tryCall('loadCenaTable', typeof loadCenaTable !== 'undefined' && loadCenaTable);
+  tryCall('load7dStats', typeof load7dStats !== 'undefined' && load7dStats);
+  tryCall('loadYearlyProfile', typeof loadYearlyProfile !== 'undefined' && loadYearlyProfile);
   try {
     if (typeof loadSpotTable === 'function') {
       tasks.push(loadSpotTable('CZ', 'tbl-CZ').catch(e=>{}));
