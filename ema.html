@@ -430,7 +430,7 @@ function renderBacktest(rows, ema) {
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
     if (Math.abs(sig) < 30) continue;
-    if (vdt === null) { skipNoVdt++; continue; }
+    if (vdt === null || vdt === 0) { skipNoVdt++; continue; }  // 0 VDT = nepublikovano
     
     const direction = sig > 0 ? +1 : -1;
     // NET = direction × (Odch - VDT)
@@ -537,8 +537,15 @@ async function loadWeekBacktest() {
           fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }),
           fetch(`${API_URL}/ote/vdt?date=${date}`, { cache: 'no-store' })
         ]);
-        const dO = await rO.json();
-        const dV = await rV.json();
+        if (!rO.ok || !rV.ok) {
+          return { date, error: `HTTP ${rO.status}/${rV.status}`, trades: 0, wins: 0, net: 0, qhWithVdt: 0 };
+        }
+        // Safe JSON parse
+        const txtO = await rO.text();
+        const txtV = await rV.text();
+        let dO, dV;
+        try { dO = JSON.parse(txtO); } catch(e) { return { date, error: 'API odpověděl HTML místo JSON', trades: 0, wins: 0, net: 0, qhWithVdt: 0 }; }
+        try { dV = JSON.parse(txtV); } catch(e) { dV = { data: [] }; }
         return computeDayBacktest(date, dO, dV);
       } catch(e) {
         return { date, error: e.message, trades: 0, wins: 0, net: 0, qhWithVdt: 0 };
@@ -656,7 +663,7 @@ function computeDayBacktest(date, dOdch, dVdt) {
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
     if (Math.abs(sig) < 30) continue;
-    if (vdt === null) continue;
+    if (vdt === null || vdt === 0) continue;
     
     const direction = sig > 0 ? +1 : -1;
     const net = direction * (actual - vdt);
