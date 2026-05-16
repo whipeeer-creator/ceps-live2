@@ -165,6 +165,39 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   </div>
 </div>
 
+<h2>📅 Backtest posledních 7 dnů</h2>
+<div class="row" style="grid-template-columns: 1fr;">
+  <div class="card" style="padding: 0;">
+    <table>
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Den</th>
+          <th>QH (s VDT)</th>
+          <th>Trades</th>
+          <th>Win %</th>
+          <th>NET EUR</th>
+          <th>Avg €/trade</th>
+          <th>Graf</th>
+        </tr>
+      </thead>
+      <tbody id="weekTable">
+        <tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">načítám…</td></tr>
+      </tbody>
+      <tfoot>
+        <tr id="weekTotal" style="background:#fff8e1;font-weight:700;">
+          <td colspan="3">SUMA 7 dnů</td>
+          <td id="wkTrades">—</td>
+          <td id="wkWR">—</td>
+          <td id="wkNet">—</td>
+          <td id="wkAvg">—</td>
+          <td id="wkBar"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
 <h2>📈 Historická referenční čísla (NET spread Odch−VDT)</h2>
 <div class="row">
   <div class="card">
@@ -192,7 +225,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 <script>
 const KURZ = 24.5;
 const ALPHA = 2/9;
-const LAG = 6;
+const LAG = 4;  // T-40 - Tom tradeu QH(i) ze signalu EMA8 z dat T-60 stara
 let API_URL = window.location.origin;
 
 async function loadAll() {
@@ -227,22 +260,31 @@ async function loadAll() {
     }
     
     const rows = [];
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    // ČEPS publikuje cenu cca 15 min po skončení QH
+    // → QH končící v X může mít publikovanou cenu od X+15 min
+    // BACKTEST: bereme jen QH co skončila aspoň 15 min nazpátek
     for (const row of dOdch.rows) {
       const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
       const interval = row['Interval'] || '';
       const date = row['Date'] || '';
       if (!interval) continue;
+      
+      // Parse QH start a check jestli je v minulosti + publikační lag
+      const tm = interval.match(/^(\d{1,2}):(\d{2})/);
+      if (!tm) continue;
+      const qhStartMin = parseInt(tm[1]) * 60 + parseInt(tm[2]);
+      const qhEndMin = qhStartMin + 15;
+      // Skip future + nedavno skončené QH (čekáme aspoň 15min publikační lag)
+      if (qhEndMin + 15 > nowMin) continue;
+      
       const odch_eur = price_kc / KURZ;
-      // Normalizuj klíč pro lookup - extraktuj start HH:MM
-      const m = interval.match(/^(\d{1,2}):(\d{2})/);
-      let lookupKey = interval;
-      if (m) {
-        const hh = m[1].padStart(2,'0');
-        const mm = m[2];
-        let endMM = parseInt(mm) + 15, endHH = parseInt(hh);
-        if (endMM >= 60) { endMM = 0; endHH++; }
-        lookupKey = `${hh}:${mm}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
-      }
+      const hh = tm[1].padStart(2,'0');
+      const mm = tm[2];
+      let endMM = parseInt(mm) + 15, endHH = parseInt(hh);
+      if (endMM >= 60) { endMM = 0; endHH++; }
+      const lookupKey = `${hh}:${mm}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
       const vdt_eur = vdtMap[lookupKey] !== undefined ? vdtMap[lookupKey] : (vdtMap[interval] !== undefined ? vdtMap[interval] : null);
       rows.push({
         date, interval,
@@ -438,7 +480,150 @@ function renderBacktest(rows, ema) {
 }
 
 loadAll();
+loadWeekBacktest();
 setInterval(loadAll, 60000);
+setInterval(loadWeekBacktest, 30 * 60000);  // refresh week kazdych 30 min
+
+async function loadWeekBacktest() {
+  const tbody = document.getElementById('weekTable');
+  if (!tbody) return;
+  
+  // Posledních 7 dní + dnes (8 dní celkem, ale dnes je incomplete)
+  const days = [];
+  for (let d = 7; d >= 1; d--) {
+    const dt = new Date(Date.now() - d * 86400000);
+    days.push(dt.toISOString().slice(0, 10));
+  }
+  
+  // Fetch paralelně
+  const promises = days.map(async (date) => {
+    try {
+      const [rO, rV] = await Promise.all([
+        fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }),
+        fetch(`${API_URL}/ote/vdt?date=${date}`, { cache: 'no-store' })
+      ]);
+      const dO = await rO.json();
+      const dV = await rV.json();
+      return computeDayBacktest(date, dO, dV);
+    } catch(e) {
+      return { date, error: e.message, trades: 0, wins: 0, net: 0, qhWithVdt: 0 };
+    }
+  });
+  
+  const results = await Promise.all(promises);
+  
+  // Render
+  let totalTrades = 0, totalWins = 0, totalNet = 0;
+  let maxAbs = Math.max(...results.map(r => Math.abs(r.net || 0)), 1);
+  
+  let html = '';
+  const dnyNames = ['Ne','Po','Út','St','Čt','Pá','So'];
+  for (const r of results) {
+    if (r.error) {
+      html += `<tr><td>${r.date}</td><td colspan="7" style="color:#c62828;">${r.error}</td></tr>`;
+      continue;
+    }
+    const dt = new Date(r.date);
+    const denName = dnyNames[dt.getDay()];
+    const wr = r.trades > 0 ? (r.wins / r.trades * 100).toFixed(0) : 0;
+    const avg = r.trades > 0 ? (r.net / r.trades).toFixed(1) : 0;
+    const barColor = r.net >= 0 ? 'bar-pos' : 'bar-neg';
+    const barW = Math.min(100, Math.abs(r.net) / maxAbs * 100);
+    
+    html += `<tr>
+      <td>${r.date}</td>
+      <td><b>${denName}</b></td>
+      <td>${r.qhWithVdt}</td>
+      <td>${r.trades}</td>
+      <td>${wr}%</td>
+      <td class="${r.net >= 0 ? 'green' : 'red'}"><b>${r.net >= 0 ? '+' : ''}${r.net.toFixed(0)}</b></td>
+      <td class="${avg >= 0 ? 'green' : 'red'}">${avg >= 0 ? '+' : ''}${avg}</td>
+      <td><div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div></td>
+    </tr>`;
+    
+    totalTrades += r.trades;
+    totalWins += r.wins;
+    totalNet += r.net;
+  }
+  tbody.innerHTML = html;
+  
+  // Footer
+  const wkWR = totalTrades > 0 ? (totalWins / totalTrades * 100).toFixed(0) + '%' : '—';
+  const wkAvg = totalTrades > 0 ? (totalNet / totalTrades).toFixed(1) : '0';
+  document.getElementById('wkTrades').textContent = totalTrades;
+  document.getElementById('wkWR').textContent = wkWR;
+  document.getElementById('wkNet').innerHTML = `<span class="${totalNet >= 0 ? 'green' : 'red'}">${totalNet >= 0 ? '+' : ''}${totalNet.toFixed(0)} EUR</span>`;
+  document.getElementById('wkAvg').innerHTML = `<span class="${wkAvg >= 0 ? 'green' : 'red'}">${wkAvg >= 0 ? '+' : ''}${wkAvg} €</span>`;
+}
+
+function computeDayBacktest(date, dOdch, dVdt) {
+  const result = { date, trades: 0, wins: 0, losses: 0, net: 0, qhWithVdt: 0 };
+  
+  if (!dOdch.rows || dOdch.rows.length === 0) return result;
+  
+  // VDT lookup
+  const vdtMap = {};
+  const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt.data || []);
+  for (const v of vdtList) {
+    const ts = v.timestamp || v.ts || '';
+    const m = ts.match(/T(\d{2}):(\d{2})/);
+    if (!m) continue;
+    const hh = m[1], mm = parseInt(m[2]);
+    let endMM = mm + 15, endHH = parseInt(hh);
+    if (endMM >= 60) { endMM = 0; endHH++; }
+    const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+    const priceEur = parseFloat(v.last);
+    if (!isNaN(priceEur)) vdtMap[interval] = priceEur;
+  }
+  
+  // Parse Odch rows
+  const rows = [];
+  for (const row of dOdch.rows) {
+    const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+    const interval = row['Interval'] || '';
+    if (!interval) continue;
+    const odch_eur = price_kc / KURZ;
+    const m = interval.match(/^(\d{1,2}):(\d{2})/);
+    let lookupKey = interval;
+    if (m) {
+      const hh = m[1].padStart(2,'0');
+      const mm = m[2];
+      let endMM = parseInt(mm) + 15, endHH = parseInt(hh);
+      if (endMM >= 60) { endMM = 0; endHH++; }
+      lookupKey = `${hh}:${mm}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+    }
+    const vdt_eur = vdtMap[lookupKey] !== undefined ? vdtMap[lookupKey] : null;
+    rows.push({ interval, odch: odch_eur, vdt: vdt_eur });
+    if (vdt_eur !== null) result.qhWithVdt++;
+  }
+  
+  if (rows.length < LAG + 1) return result;
+  
+  // EMA8
+  const prices = rows.map(r => r.odch);
+  const ema = [prices[0]];
+  for (let i = 1; i < prices.length; i++) {
+    ema.push(ALPHA * prices[i] + (1 - ALPHA) * ema[i-1]);
+  }
+  
+  // Backtest
+  for (let i = LAG; i < rows.length; i++) {
+    const sig = ema[i - LAG];
+    const actual = rows[i].odch;
+    const vdt = rows[i].vdt;
+    if (Math.abs(sig) < 1) continue;
+    if (vdt === null) continue;
+    
+    const direction = sig > 0 ? +1 : -1;
+    const net = direction * (actual - vdt);
+    result.net += net;
+    result.trades++;
+    if (net > 0) result.wins++;
+    else if (net < 0) result.losses++;
+  }
+  
+  return result;
+}
 </script>
 </body>
 </html>
