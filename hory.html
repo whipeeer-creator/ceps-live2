@@ -3381,3 +3381,61 @@ function drawMagmaChart(canvas, solar, wind) {
   ctx.textAlign = 'center'; ctx.fillText('Power MW', 0, 0); ctx.restore();
 }
 
+// =============================================================
+// CENTRAL DISPATCHER
+// =============================================================
+async function loadAll() {
+  if (!API_URL) return;
+  if (typeof setDot === 'function') setDot('idle', 'Načítám…');
+  const errEl = document.getElementById('err');
+  if (errEl) errEl.style.display = 'none';
+  const tasks = [];
+  // Volej kazdou funkci pokud existuje
+  const loaders = [
+    'loadMain', 'loadFreq', 'loadCena', 'loadCenaRE', 'loadOteSpot', 'loadQh',
+    'loadWeather', 'loadForecastDe', 'loadWindDe', 'loadGenerationRES',
+    'loadMagma', 'loadVdtKpi', 'loadCenaTable', 'load7dStats', 'loadYearlyProfile'
+  ];
+  for (const name of loaders) {
+    try {
+      if (typeof window[name] === 'function') tasks.push(window[name]());
+    } catch(e) { console.warn(name, e); }
+  }
+  // Cena tabulky CZ/DE
+  try {
+    if (typeof loadSpotTable === 'function') {
+      tasks.push(loadSpotTable('CZ', 'tbl-CZ'));
+      tasks.push(loadSpotTable('DE', 'tbl-DE'));
+    }
+  } catch(e) {}
+  try {
+    await Promise.allSettled(tasks);
+    if (typeof setDot === 'function') setDot('ok', 'OK');
+  } catch(e) {
+    console.error('loadAll error:', e);
+    if (typeof setDot === 'function') setDot('err', 'Chyba');
+  }
+}
+
+function setRefresh(seconds) {
+  if (typeof refreshTimer !== 'undefined' && refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+  if (typeof countdownTimer !== 'undefined' && countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  if (!seconds || seconds <= 0) return;
+  refreshTimer = setInterval(() => { loadAll(); }, seconds * 1000);
+  let remaining = seconds;
+  const tozEl = document.getElementById('toz');
+  if (tozEl) tozEl.textContent = remaining + 's';
+  countdownTimer = setInterval(() => {
+    remaining--;
+    if (remaining < 0) remaining = seconds;
+    if (tozEl) tozEl.textContent = remaining + 's';
+  }, 1000);
+}
+
+function setDot(cls, txt) {
+  const dot = document.getElementById('dot');
+  const badge = document.getElementById('badge');
+  if (dot) dot.className = 'dot ' + cls + (cls === 'idle' ? ' anim' : '');
+  if (badge) badge.textContent = txt || '';
+}
+
