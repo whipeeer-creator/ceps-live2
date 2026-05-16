@@ -259,6 +259,20 @@ canvas { max-width: 100%; display: block; }
   <div class="chart-panel">
     <div class="panel-hdr">
       <div>
+        <div class="panel-title">MAGMA Weather Praha · 48h forecast</div>
+        <div class="panel-sub">Solar radiation · Wind 100m · Temperatura · Cloud cover · MetDesk blended model</div>
+      </div>
+      <div id="magmaMeta" style="font-size:11px;color:#666;"></div>
+    </div>
+    <div class="panel-body">
+      <canvas id="magmaCanvas" height="380" style="width:100%;height:380px;display:block;"></canvas>
+      <div id="magmaLegend" style="display:flex;gap:15px;flex-wrap:wrap;font-size:11px;margin-top:8px;justify-content:center;"></div>
+    </div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
         <div class="panel-title">Výroba z OZE · ČR — actual + forecast</div>
         <div class="panel-sub">dnes 06:00–19:00 · ČEPS GenerationRES (minutová) + ENTSO-E Solar Forecast (15min step)</div>
       </div>
@@ -2728,6 +2742,7 @@ async function loadCena() {
 
 // Throttling pro pomalé endpointy
 let _lastResLoad = 0;
+let _lastAoLoad = 0;
 let _lastCenaTableLoad = 0;
 let _lastYearlyLoad = 0;
 let _lastWeatherLoad = 0;
@@ -2736,6 +2751,7 @@ const RES_THROTTLE_MS  = 60 * 1000;
 const CENA_TABLE_THROTTLE_MS = 60 * 1000;
 const YEARLY_THROTTLE_MS = 30 * 60 * 1000;  // 30min - data se meni jen 1x denne
 const WEATHER_THROTTLE_MS = 60 * 60 * 1000;  // 1 hodina - pocasi se nemeni rychle, setrime rate limit
+const AO_THROTTLE_MS = 60 * 60 * 1000;  // 1h - MAGMA Weather forecast updatuje hh:40
 const VDT_KPI_THROTTLE_MS = 5 * 60 * 1000;  // 5 min - VDT XLSX zpozdeni ~1h
 
 // Mini fetch jen pro KPI kartu (poslední VDT cena + čas)
@@ -3146,6 +3162,205 @@ async function exportDay() {
   }
 }
 
+async function loadMagma() {
+  if (!API_URL) return;
+  try {
+    const r = await fetch(`${API_URL}/metdesk/magma?location=Prague&elements=rad,ff_100m,tt,ne`, { cache: 'no-store' });
+    const d = await r.json();
+    const canvas = document.getElementById('magmaCanvas');
+    const meta = document.getElementById('magmaMeta');
+    const legend = document.getElementById('magmaLegend');
+    if (!canvas) return;
+    if (d.error) {
+      if (meta) meta.textContent = d.error;
+      const ctx = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width; canvas.height = rect.height;
+      ctx.clearRect(0,0,canvas.width,canvas.height);
+      ctx.fillStyle = '#999'; ctx.font = '14px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(d.error, canvas.width/2, canvas.height/2);
+      return;
+    }
+    const s = d.series || {};
+    const tot = Object.values(s).reduce((a,b)=>a+(b?.length||0),0);
+    if (tot === 0) { if (meta) meta.textContent = 'Žádná data'; return; }
+    if (meta) meta.textContent = `${d.location} · issue ${(d.issue||'').slice(0,16)} · ${d._cache==='hit'?'cache':'live'}`;
+    drawMagmaChart(canvas, s);
+    
+    // Legend
+    if (legend) {
+      const cfg = [
+        {key:'rad', label:'Solar (W/m²)', color:'#f57c00'},
+        {key:'ff_100m', label:'Vítr 100m (m/s)', color:'#2196f3'},
+        {key:'tt', label:'Teplota (°C)', color:'#e53935'},
+        {key:'ne', label:'Oblačnost (Octas)', color:'#757575'},
+      ];
+      legend.innerHTML = cfg.map(c => 
+        `<span style="display:inline-flex;align-items:center;gap:5px;"><span style="width:14px;height:3px;background:${c.color};"></span>${c.label}</span>`
+      ).join('');
+    }
+  } catch(e) { console.warn('MAGMA:', e); }
+}
+
+function drawMagmaChart(canvas, series) {
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr; canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d'); ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const PAD = { left: 55, right: 60, top: 20, bottom: 40 };
+  const cW = W - PAD.left - PAD.right, cH = H - PAD.top - PAD.bottom;
+  ctx.clearRect(0,0,W,H);
+  
+  // Sber all timestamps (z rad jako reference)
+  const allPts = series.rad || series.tt || [];
+  if (!allPts.length) return;
+  
+  // Omezit na 48h
+  const tNow = Date.now();
+  const tEnd = tNow + 48*3600*1000;
+  const filterTime = arr => (arr||[]).filter(p => {
+    const t = new Date(p.ts).getTime();
+    return t >= tNow - 3*3600*1000 && t <= tEnd;
+  });
+  
+  const rad = filterTime(series.rad);
+  const wind = filterTime(series.ff_100m);
+  const temp = filterTime(series.tt);
+  const cloud = filterTime(series.ne);
+  
+  if (!rad.length && !temp.length) return;
+  
+  const refSeries = rad.length ? rad : temp;
+  const times = refSeries.map(p => new Date(p.ts).getTime());
+  const tMin = Math.min(...times), tMax = Math.max(...times);
+  
+  const xT = t => PAD.left + (t - tMin) / (tMax - tMin) * cW;
+  
+  // 2 y-axes:
+  //   Left: rad (0-1000 W/m²) + ff_100m (0-20 m/s scaled to 0-1000 * 50)
+  //   Right: tt (-10 to +30 °C) + ne (0-8 Octas scaled)
+  
+  // Left axis range
+  const radMax = Math.max(1000, ...rad.map(p=>p.value));
+  const windMax = Math.max(15, ...wind.map(p=>p.value));
+  
+  // Right axis range
+  const tempVals = temp.map(p=>p.value);
+  const tempMin = tempVals.length ? Math.floor(Math.min(...tempVals) - 2) : -10;
+  const tempMax = tempVals.length ? Math.ceil(Math.max(...tempVals) + 2) : 30;
+  
+  const yRad = v => PAD.top + (1 - v/radMax) * cH;
+  const yWind = v => PAD.top + (1 - v/windMax) * cH;
+  const yTemp = v => PAD.top + (1 - (v-tempMin)/(tempMax-tempMin)) * cH;
+  const yCloud = v => PAD.top + (1 - v/8) * cH;
+  
+  // Grid
+  ctx.strokeStyle = '#eee'; ctx.lineWidth = 1;
+  for (let i=0; i<=4; i++) {
+    const y = PAD.top + (cH * i / 4);
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
+  }
+  
+  // Vertical lines per 6h
+  const dayMs = 86400000;
+  ctx.strokeStyle = '#f5f5f5';
+  for (let t = Math.ceil(tMin/(6*3600000))*6*3600000; t <= tMax; t += 6*3600000) {
+    const x = xT(t);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + cH); ctx.stroke();
+  }
+  
+  // Now line
+  if (tNow >= tMin && tNow <= tMax) {
+    ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]);
+    const x = xT(tNow);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + cH); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#1a1a2e'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText('NOW', x, PAD.top - 6);
+  }
+  
+  // Y-axis left (Solar W/m²)
+  ctx.fillStyle = '#f57c00'; ctx.font = '11px sans-serif'; ctx.textAlign = 'right';
+  for (let v=0; v<=radMax; v+=200) {
+    ctx.fillText(v, PAD.left - 5, yRad(v) + 3);
+  }
+  ctx.save(); ctx.translate(12, PAD.top + cH/2); ctx.rotate(-Math.PI/2);
+  ctx.textAlign = 'center'; ctx.fillText('Solar W/m²  ·  Vítr m/s ×50', 0, 0); ctx.restore();
+  
+  // Y-axis right (Temp °C)
+  ctx.fillStyle = '#e53935'; ctx.textAlign = 'left';
+  for (let v=tempMin; v<=tempMax; v+=5) {
+    ctx.fillText(v + '°', PAD.left + cW + 5, yTemp(v) + 3);
+  }
+  ctx.save(); ctx.translate(W - 12, PAD.top + cH/2); ctx.rotate(Math.PI/2);
+  ctx.textAlign = 'center'; ctx.fillText('Teplota °C', 0, 0); ctx.restore();
+  
+  // X-axis labels (each 6h)
+  ctx.fillStyle = '#555'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center';
+  for (let t = Math.ceil(tMin/(6*3600000))*6*3600000; t <= tMax; t += 6*3600000) {
+    const x = xT(t);
+    const d = new Date(t);
+    const hh = String(d.getHours()).padStart(2,'0');
+    const day = `${d.getDate()}.${d.getMonth()+1}`;
+    ctx.fillText(`${hh}:00`, x, H - PAD.bottom + 12);
+    ctx.fillStyle = '#999'; ctx.fillText(day, x, H - PAD.bottom + 24);
+    ctx.fillStyle = '#555';
+  }
+  
+  // Solar (orange filled area)
+  if (rad.length) {
+    ctx.fillStyle = 'rgba(245, 124, 0, 0.15)';
+    ctx.beginPath();
+    rad.forEach((p, i) => {
+      const x = xT(new Date(p.ts).getTime()), y = yRad(p.value);
+      if (i === 0) { ctx.moveTo(x, PAD.top + cH); ctx.lineTo(x, y); }
+      else ctx.lineTo(x, y);
+    });
+    if (rad.length) ctx.lineTo(xT(new Date(rad[rad.length-1].ts).getTime()), PAD.top + cH);
+    ctx.closePath(); ctx.fill();
+    
+    ctx.strokeStyle = '#f57c00'; ctx.lineWidth = 2; ctx.beginPath();
+    rad.forEach((p, i) => {
+      const x = xT(new Date(p.ts).getTime()), y = yRad(p.value);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+  
+  // Wind (blue line, scaled)
+  if (wind.length) {
+    ctx.strokeStyle = '#2196f3'; ctx.lineWidth = 2; ctx.beginPath();
+    wind.forEach((p, i) => {
+      const x = xT(new Date(p.ts).getTime());
+      const y = PAD.top + (1 - p.value/windMax) * cH;
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+  
+  // Temperature (red line, right axis)
+  if (temp.length) {
+    ctx.strokeStyle = '#e53935'; ctx.lineWidth = 2.5; ctx.beginPath();
+    temp.forEach((p, i) => {
+      const x = xT(new Date(p.ts).getTime()), y = yTemp(p.value);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+  
+  // Cloud cover (gray dashed)
+  if (cloud.length) {
+    ctx.strokeStyle = '#757575'; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]); ctx.beginPath();
+    cloud.forEach((p, i) => {
+      const x = xT(new Date(p.ts).getTime()), y = yCloud(p.value);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+}
+
 async function loadAll() {
   if (!API_URL) return;
   setDot('idle', 'Načítám…');
@@ -3175,6 +3390,11 @@ async function loadAll() {
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
+    }
+    // MAGMA Weather - throttle 1h (forecast se update kazdou hodinu hh:40)
+    if (now - _lastAoLoad > AO_THROTTLE_MS) {
+      _lastAoLoad = now;
+      tasks.push(loadMagma());
     }
     // VDT KPI karta - throttle 5min (data se mění s ~1h zpožděním)
     if (now - _lastVdtKpiLoad > VDT_KPI_THROTTLE_MS) {

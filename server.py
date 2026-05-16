@@ -661,6 +661,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/weather":
             self._weather(qs); return
 
+        if parsed.path == "/metdesk/magma":
+            self._metdesk_magma(qs); return
+
         if parsed.path == "/wind-de":
             self._wind_de(qs); return
 
@@ -1776,6 +1779,76 @@ class Handler(BaseHTTPRequestHandler):
             self._json(out)
         except Exception as e:
             print(f"  -> Weather ERROR: {e}", flush=True)
+            self._json({"error": str(e)}, 502)
+
+    def _metdesk_magma(self, qs):
+        """MetDesk MAGMA Weather API - solar radiation, wind, temperature, cloud.
+        Cache 1h (MAGMA updates hh:40 each hour).
+        Query: ?location=Prague&elements=rad,ff_100m,tt,ne
+        """
+        try:
+            import urllib.request
+            api_key = os.environ.get("METDESK_API_KEY", "")
+            if not api_key:
+                self._json({"error": "METDESK_API_KEY not configured"}, 200); return
+
+            if "_MAGMA_CACHE" not in globals():
+                globals()["_MAGMA_CACHE"] = {}
+            cache_key = f"{qs.get('location',['Prague'])[0]}|{qs.get('elements',['rad,ff_100m,tt,ne'])[0]}"
+            cache_all = globals()["_MAGMA_CACHE"]
+            now = time.time()
+            if cache_key in cache_all and (now - cache_all[cache_key]["ts"]) < 3600:
+                out = dict(cache_all[cache_key]["data"]); out["_cache"] = "hit"
+                out["_age_sec"] = int(now - cache_all[cache_key]["ts"])
+                self._json(out); return
+
+            location = qs.get("location", ["Prague"])[0]
+            elements = qs.get("elements", ["rad,ff_100m,tt,ne"])[0]
+
+            # Get latest issue
+            issues_url = "https://api.metdesk.com/get/metdesk/magmaweather/v1/issues"
+            req = urllib.request.Request(issues_url, headers={"Authorization": api_key})
+            with urllib.request.urlopen(req, timeout=15) as r:
+                issues_raw = json.loads(r.read().decode("utf-8"))
+            issues_data = issues_raw.get("data", [])
+            if not issues_data:
+                self._json({"error": "No issues available"}, 200); return
+            latest = issues_data[-1]
+            latest_issue = latest.get("issue") if isinstance(latest, dict) else latest
+
+            # Fetch forecast
+            fc_url = (f"https://api.metdesk.com/get/metdesk/magmaweather/v1/forecasts"
+                      f"?issue={latest_issue}&location={location}&interval=1h")
+            req = urllib.request.Request(fc_url, headers={"Authorization": api_key})
+            with urllib.request.urlopen(req, timeout=20) as r:
+                raw = json.loads(r.read().decode("utf-8"))
+
+            # Parse forecasts (struktura: array of {dtg, tt, rad, ff_100m, ne, ...})
+            data = raw.get("data", [])
+            elem_list = elements.split(",")
+            series = {e: [] for e in elem_list}
+            for item in data:
+                dtg = item.get("dtg") or item.get("dt") or item.get("datetime")
+                if not dtg: continue
+                for elem in elem_list:
+                    val = item.get(elem)
+                    if val is None: continue
+                    try: vf = float(val)
+                    except: continue
+                    series[elem].append({"ts": dtg, "value": vf})
+
+            out = {
+                "location": location,
+                "issue": latest_issue,
+                "series": series,
+                "n_points": {k: len(v) for k, v in series.items()},
+                "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss"
+            }
+            cache_all[cache_key] = {"ts": now, "data": {k: v for k, v in out.items() if k != "_cache"}}
+            self._json(out)
+        except Exception as e:
+            print(f"  -> MAGMA ERROR: {e}", flush=True)
             self._json({"error": str(e)}, 502)
 
     def _forecast_de(self, qs):
