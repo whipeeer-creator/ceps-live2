@@ -177,7 +177,8 @@ canvas { max-width: 100%; display: block; }
   </div>
 
   <div class="kpi-row">
-    <div class="kpi" id="crd-OZE5" style="grid-column: span 4;"><div class="kpi-l">OZE forecast · příštích 5 hodin (ENTSO-E intraday)</div><div class="kpi-v" id="dv-OZE5">—<span class="kpi-u">MW prům</span></div><div class="kpi-s" id="ds-OZE5">—</div></div>
+    <div class="kpi" id="crd-OZE5" style="grid-column: span 2;"><div class="kpi-l">OZE forecast · příštích 5 hodin (ENTSO-E intraday)</div><div class="kpi-v" id="dv-OZE5">—<span class="kpi-u">MW prům</span></div><div class="kpi-s" id="ds-OZE5">—</div></div>
+    <div class="kpi" id="crd-OZEDIFF" style="grid-column: span 2;"><div class="kpi-l">OZE diff · actual vs forecast (právě teď)</div><div class="kpi-v" id="dv-OZEDIFF">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-OZEDIFF">—</div></div>
   </div>
 
   <div class="chart-panel">
@@ -1632,24 +1633,81 @@ function renderResStats(rows, cols, daPoints, idPoints) {
     });
     const dvE = document.getElementById('dv-OZE5');
     const dsE = document.getElementById('ds-OZE5');
-    if (!dvE || !dsE) return;
-    if (!next5.length) {
-      dvE.innerHTML = `<span style="color:#999;">—</span>`;
-      dsE.innerHTML = `<span style="color:#888;">žádná forecast data pro příštích 5h</span>`;
-      return;
+    if (dvE && dsE) {
+      if (!next5.length) {
+        dvE.innerHTML = `<span style="color:#999;">—</span>`;
+        dsE.innerHTML = `<span style="color:#888;">žádná forecast data pro příštích 5h</span>`;
+      } else {
+        const vals = next5.map(p => p.value || 0);
+        const avg = vals.reduce((a,b)=>a+b,0) / vals.length;
+        const peak = Math.max(...vals);
+        const peakIdx = vals.indexOf(peak);
+        const peakTs = new Date(next5[peakIdx].ts);
+        const peakHHMM = `${String(peakTs.getHours()).padStart(2,'0')}:${String(peakTs.getMinutes()).padStart(2,'0')}`;
+        const minV = Math.min(...vals);
+        const src = (idPoints && idPoints.length) ? 'ID' : 'DA';
+        dvE.innerHTML = `${avg.toFixed(0)}<span class="kpi-u">MW · peak ${peak.toFixed(0)} v ${peakHHMM}</span>`;
+        dsE.innerHTML = `zdroj: ENTSO-E ${src} · ${next5.length} bodů · min ${minV.toFixed(0)} MW · max ${peak.toFixed(0)} MW`;
+      }
     }
-    const vals = next5.map(p => p.value || 0);
-    const avg = vals.reduce((a,b)=>a+b,0) / vals.length;
-    const peak = Math.max(...vals);
-    const peakIdx = vals.indexOf(peak);
-    const peakTs = new Date(next5[peakIdx].ts);
-    const peakHHMM = `${String(peakTs.getHours()).padStart(2,'0')}:${String(peakTs.getMinutes()).padStart(2,'0')}`;
-    const minV = Math.min(...vals);
-    const src = (idPoints && idPoints.length) ? 'ID' : 'DA';
-
-    dvE.innerHTML = `${avg.toFixed(0)}<span class="kpi-u">MW · peak ${peak.toFixed(0)} v ${peakHHMM}</span>`;
-    dsE.innerHTML = `zdroj: ENTSO-E ${src} · ${next5.length} bodů · min ${minV.toFixed(0)} MW · max ${peak.toFixed(0)} MW`;
   } catch(e) { console.warn('OZE 5h KPI:', e); }
+
+  // === KPI: OZE diff actual vs forecast (PRAVE TED) ===
+  try {
+    // Actual = soucet posledniho CEPS radku (Solar+Wind+...)
+    const actualTotal = total; // computed above v renderResStats
+    
+    // Forecast pro aktualni cas = nejblizsi ID bod (nebo DA)
+    const now = Date.now();
+    const fcSrc = (idPoints && idPoints.length) ? idPoints : (daPoints || []);
+    // Najdi nejblizsi bod podle casu
+    let nearest = null;
+    let nearestDiff = Infinity;
+    for (const p of fcSrc) {
+      const t = new Date(p.ts).getTime();
+      const diff = Math.abs(t - now);
+      if (diff < nearestDiff) {
+        nearestDiff = diff;
+        nearest = p;
+      }
+    }
+    
+    const dvD = document.getElementById('dv-OZEDIFF');
+    const dsD = document.getElementById('ds-OZEDIFF');
+    const crd = document.getElementById('crd-OZEDIFF');
+    
+    if (!nearest || nearestDiff > 30*60*1000) {
+      // Forecast bod neni do 30 min od ted
+      if (dvD) dvD.innerHTML = `<span style="color:#999;">—</span>`;
+      if (dsD) dsD.innerHTML = `<span style="color:#888;">žádná forecast data pro tento čas</span>`;
+    } else {
+      const fcVal = nearest.value || 0;
+      const diff = actualTotal - fcVal;  // + = actual VYSSI nez forecast
+      const pct = fcVal > 0 ? (diff / fcVal * 100) : 0;
+      const src = (idPoints && idPoints.length) ? 'ID' : 'DA';
+      
+      // Barva podle smeru
+      let color, bgColor, signal;
+      if (Math.abs(diff) < 50) {
+        color = '#666'; bgColor = '#f5f5f5'; signal = 'shoda';
+      } else if (diff > 0) {
+        // Actual > Forecast = vic OZE nez cekano = PREBYTEK = SHORT bias na cenu
+        color = '#c62828'; bgColor = '#ffebee'; 
+        signal = diff > 200 ? 'silný PŘEBYTEK ⚡⚡' : 'PŘEBYTEK';
+      } else {
+        // Actual < Forecast = mene OZE = DEFICIT = LONG bias na cenu
+        color = '#2e7d32'; bgColor = '#e8f5e9';
+        signal = diff < -200 ? 'silný DEFICIT ⚡⚡' : 'DEFICIT';
+      }
+      
+      const fcTime = new Date(nearest.ts);
+      const fcHHMM = `${String(fcTime.getHours()).padStart(2,'0')}:${String(fcTime.getMinutes()).padStart(2,'0')}`;
+      
+      if (dvD) dvD.innerHTML = `<span style="color:${color};">${diff>=0?'+':''}${diff.toFixed(0)}</span><span class="kpi-u">MW · ${signal}</span>`;
+      if (dsD) dsD.innerHTML = `actual ${actualTotal.toFixed(0)} vs ${src} forecast ${fcVal.toFixed(0)} MW @ ${fcHHMM} · ${pct>=0?'+':''}${pct.toFixed(0)}%`;
+      if (crd) crd.style.background = bgColor;
+    }
+  } catch(e) { console.warn('OZE DIFF KPI:', e); }
 }
 
 let _resMeta = null;
