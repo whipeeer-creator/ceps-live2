@@ -1787,8 +1787,8 @@ class Handler(BaseHTTPRequestHandler):
         Query: ?location=Prague&elements=rad,ff_100m,tt,ne
         """
         try:
-            import urllib.request
-            api_key = os.environ.get("METDESK_API_KEY", "")
+            import urllib.request, urllib.error
+            api_key = os.environ.get("METDESK_API_KEY", "").strip()
             if not api_key:
                 self._json({"error": "METDESK_API_KEY not configured"}, 200); return
 
@@ -1805,25 +1805,45 @@ class Handler(BaseHTTPRequestHandler):
             location = qs.get("location", ["Prague"])[0]
             elements = qs.get("elements", ["rad,ff_100m,tt,ne"])[0]
 
-            # Get latest issue
+            # MetDesk auth - try multiple header formats
+            def try_fetch(url, header_value):
+                req = urllib.request.Request(url, headers={"Authorization": header_value})
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    return json.loads(r.read().decode("utf-8"))
+
             issues_url = "https://api.metdesk.com/get/metdesk/magmaweather/v1/issues"
-            req = urllib.request.Request(issues_url, headers={"Authorization": api_key})
-            with urllib.request.urlopen(req, timeout=15) as r:
-                issues_raw = json.loads(r.read().decode("utf-8"))
+            auth_formats = [api_key, f"Bearer {api_key}", f"ApiKey {api_key}", f"Token {api_key}"]
+            issues_raw = None
+            last_err = None
+            used_auth = None
+            for af in auth_formats:
+                try:
+                    issues_raw = try_fetch(issues_url, af)
+                    used_auth = af.split()[0] if ' ' in af else 'raw'
+                    break
+                except urllib.error.HTTPError as e:
+                    last_err = f"{e.code} {e.reason}"
+                    continue
+                except Exception as e:
+                    last_err = str(e)
+                    continue
+            
+            if issues_raw is None:
+                self._json({"error": f"All auth formats failed: {last_err}", 
+                           "tried": ["raw", "Bearer", "ApiKey", "Token"]}, 200); return
+
             issues_data = issues_raw.get("data", [])
             if not issues_data:
-                self._json({"error": "No issues available"}, 200); return
+                self._json({"error": "No issues available", "raw": issues_raw}, 200); return
             latest = issues_data[-1]
             latest_issue = latest.get("issue") if isinstance(latest, dict) else latest
 
-            # Fetch forecast
+            # Pouzij stejny auth format ktery funguje
+            working_auth = auth_formats[["raw","Bearer","ApiKey","Token"].index(used_auth)] if used_auth else api_key
             fc_url = (f"https://api.metdesk.com/get/metdesk/magmaweather/v1/forecasts"
                       f"?issue={latest_issue}&location={location}&interval=1h")
-            req = urllib.request.Request(fc_url, headers={"Authorization": api_key})
-            with urllib.request.urlopen(req, timeout=20) as r:
-                raw = json.loads(r.read().decode("utf-8"))
+            raw = try_fetch(fc_url, working_auth)
 
-            # Parse forecasts (struktura: array of {dtg, tt, rad, ff_100m, ne, ...})
             data = raw.get("data", [])
             elem_list = elements.split(",")
             series = {e: [] for e in elem_list}
@@ -1841,6 +1861,7 @@ class Handler(BaseHTTPRequestHandler):
                 "location": location,
                 "issue": latest_issue,
                 "series": series,
+                "auth_used": used_auth,
                 "n_points": {k: len(v) for k, v in series.items()},
                 "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "_cache": "miss"
