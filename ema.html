@@ -356,10 +356,21 @@ function renderCurrentSignal(rows, ema) {
   const dEma = sigEma - prevEma;
   document.getElementById('emaTrend').innerHTML = 
     `Trend: ${dEma >= 0 ? '↗' : '↘'} ${dEma >= 0 ? '+' : ''}${dEma.toFixed(1)} EUR vs předch.`;
-  const lastPrice = rows[sigIdx];
+  // Posledni PUBLIKOVANA QH = posledni s NON-ZERO cenou
+  // Nezuctovane QH maji 0. True 0 (vyrovnany trh) je vzacne -
+  // zobrazi se az dalsi QH bude zuctovana.
+  let lastPriceRow = null;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].kc !== 0) {
+      lastPriceRow = rows[i];
+      break;
+    }
+  }
+  if (!lastPriceRow) lastPriceRow = rows[rows.length - 1];
+  
   document.getElementById('lastPrice').innerHTML = 
-    `${lastPrice.odch >= 0 ? '+' : ''}${lastPrice.odch.toFixed(1)}<span class="u">EUR/MWh</span>`;
-  document.getElementById('lastPriceInterval').textContent = `${lastPrice.interval}`;
+    `${lastPriceRow.odch >= 0 ? '+' : ''}${lastPriceRow.odch.toFixed(1)}<span class="u">EUR/MWh</span>`;
+  document.getElementById('lastPriceInterval').textContent = `${lastPriceRow.interval}`;
 }
 
 function predictNextInterval(lastInterval) {
