@@ -326,8 +326,10 @@ async function loadAll() {
 
 function renderCurrentSignal(rows, ema) {
   const n = rows.length;
-  if (n < LAG + 1) return;
-  const sigIdx = n - 1 - LAG;
+  if (n < 8) return;
+  // Live signal: EMA8 z VŠECH dostupných dat (poslední publikovaná)
+  // V čase tradu (T-40) bude Tom mít k dispozici stejně aktuální data
+  const sigIdx = n - 1;
   const sigEma = ema[sigIdx];
   
   // T-40 RULE: nejbližší tradovatelná QH musí začínat nejméně 40 min od NOW
@@ -394,7 +396,9 @@ function renderEmaTable(rows, ema) {
   if (n < 8) return;
   const tbody = document.getElementById('emaTable');
   const startIdx = Math.max(0, n - 8);
-  const sigIdx = n - 1 - LAG;
+  // EMA8 pro tradable QH (T+40 budoucnost) se počítá z VŠECH publikovaných dat
+  // Poslední řádek tabulky = poslední data použitá pro EMA8 výpočet
+  const sigIdx = n - 1;  // poslední publikovaná QH
   let html = '';
   for (let i = startIdx; i < n; i++) {
     const r = rows[i];
@@ -407,7 +411,7 @@ function renderEmaTable(rows, ema) {
     const maxAbs = Math.max(...rows.slice(startIdx).map(x => Math.abs(x.odch)));
     const barW = maxAbs > 0 ? Math.min(100, Math.abs(eur)/maxAbs*100) : 0;
     html += `<tr class="${cls}">
-      <td>${r.interval}${isLag ? ' <span style="color:#1565c0;font-size:9px;">← LAG4 signál</span>' : ''}</td>
+      <td>${r.interval}${isLag ? ' <span style="color:#1565c0;font-size:9px;">← poslední data EMA8</span>' : ''}</td>
       <td class="${eur >= 0 ? 'green' : 'red'}">${eur >= 0 ? '+' : ''}${eur.toFixed(1)}</td>
       <td class="${ema[i] >= 0 ? 'green' : 'red'}">${ema[i] >= 0 ? '+' : ''}${ema[i].toFixed(1)}</td>
       <td>${weightPct}%</td>
