@@ -617,17 +617,21 @@ function computeDayBacktest(date, dOdch, dVdt) {
     if (vdt_eur !== null) result.qhWithVdt++;
   }
   
-  if (rows.length < LAG + 1) return result;
+  if (rows.length < 12) return result;  // potřebujeme warmup + LAG
   
-  // EMA8
+  // EMA8 - warm-up first 8 QH (init průměrem)
   const prices = rows.map(r => r.odch);
-  const ema = [prices[0]];
+  // Inicializuj EMA jako průměr prvních 8 cen (lepší než single point)
+  const initAvg = prices.slice(0, 8).reduce((s,p) => s+p, 0) / 8;
+  const ema = [];
+  ema[0] = initAvg;
   for (let i = 1; i < prices.length; i++) {
     ema.push(ALPHA * prices[i] + (1 - ALPHA) * ema[i-1]);
   }
   
-  // Backtest
-  for (let i = LAG; i < rows.length; i++) {
+  // Backtest - SKIP prvních 8 QH (warm-up period)
+  const startIdx = Math.max(LAG, 8);
+  for (let i = startIdx; i < rows.length; i++) {
     const sig = ema[i - LAG];
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
