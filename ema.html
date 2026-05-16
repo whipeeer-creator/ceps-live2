@@ -102,7 +102,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 <h2>📊 Dnešní backtest @ 1 MWh (NET spread Odch−VDT)</h2>
 <div class="row">
   <div class="card">
-    <div class="card-l">NET Profit dnes (LAG6)</div>
+    <div class="card-l">NET Profit dnes (LAG4)</div>
     <div class="card-v big" id="bkProfit">—<span class="u">EUR</span></div>
     <div class="card-s" id="bkProfitKc">—</div>
   </div>
@@ -294,6 +294,11 @@ async function loadAll() {
       });
     }
     
+    // ORIZNI TRAILING ZEROS - to jsou nezuctovane QH na konci
+    while (rows.length > 0 && rows[rows.length-1].kc === 0) {
+      rows.pop();
+    }
+    
     if (rows.length === 0) {
       document.getElementById('metaInfo').textContent = 'Žádná validní data';
       return;
@@ -402,7 +407,7 @@ function renderEmaTable(rows, ema) {
     const maxAbs = Math.max(...rows.slice(startIdx).map(x => Math.abs(x.odch)));
     const barW = maxAbs > 0 ? Math.min(100, Math.abs(eur)/maxAbs*100) : 0;
     html += `<tr class="${cls}">
-      <td>${r.interval}${isLag ? ' <span style="color:#1565c0;font-size:9px;">← LAG6 signál</span>' : ''}</td>
+      <td>${r.interval}${isLag ? ' <span style="color:#1565c0;font-size:9px;">← LAG4 signál</span>' : ''}</td>
       <td class="${eur >= 0 ? 'green' : 'red'}">${eur >= 0 ? '+' : ''}${eur.toFixed(1)}</td>
       <td class="${ema[i] >= 0 ? 'green' : 'red'}">${ema[i] >= 0 ? '+' : ''}${ema[i].toFixed(1)}</td>
       <td>${weightPct}%</td>
@@ -623,8 +628,13 @@ function computeDayBacktest(date, dOdch, dVdt) {
       lookupKey = `${hh}:${mm}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
     }
     const vdt_eur = vdtMap[lookupKey] !== undefined ? vdtMap[lookupKey] : null;
-    rows.push({ interval, odch: odch_eur, vdt: vdt_eur });
+    rows.push({ interval, odch: odch_eur, vdt: vdt_eur, kc: price_kc });
     if (vdt_eur !== null) result.qhWithVdt++;
+  }
+  
+  // Orizni trailing zeros (nezuctovane na konci)
+  while (rows.length > 0 && rows[rows.length-1].kc === 0) {
+    rows.pop();
   }
   
   if (rows.length < 12) return result;  // potřebujeme warmup + LAG
