@@ -372,6 +372,11 @@ if (apiFromUrl) document.getElementById('apiInput').value = apiFromUrl;
         document.getElementById('setupModal').style.display = 'none';
         initRegelleistungAfrr();
         loadAll();
+        // Volat MAGMA Power Generation primo
+        if (typeof loadMagma === 'function') {
+          loadMagma();
+          setInterval(loadMagma, 3600000);
+        }
         setRefresh(+document.getElementById('rsel').value);
       }, 100);
     }
@@ -385,6 +390,12 @@ function startDashboard(useLocal) {
   document.getElementById('setupModal').style.display = 'none';
   initRegelleistungAfrr();
   loadAll();
+  // Volat MAGMA Power Generation primo (loadAll mozna nezahrnuje loadMagma)
+  if (typeof loadMagma === 'function') {
+    loadMagma();
+    // Refresh kazdou hodinu
+    setInterval(loadMagma, 3600000);
+  }
   setRefresh(+document.getElementById('rsel').value);
 }
 
