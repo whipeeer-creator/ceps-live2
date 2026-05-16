@@ -131,7 +131,7 @@ canvas { max-width: 100%; display: block; }
 </style>
 </head>
 <body>
-<div id="setupModal">
+<div id="setupModal" style="display:none;">
   <div class="modal-box">
     <div class="modal-title">ČEPS <span>Live</span> Odchylky</div>
     <p class="modal-sub">Zadej URL proxy serveru pro připojení na ČEPS API.</p>
@@ -366,37 +366,40 @@ if (apiFromUrl) document.getElementById('apiInput').value = apiFromUrl;
   try {
     const origin = window.location.origin;
     if (origin && origin !== 'null' && !origin.startsWith('file:')) {
-      document.getElementById('apiInput').value = apiFromUrl || origin;
+      const inp = document.getElementById('apiInput');
+      if (inp) inp.value = apiFromUrl || origin;
       setTimeout(() => {
-        API_URL = (apiFromUrl || origin).replace(/\/$/, '');
-        document.getElementById('setupModal').style.display = 'none';
-        initRegelleistungAfrr();
-        loadAll();
-        // Volat MAGMA Power Generation primo
-        if (typeof loadMagma === 'function') {
-          loadMagma();
-          setInterval(loadMagma, 3600000);
-        }
-        setRefresh(+document.getElementById('rsel').value);
+        try {
+          API_URL = (apiFromUrl || origin).replace(/\/$/, '');
+          const m = document.getElementById('setupModal'); if (m) m.style.display = 'none';
+          try { if (typeof initRegelleistungAfrr === 'function') initRegelleistungAfrr(); } catch(e){ console.warn(e); }
+          try { if (typeof loadAll === 'function') loadAll(); } catch(e){ console.warn(e); }
+          // Volat MAGMA Power Generation primo
+          try { if (typeof loadMagma === 'function') { loadMagma(); setInterval(loadMagma, 3600000); } } catch(e){ console.warn(e); }
+          try {
+            const r = document.getElementById('rsel');
+            if (r && typeof setRefresh === 'function') setRefresh(+r.value);
+          } catch(e){ console.warn(e); }
+        } catch(e) { console.error('autoStart inner:', e); }
       }, 100);
     }
-  } catch(e) {}
+  } catch(e) { console.error('autoStart outer:', e); }
 })();
 
 function startDashboard(useLocal) {
-  API_URL = useLocal ? 'http://localhost:8765'
-    : document.getElementById('apiInput').value.trim().replace(/\/$/, '');
-  if (!API_URL) return;
-  document.getElementById('setupModal').style.display = 'none';
-  initRegelleistungAfrr();
-  loadAll();
-  // Volat MAGMA Power Generation primo (loadAll mozna nezahrnuje loadMagma)
-  if (typeof loadMagma === 'function') {
-    loadMagma();
-    // Refresh kazdou hodinu
-    setInterval(loadMagma, 3600000);
-  }
-  setRefresh(+document.getElementById('rsel').value);
+  try {
+    API_URL = useLocal ? 'http://localhost:8765'
+      : (document.getElementById('apiInput')||{}).value?.trim?.().replace(/\/$/, '') || '';
+    if (!API_URL) return;
+    const m = document.getElementById('setupModal'); if (m) m.style.display = 'none';
+    try { if (typeof initRegelleistungAfrr === 'function') initRegelleistungAfrr(); } catch(e){ console.warn(e); }
+    try { if (typeof loadAll === 'function') loadAll(); } catch(e){ console.warn(e); }
+    try { if (typeof loadMagma === 'function') { loadMagma(); setInterval(loadMagma, 3600000); } } catch(e){ console.warn(e); }
+    try {
+      const r = document.getElementById('rsel');
+      if (r && typeof setRefresh === 'function') setRefresh(+r.value);
+    } catch(e){ console.warn(e); }
+  } catch(e) { console.error('startDashboard:', e); }
 }
 
 // Toggle listeners for cena RE graf - registrovany v DOMContentLoaded
@@ -3381,16 +3384,16 @@ function drawMagmaChart(canvas, solar, wind) {
   ctx.textAlign = 'center'; ctx.fillText('Power MW', 0, 0); ctx.restore();
 }
 
+
 // =============================================================
-// CENTRAL DISPATCHER
+// CENTRAL DISPATCHER - loadAll + setRefresh
 // =============================================================
 async function loadAll() {
   if (!API_URL) return;
-  if (typeof setDot === 'function') setDot('idle', 'Načítám…');
+  try { if (typeof setDot === 'function') setDot('idle', 'Načítám…'); } catch(e){}
   const errEl = document.getElementById('err');
   if (errEl) errEl.style.display = 'none';
   const tasks = [];
-  // Volej kazdou funkci pokud existuje
   const loaders = [
     'loadMain', 'loadFreq', 'loadCena', 'loadCenaRE', 'loadOteSpot', 'loadQh',
     'loadWeather', 'loadForecastDe', 'loadWindDe', 'loadGenerationRES',
@@ -3398,30 +3401,31 @@ async function loadAll() {
   ];
   for (const name of loaders) {
     try {
-      if (typeof window[name] === 'function') tasks.push(window[name]());
+      if (typeof window[name] === 'function') tasks.push(Promise.resolve(window[name]()).catch(e => console.warn(name, e)));
     } catch(e) { console.warn(name, e); }
   }
-  // Cena tabulky CZ/DE
   try {
     if (typeof loadSpotTable === 'function') {
-      tasks.push(loadSpotTable('CZ', 'tbl-CZ'));
-      tasks.push(loadSpotTable('DE', 'tbl-DE'));
+      tasks.push(loadSpotTable('CZ', 'tbl-CZ').catch(e=>{}));
+      tasks.push(loadSpotTable('DE', 'tbl-DE').catch(e=>{}));
     }
   } catch(e) {}
   try {
     await Promise.allSettled(tasks);
     if (typeof setDot === 'function') setDot('ok', 'OK');
   } catch(e) {
-    console.error('loadAll error:', e);
+    console.error('loadAll:', e);
     if (typeof setDot === 'function') setDot('err', 'Chyba');
   }
 }
 
 function setRefresh(seconds) {
-  if (typeof refreshTimer !== 'undefined' && refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
-  if (typeof countdownTimer !== 'undefined' && countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  try {
+    if (refreshTimer) { clearInterval(refreshTimer); refreshTimer = null; }
+    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+  } catch(e) {}
   if (!seconds || seconds <= 0) return;
-  refreshTimer = setInterval(() => { loadAll(); }, seconds * 1000);
+  refreshTimer = setInterval(() => { try { loadAll(); } catch(e){} }, seconds * 1000);
   let remaining = seconds;
   const tozEl = document.getElementById('toz');
   if (tozEl) tozEl.textContent = remaining + 's';
@@ -3431,11 +3435,3 @@ function setRefresh(seconds) {
     if (tozEl) tozEl.textContent = remaining + 's';
   }, 1000);
 }
-
-function setDot(cls, txt) {
-  const dot = document.getElementById('dot');
-  const badge = document.getElementById('badge');
-  if (dot) dot.className = 'dot ' + cls + (cls === 'idle' ? ' anim' : '');
-  if (badge) badge.textContent = txt || '';
-}
-
