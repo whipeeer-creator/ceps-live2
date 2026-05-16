@@ -661,7 +661,7 @@ class Handler(BaseHTTPRequestHandler):
             self._weather(qs); return
 
         if parsed.path == "/metdesk/probe":
-            # Probe ruzne MetDesk endpointy - zjisti co funguje
+            # Probe ruzne MetDesk power endpointy
             try:
                 import urllib.request, urllib.error
                 api_key = os.environ.get("METDESK_API_KEY", "").strip("\n\r\t ")
@@ -670,40 +670,50 @@ class Handler(BaseHTTPRequestHandler):
                 raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
                 
                 urls_to_test = [
-                    "https://api.metdesk.com/get/metdesk/magmaweather/v1/issues",
-                    "https://api.metdesk.com/get/metdesk/magmaweather/v1/models",
-                    "https://api.metdesk.com/get/metdesk/magmaweather/v1/locations",
-                    "https://api.metdesk.com/get/metdesk/ao/v1/issues",
-                    "https://api.metdesk.com/get/metdesk/ao/v1/models",
+                    # Power / load endpointy
+                    "https://api.metdesk.com/get/metdesk/power/v1/issues",
+                    "https://api.metdesk.com/get/metdesk/magmapower/v1/issues",
+                    "https://api.metdesk.com/get/metdesk/germanload/v1/issues",
+                    "https://api.metdesk.com/get/metdesk/load/v1/issues",
+                    # Solar endpointy
+                    "https://api.metdesk.com/get/metdesk/solar/v1/issues",
+                    "https://api.metdesk.com/get/metdesk/magmasolar/v1/issues",
+                    "https://api.metdesk.com/get/metdesk/solar/v1/forecasts",
+                    # Wind endpointy
+                    "https://api.metdesk.com/get/metdesk/wind/v1/issues",
+                    "https://api.metdesk.com/get/metdesk/magmawind/v1/issues",
+                    "https://api.metdesk.com/get/metdesk/wind/v1/forecasts",
+                    # Renewable
+                    "https://api.metdesk.com/get/metdesk/renewable/v1/issues",
+                    "https://api.metdesk.com/get/metdesk/renewables/v1/issues",
                 ]
                 
                 results = []
                 for url in urls_to_test:
                     try:
                         req = urllib.request.Request(url, headers={"Authorization": f"jwt {raw_token}"})
-                        with urllib.request.urlopen(req, timeout=8) as r:
+                        with urllib.request.urlopen(req, timeout=6) as r:
                             body = r.read(300).decode("utf-8", "replace")
                             results.append({
-                                "url": url.split("/v1/")[0].split("/metdesk/")[1] + "/v1/" + url.split("/v1/")[1],
+                                "url": url.split("/metdesk/")[1],
                                 "status": r.status,
-                                "preview": body[:150]
+                                "preview": body[:200]
                             })
                     except urllib.error.HTTPError as e:
                         err = ""
-                        try: err = e.read().decode("utf-8")[:150]
+                        try: err = e.read().decode("utf-8")[:200]
                         except: pass
                         results.append({
-                            "url": url.split("/v1/")[0].split("/metdesk/")[1] + "/v1/" + url.split("/v1/")[1],
+                            "url": url.split("/metdesk/")[1],
                             "status": e.code,
                             "err": err
                         })
                     except Exception as e:
-                        results.append({
-                            "url": url,
-                            "err": str(e)[:100]
-                        })
+                        results.append({"url": url.split("/metdesk/")[1], "err": str(e)[:100]})
                 
-                self._json({"results": results})
+                # Filter to relevant
+                interesting = [r for r in results if r.get("status", 0) not in (404,)]
+                self._json({"interesting": interesting, "all": results})
             except Exception as e:
                 self._json({"error": str(e)}, 500)
             return
@@ -1846,21 +1856,25 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 502)
 
     def _metdesk_magma(self, qs):
-        """MetDesk MAGMA Weather API - solar radiation, wind, temperature, cloud.
-        Cache 1h (MAGMA updates hh:40 each hour).
-        Query: ?location=Prague&elements=rad,ff_100m,tt,ne
+        """MetDesk Power Generation V2 - solar/wind forecast pro DE/AT/CZ/HU.
+        Cache 1h.
+        Query: ?model=magma&country=CZ&generation_type=solar (nebo wind)
         """
         try:
             import urllib.request, urllib.error
             api_key = os.environ.get("METDESK_API_KEY", "")
-            # Pouze trim leading/trailing whitespace - VNITRNI mezery jsou casti klice!
             api_key = api_key.strip("\n\r\t ")
             if not api_key:
                 self._json({"error": "METDESK_API_KEY not configured"}, 200); return
 
             if "_MAGMA_CACHE" not in globals():
                 globals()["_MAGMA_CACHE"] = {}
-            cache_key = f"{qs.get('location',['Prague'])[0]}|{qs.get('elements',['rad,ff_100m,tt,ne'])[0]}"
+            
+            model = qs.get("model", ["magma"])[0]
+            country = qs.get("country", ["CZ"])[0]
+            gen_type = qs.get("generation_type", ["solar"])[0]
+            
+            cache_key = f"{model}|{country}|{gen_type}"
             cache_all = globals()["_MAGMA_CACHE"]
             now = time.time()
             if cache_key in cache_all and (now - cache_all[cache_key]["ts"]) < 3600:
@@ -1868,117 +1882,66 @@ class Handler(BaseHTTPRequestHandler):
                 out["_age_sec"] = int(now - cache_all[cache_key]["ts"])
                 self._json(out); return
 
-            location = qs.get("location", ["Prague"])[0]
-            elements = qs.get("elements", ["rad,ff_100m,tt,ne"])[0]
-
-            # MetDesk auth - vyzkoušíme různé header formáty a názvy hlaviček
-            def try_fetch(url, headers_dict):
-                req = urllib.request.Request(url, headers=headers_dict)
+            raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
+            auth_hdr = f"jwt {raw_token}"
+            
+            def fetch(url):
+                req = urllib.request.Request(url, headers={"Authorization": auth_hdr})
                 with urllib.request.urlopen(req, timeout=20) as r:
                     return json.loads(r.read().decode("utf-8"))
-
-            issues_url = "https://api.metdesk.com/get/metdesk/magmaweather/v1/issues"
             
-            # Pokud klic ma prefix "jwt " - zkus i bez prefixu (jen surovy token)
-            lower_key = api_key.lower()
-            has_prefix = any(lower_key.startswith(p) for p in ["jwt ", "bearer ", "apikey ", "token ", "basic "])
+            issues_url = f"https://api.metdesk.com/get/metdesk/powergen/v2/issues?model={model}"
+            try:
+                issues_raw = fetch(issues_url)
+            except urllib.error.HTTPError as e:
+                err_body = ""
+                try: err_body = e.read().decode("utf-8")[:300]
+                except: pass
+                self._json({"error": f"issues {e.code}", "detail": err_body, "url": issues_url}, 200); return
             
-            if has_prefix:
-                # Vytas surovy token (cast za prvni mezerou)
-                raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
-                prefix = api_key.split(" ", 1)[0]
-                # Zkus ruzne kombinace
-                attempts = [
-                    ("as-is", {"Authorization": api_key}),                    # "jwt eyJ..."
-                    ("upper-prefix", {"Authorization": f"{prefix.upper()} {raw_token}"}),  # "JWT eyJ..."
-                    ("Bearer", {"Authorization": f"Bearer {raw_token}"}),     # "Bearer eyJ..."
-                    ("raw-token", {"Authorization": raw_token}),              # "eyJ..."
-                    ("x-api-key", {"X-API-Key": raw_token}),                  # X-API-Key header
-                    ("x-auth-token", {"X-Auth-Token": raw_token}),
-                    ("api-key", {"api-key": raw_token}),
-                ]
-            else:
-                attempts = [
-                    ("raw", {"Authorization": api_key}),
-                    ("Bearer", {"Authorization": f"Bearer {api_key}"}),
-                    ("jwt", {"Authorization": f"jwt {api_key}"}),
-                    ("ApiKey", {"Authorization": f"ApiKey {api_key}"}),
-                    ("Token", {"Authorization": f"Token {api_key}"}),
-                    ("x-api-key", {"X-API-Key": api_key}),
-                ]
+            issues_list = issues_raw.get("data", [])
+            if not issues_list:
+                self._json({"error": "no issues", "raw": issues_raw}, 200); return
+            latest = issues_list[-1]
+            latest_issue = latest if isinstance(latest, str) else latest.get("issue", str(latest))
             
-            issues_raw = None
-            last_err = None
-            used_label = None
-            tried_labels = []
-            for label, hdrs in attempts:
-                tried_labels.append(label)
-                try:
-                    issues_raw = try_fetch(issues_url, hdrs)
-                    used_label = label
-                    break
-                except urllib.error.HTTPError as e:
-                    # Precti body chybove odpovedi pokud existuje
-                    err_body = ""
-                    try: err_body = e.read().decode("utf-8")[:200]
-                    except: pass
-                    last_err = f"{e.code} {e.reason} ({label}) body={err_body}"
-                    continue
-                except Exception as e:
-                    last_err = f"{e} ({label})"
-                    continue
+            start = datetime.now(timezone.utc).strftime("%Y-%m-%dT00:00:00Z")
+            end = (datetime.now(timezone.utc) + timedelta(hours=48)).strftime("%Y-%m-%dT00:00:00Z")
+            fc_url = (f"https://api.metdesk.com/get/metdesk/powergen/v2/forecasts"
+                      f"?model={model}&issue={latest_issue}&location={country}"
+                      f"&generation_type={gen_type}&start_dtg={start}&end_dtg={end}")
+            try:
+                raw = fetch(fc_url)
+            except urllib.error.HTTPError as e:
+                err_body = ""
+                try: err_body = e.read().decode("utf-8")[:300]
+                except: pass
+                self._json({"error": f"forecasts {e.code}", "detail": err_body, "url": fc_url}, 200); return
             
-            if issues_raw is None:
-                self._json({"error": f"All auth formats failed", 
-                           "last_err": last_err,
-                           "tried": tried_labels,
-                           "key_starts_with": api_key[:8] if len(api_key) >= 8 else api_key,
-                           "key_length": len(api_key)}, 200); return
-
-            issues_data = issues_raw.get("data", [])
-            if not issues_data:
-                self._json({"error": "No issues available", "raw": issues_raw}, 200); return
-            latest = issues_data[-1]
-            latest_issue = latest.get("issue") if isinstance(latest, dict) else latest
-
-            # Pouzij stejny header format ktery prosel
-            working_headers = None
-            for label, hdrs in attempts:
-                if label == used_label:
-                    working_headers = hdrs
-                    break
-            if working_headers is None:
-                working_headers = {"Authorization": api_key}
-            fc_url = (f"https://api.metdesk.com/get/metdesk/magmaweather/v1/forecasts"
-                      f"?issue={latest_issue}&location={location}&interval=1h")
-            raw = try_fetch(fc_url, working_headers)
-
             data = raw.get("data", [])
-            elem_list = elements.split(",")
-            series = {e: [] for e in elem_list}
+            points = []
             for item in data:
-                dtg = item.get("dtg") or item.get("dt") or item.get("datetime")
-                if not dtg: continue
-                for elem in elem_list:
-                    val = item.get(elem)
-                    if val is None: continue
-                    try: vf = float(val)
-                    except: continue
-                    series[elem].append({"ts": dtg, "value": vf})
-
+                dtg = item.get("dtg") or item.get("datetime")
+                val = item.get("value") or item.get("power")
+                if dtg is None or val is None: continue
+                try: vf = float(val)
+                except: continue
+                points.append({"ts": dtg, "value": vf})
+            
             out = {
-                "location": location,
+                "model": model,
+                "country": country,
+                "generation_type": gen_type,
                 "issue": latest_issue,
-                "series": series,
-                "auth_used": used_label,
-                "n_points": {k: len(v) for k, v in series.items()},
+                "points": points,
+                "n": len(points),
                 "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "_cache": "miss"
             }
             cache_all[cache_key] = {"ts": now, "data": {k: v for k, v in out.items() if k != "_cache"}}
             self._json(out)
         except Exception as e:
-            print(f"  -> MAGMA ERROR: {e}", flush=True)
+            print(f"  -> POWER ERROR: {e}", flush=True)
             self._json({"error": str(e)}, 502)
 
     def _forecast_de(self, qs):
