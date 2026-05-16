@@ -601,7 +601,6 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path in ("/", "/index.html", "/hory.html"):
             # NEW landing: hory.html (cista verze bez Systemove soustavy)
             try:
-                import os
                 base_dir = os.path.dirname(os.path.abspath(__file__))
                 fpath = os.path.join(base_dir, "hory.html")
                 if os.path.exists(fpath):
@@ -709,7 +708,6 @@ class Handler(BaseHTTPRequestHandler):
         # Staticke HTML soubory (hruska.html, kapacity.html, live_odchylky.html)
         if parsed.path in ("/hruska.html", "/kapacity.html", "/live_odchylky.html"):
             try:
-                import os
                 fname = parsed.path.lstrip("/")
                 # Hleda soubor vedle server.py
                 base_dir = os.path.dirname(os.path.abspath(__file__))
