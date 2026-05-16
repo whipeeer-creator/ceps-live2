@@ -210,21 +210,20 @@ async function loadAll() {
       return;
     }
     
-    // Build VDT lookup
+    // Build VDT lookup z OTE: {data: [{timestamp:"2026-05-16T17:00:00", last: 65.3, ...}]}
     const vdtMap = {};
-    const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt.data || dVdt.rows || dVdt.points || []);
+    const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt.data || []);
     for (const v of vdtList) {
-      const interval = v.interval || v.time || v.qh || v.hour || '';
-      const priceEur = parseFloat(v.price_eur || v.price || v.value_eur || v.value || v.eur || 0);
-      if (interval && !isNaN(priceEur) && priceEur !== 0) {
-        vdtMap[interval] = priceEur;
-        // Also try normalized form
-        const m = interval.match(/(\d+):(\d+)-(\d+):(\d+)/);
-        if (m) {
-          const norm = `${m[1].padStart(2,'0')}:${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}:${m[4].padStart(2,'0')}`;
-          vdtMap[norm] = priceEur;
-        }
-      }
+      const ts = v.timestamp || v.ts || '';
+      const m = ts.match(/T(\d{2}):(\d{2})/);
+      if (!m) continue;
+      const hh = m[1], mm = parseInt(m[2]);
+      // Vytvor interval string "HH:MM-HH:MM" (15min QH)
+      let endMM = mm + 15, endHH = parseInt(hh);
+      if (endMM >= 60) { endMM = 0; endHH++; }
+      const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+      const priceEur = parseFloat(v.last);
+      if (!isNaN(priceEur)) vdtMap[interval] = priceEur;
     }
     
     const rows = [];
@@ -234,7 +233,17 @@ async function loadAll() {
       const date = row['Date'] || '';
       if (!interval) continue;
       const odch_eur = price_kc / KURZ;
-      const vdt_eur = vdtMap[interval] !== undefined ? vdtMap[interval] : null;
+      // Normalizuj klíč pro lookup - extraktuj start HH:MM
+      const m = interval.match(/^(\d{1,2}):(\d{2})/);
+      let lookupKey = interval;
+      if (m) {
+        const hh = m[1].padStart(2,'0');
+        const mm = m[2];
+        let endMM = parseInt(mm) + 15, endHH = parseInt(hh);
+        if (endMM >= 60) { endMM = 0; endHH++; }
+        lookupKey = `${hh}:${mm}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+      }
+      const vdt_eur = vdtMap[lookupKey] !== undefined ? vdtMap[lookupKey] : (vdtMap[interval] !== undefined ? vdtMap[interval] : null);
       rows.push({
         date, interval,
         kc: price_kc,
