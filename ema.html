@@ -198,27 +198,27 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   </div>
 </div>
 
-<h2>📈 Historická referenční čísla (NET spread Odch−VDT)</h2>
+<h2>📈 Historická referenční čísla · LAG4 + filtr |EMA8|>30 EUR</h2>
 <div class="row">
   <div class="card">
-    <div class="card-l">2024 H2</div>
-    <div class="card-v green">+696k<span class="u">EUR</span></div>
-    <div class="card-s">11,997 t · 75% WR · avg +58€</div>
+    <div class="card-l">2024 H2 (anomálie)</div>
+    <div class="card-v green">+728k<span class="u">EUR</span></div>
+    <div class="card-s">10,890 t · 78% WR · avg +67€</div>
   </div>
   <div class="card">
     <div class="card-l">2025 (celý rok)</div>
-    <div class="card-v green">+658k<span class="u">EUR</span></div>
-    <div class="card-s">27,541 t · 80% WR · avg +24€</div>
+    <div class="card-v green">+699k<span class="u">EUR</span></div>
+    <div class="card-s">25,468 t · 83% WR · avg +27€</div>
   </div>
   <div class="card">
     <div class="card-l">2026 YTD</div>
-    <div class="card-v green">+250k<span class="u">EUR</span></div>
-    <div class="card-s">10,213 t · 85% WR · avg +25€</div>
+    <div class="card-v green">+247k<span class="u">EUR</span></div>
+    <div class="card-s">9,640 t · 87% WR · avg +26€</div>
   </div>
   <div class="card">
     <div class="card-l">Roční extrap 2026</div>
-    <div class="card-v blue">+858k<span class="u">EUR/rok</span></div>
-    <div class="card-s">@ 1 MWh · bez fees</div>
+    <div class="card-v blue">+845k<span class="u">EUR/rok</span></div>
+    <div class="card-s">@ 1 MWh · maxDD -21k €</div>
   </div>
 </div>
 
@@ -325,7 +325,23 @@ function renderCurrentSignal(rows, ema) {
   if (n < LAG + 1) return;
   const sigIdx = n - 1 - LAG;
   const sigEma = ema[sigIdx];
-  const nextInterval = predictNextInterval(rows[n-1].interval);
+  
+  // T-40 RULE: nejbližší tradovatelná QH musí začínat nejméně 40 min od NOW
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  // Najdi první QH co startuje >= NOW+40min (zaokrouhli nahoru na 00/15/30/45)
+  const minStart = nowMin + 40;
+  let tradableStart = Math.ceil(minStart / 15) * 15;
+  if (tradableStart >= 24*60) tradableStart -= 24*60;
+  const thh = String(Math.floor(tradableStart / 60)).padStart(2,'0');
+  const tmm = String(tradableStart % 60).padStart(2,'0');
+  let endMin = tradableStart + 15;
+  if (endMin >= 24*60) endMin -= 24*60;
+  const ehh = String(Math.floor(endMin / 60)).padStart(2,'0');
+  const emm = String(endMin % 60).padStart(2,'0');
+  const tradableInterval = `${thh}:${tmm}-${ehh}:${emm}`;
+  const leadMin = tradableStart - nowMin;
+  
   const direction = sigEma > 0 ? 'LONG ▲' : (sigEma < 0 ? 'SHORT ▼' : 'NEUTRAL');
   const dirColor = sigEma > 0 ? 'green' : (sigEma < 0 ? 'red' : 'gray');
   const dirEx = sigEma > 0 
@@ -333,7 +349,7 @@ function renderCurrentSignal(rows, ema) {
     : 'Přebytek → PRODEJ na VDT, dorovnej v odchylce (cena ↓)';
   
   document.getElementById('currentSignal').innerHTML = 
-    `<span class="${dirColor}">${direction}</span> <span style="font-size:14px;color:#666;">→ ${nextInterval}</span>`;
+    `<span class="${dirColor}">${direction}</span> <span style="font-size:14px;color:#666;">→ ${tradableInterval} <span style="color:#999;font-size:11px;">(T+${leadMin}min)</span></span>`;
   document.getElementById('currentSignalDetail').innerHTML = dirEx;
   document.getElementById('emaValue').innerHTML = 
     `<span class="${dirColor}">${sigEma >= 0 ? '+' : ''}${sigEma.toFixed(1)}</span><span class="u">EUR/MWh</span>`;
@@ -398,7 +414,7 @@ function renderBacktest(rows, ema) {
     const sig = ema[i - LAG];
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
-    if (Math.abs(sig) < 1) continue;
+    if (Math.abs(sig) < 30) continue;
     if (vdt === null) { skipNoVdt++; continue; }
     
     const direction = sig > 0 ? +1 : -1;
@@ -433,7 +449,7 @@ function renderBacktest(rows, ema) {
   
   document.getElementById('bkTrades').textContent = trades;
   document.getElementById('bkTradesDetail').textContent = 
-    `${n-LAG} hodnocených QH · |EMA8|>1 EUR`;
+    `${n-LAG} hodnocených QH · |EMA8|>30 EUR`;
   
   document.getElementById('bkWinrate').innerHTML = 
     `<span class="${wr >= 50 ? 'green' : 'red'}">${wr.toFixed(0)}</span><span class="u">%</span>`;
@@ -611,7 +627,7 @@ function computeDayBacktest(date, dOdch, dVdt) {
     const sig = ema[i - LAG];
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
-    if (Math.abs(sig) < 1) continue;
+    if (Math.abs(sig) < 30) continue;
     if (vdt === null) continue;
     
     const direction = sig > 0 ? +1 : -1;
