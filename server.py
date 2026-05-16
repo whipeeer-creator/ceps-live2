@@ -664,6 +664,24 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/metdesk/magma":
             self._metdesk_magma(qs); return
 
+        if parsed.path == "/metdesk/debug":
+            # Debug: ukaz co je v env var (bez prozrazeni klice)
+            k = os.environ.get("METDESK_API_KEY", "")
+            self._json({
+                "exists": bool(k),
+                "length": len(k),
+                "starts_with": k[:4] if len(k) >= 4 else "",
+                "ends_with": k[-4:] if len(k) >= 4 else "",
+                "has_leading_space": k.startswith(" ") if k else False,
+                "has_trailing_space": k.endswith(" ") if k else False,
+                "has_inner_space": " " in k.strip() if k else False,
+                "num_spaces": k.count(" "),
+                "has_newline": "\n" in k,
+                "has_tab": "\t" in k,
+                "char_codes_first5": [ord(c) for c in k[:5]],
+                "char_codes_last5": [ord(c) for c in k[-5:]] if len(k) >= 5 else []
+            }); return
+
         if parsed.path == "/wind-de":
             self._wind_de(qs); return
 
@@ -1788,7 +1806,9 @@ class Handler(BaseHTTPRequestHandler):
         """
         try:
             import urllib.request, urllib.error
-            api_key = os.environ.get("METDESK_API_KEY", "").strip()
+            api_key = os.environ.get("METDESK_API_KEY", "")
+            # Pouze trim leading/trailing whitespace - VNITRNI mezery jsou casti klice!
+            api_key = api_key.strip("\n\r\t ")
             if not api_key:
                 self._json({"error": "METDESK_API_KEY not configured"}, 200); return
 
