@@ -262,22 +262,21 @@ async function loadAll() {
     const rows = [];
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
-    // ČEPS publikuje cenu cca 15 min po skončení QH
-    // → QH končící v X může mít publikovanou cenu od X+15 min
-    // BACKTEST: bereme jen QH co skončila aspoň 15 min nazpátek
+    // ČEPS API už filtruje publikované ceny samo
+    // Bereme všechny QH co jsou v minulosti (qhEnd <= NOW)
     for (const row of dOdch.rows) {
       const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
       const interval = row['Interval'] || '';
       const date = row['Date'] || '';
       if (!interval) continue;
       
-      // Parse QH start a check jestli je v minulosti + publikační lag
+      // Parse QH start
       const tm = interval.match(/^(\d{1,2}):(\d{2})/);
       if (!tm) continue;
       const qhStartMin = parseInt(tm[1]) * 60 + parseInt(tm[2]);
       const qhEndMin = qhStartMin + 15;
-      // Skip future + nedavno skončené QH (čekáme aspoň 15min publikační lag)
-      if (qhEndMin + 15 > nowMin) continue;
+      // Skip jen FUTURE QH (ne nedávno skončené)
+      if (qhEndMin > nowMin) continue;
       
       const odch_eur = price_kc / KURZ;
       const hh = tm[1].padStart(2,'0');
