@@ -1857,8 +1857,11 @@ class Handler(BaseHTTPRequestHandler):
                     continue
             
             if issues_raw is None:
+                tried_schemes = [af.split()[0] if ' ' in af else 'raw' for af in auth_formats]
                 self._json({"error": f"All auth formats failed: {last_err}", 
-                           "tried": ["raw", "Bearer", "ApiKey", "Token"]}, 200); return
+                           "tried": tried_schemes,
+                           "key_starts_with": api_key[:8] if len(api_key) >= 8 else api_key,
+                           "key_length": len(api_key)}, 200); return
 
             issues_data = issues_raw.get("data", [])
             if not issues_data:
