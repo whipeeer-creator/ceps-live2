@@ -1823,43 +1823,67 @@ class Handler(BaseHTTPRequestHandler):
             location = qs.get("location", ["Prague"])[0]
             elements = qs.get("elements", ["rad,ff_100m,tt,ne"])[0]
 
-            # MetDesk auth - try multiple header formats
-            # If key starts with prefix like "jwt ", "Bearer ", "ApiKey " use as-is
-            def try_fetch(url, header_value):
-                req = urllib.request.Request(url, headers={"Authorization": header_value})
+            # MetDesk auth - vyzkoušíme různé header formáty a názvy hlaviček
+            def try_fetch(url, headers_dict):
+                req = urllib.request.Request(url, headers=headers_dict)
                 with urllib.request.urlopen(req, timeout=20) as r:
                     return json.loads(r.read().decode("utf-8"))
 
             issues_url = "https://api.metdesk.com/get/metdesk/magmaweather/v1/issues"
             
-            # If key contains scheme prefix (jwt/Bearer/ApiKey/Token followed by space),
-            # use as-is. Otherwise try standard formats.
+            # Pokud klic ma prefix "jwt " - zkus i bez prefixu (jen surovy token)
             lower_key = api_key.lower()
-            if any(lower_key.startswith(p) for p in ["jwt ", "bearer ", "apikey ", "token ", "basic "]):
-                auth_formats = [api_key]  # use exactly as is
+            has_prefix = any(lower_key.startswith(p) for p in ["jwt ", "bearer ", "apikey ", "token ", "basic "])
+            
+            if has_prefix:
+                # Vytas surovy token (cast za prvni mezerou)
+                raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
+                prefix = api_key.split(" ", 1)[0]
+                # Zkus ruzne kombinace
+                attempts = [
+                    ("as-is", {"Authorization": api_key}),                    # "jwt eyJ..."
+                    ("upper-prefix", {"Authorization": f"{prefix.upper()} {raw_token}"}),  # "JWT eyJ..."
+                    ("Bearer", {"Authorization": f"Bearer {raw_token}"}),     # "Bearer eyJ..."
+                    ("raw-token", {"Authorization": raw_token}),              # "eyJ..."
+                    ("x-api-key", {"X-API-Key": raw_token}),                  # X-API-Key header
+                    ("x-auth-token", {"X-Auth-Token": raw_token}),
+                    ("api-key", {"api-key": raw_token}),
+                ]
             else:
-                # No scheme prefix - try common ones
-                auth_formats = [api_key, f"Bearer {api_key}", f"jwt {api_key}", f"ApiKey {api_key}", f"Token {api_key}"]
+                attempts = [
+                    ("raw", {"Authorization": api_key}),
+                    ("Bearer", {"Authorization": f"Bearer {api_key}"}),
+                    ("jwt", {"Authorization": f"jwt {api_key}"}),
+                    ("ApiKey", {"Authorization": f"ApiKey {api_key}"}),
+                    ("Token", {"Authorization": f"Token {api_key}"}),
+                    ("x-api-key", {"X-API-Key": api_key}),
+                ]
             
             issues_raw = None
             last_err = None
-            used_auth = None
-            for af in auth_formats:
+            used_label = None
+            tried_labels = []
+            for label, hdrs in attempts:
+                tried_labels.append(label)
                 try:
-                    issues_raw = try_fetch(issues_url, af)
-                    used_auth = af.split()[0] if ' ' in af else 'raw'
+                    issues_raw = try_fetch(issues_url, hdrs)
+                    used_label = label
                     break
                 except urllib.error.HTTPError as e:
-                    last_err = f"{e.code} {e.reason}"
+                    # Precti body chybove odpovedi pokud existuje
+                    err_body = ""
+                    try: err_body = e.read().decode("utf-8")[:200]
+                    except: pass
+                    last_err = f"{e.code} {e.reason} ({label}) body={err_body}"
                     continue
                 except Exception as e:
-                    last_err = str(e)
+                    last_err = f"{e} ({label})"
                     continue
             
             if issues_raw is None:
-                tried_schemes = [af.split()[0] if ' ' in af else 'raw' for af in auth_formats]
-                self._json({"error": f"All auth formats failed: {last_err}", 
-                           "tried": tried_schemes,
+                self._json({"error": f"All auth formats failed", 
+                           "last_err": last_err,
+                           "tried": tried_labels,
                            "key_starts_with": api_key[:8] if len(api_key) >= 8 else api_key,
                            "key_length": len(api_key)}, 200); return
 
@@ -1869,17 +1893,17 @@ class Handler(BaseHTTPRequestHandler):
             latest = issues_data[-1]
             latest_issue = latest.get("issue") if isinstance(latest, dict) else latest
 
-            # Pouzij stejny auth format ktery funguje
-            # Najdi presny format ktery prosel
-            working_auth = api_key
-            for af in auth_formats:
-                scheme = af.split()[0] if ' ' in af else 'raw'
-                if scheme == used_auth:
-                    working_auth = af
+            # Pouzij stejny header format ktery prosel
+            working_headers = None
+            for label, hdrs in attempts:
+                if label == used_label:
+                    working_headers = hdrs
                     break
+            if working_headers is None:
+                working_headers = {"Authorization": api_key}
             fc_url = (f"https://api.metdesk.com/get/metdesk/magmaweather/v1/forecasts"
                       f"?issue={latest_issue}&location={location}&interval=1h")
-            raw = try_fetch(fc_url, working_auth)
+            raw = try_fetch(fc_url, working_headers)
 
             data = raw.get("data", [])
             elem_list = elements.split(",")
@@ -1898,7 +1922,7 @@ class Handler(BaseHTTPRequestHandler):
                 "location": location,
                 "issue": latest_issue,
                 "series": series,
-                "auth_used": used_auth,
+                "auth_used": used_label,
                 "n_points": {k: len(v) for k, v in series.items()},
                 "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "_cache": "miss"
