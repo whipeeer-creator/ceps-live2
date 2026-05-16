@@ -1824,13 +1824,23 @@ class Handler(BaseHTTPRequestHandler):
             elements = qs.get("elements", ["rad,ff_100m,tt,ne"])[0]
 
             # MetDesk auth - try multiple header formats
+            # If key starts with prefix like "jwt ", "Bearer ", "ApiKey " use as-is
             def try_fetch(url, header_value):
                 req = urllib.request.Request(url, headers={"Authorization": header_value})
                 with urllib.request.urlopen(req, timeout=20) as r:
                     return json.loads(r.read().decode("utf-8"))
 
             issues_url = "https://api.metdesk.com/get/metdesk/magmaweather/v1/issues"
-            auth_formats = [api_key, f"Bearer {api_key}", f"ApiKey {api_key}", f"Token {api_key}"]
+            
+            # If key contains scheme prefix (jwt/Bearer/ApiKey/Token followed by space),
+            # use as-is. Otherwise try standard formats.
+            lower_key = api_key.lower()
+            if any(lower_key.startswith(p) for p in ["jwt ", "bearer ", "apikey ", "token ", "basic "]):
+                auth_formats = [api_key]  # use exactly as is
+            else:
+                # No scheme prefix - try common ones
+                auth_formats = [api_key, f"Bearer {api_key}", f"jwt {api_key}", f"ApiKey {api_key}", f"Token {api_key}"]
+            
             issues_raw = None
             last_err = None
             used_auth = None
@@ -1857,7 +1867,13 @@ class Handler(BaseHTTPRequestHandler):
             latest_issue = latest.get("issue") if isinstance(latest, dict) else latest
 
             # Pouzij stejny auth format ktery funguje
-            working_auth = auth_formats[["raw","Bearer","ApiKey","Token"].index(used_auth)] if used_auth else api_key
+            # Najdi presny format ktery prosel
+            working_auth = api_key
+            for af in auth_formats:
+                scheme = af.split()[0] if ' ' in af else 'raw'
+                if scheme == used_auth:
+                    working_auth = af
+                    break
             fc_url = (f"https://api.metdesk.com/get/metdesk/magmaweather/v1/forecasts"
                       f"?issue={latest_issue}&location={location}&interval=1h")
             raw = try_fetch(fc_url, working_auth)
