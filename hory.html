@@ -131,24 +131,6 @@ canvas { max-width: 100%; display: block; }
 </style>
 </head>
 <body>
-<div id="DEBUG_BANNER" style="position:fixed;top:0;left:0;right:0;background:#ffeb3b;color:#000;padding:10px;font-size:16px;font-weight:bold;z-index:9999;border-bottom:3px solid #f00;font-family:monospace;">DEBUG: čekám...</div>
-<script>
-window.addEventListener('error', e => {
-  const b = document.getElementById('DEBUG_BANNER');
-  if (b) b.innerHTML = '❌ JS ERROR: ' + (e.message || e) + ' @ line ' + (e.lineno||'?');
-  b.style.background='#f44336'; b.style.color='#fff';
-});
-window.addEventListener('unhandledrejection', e => {
-  const b = document.getElementById('DEBUG_BANNER');
-  if (b) b.innerHTML = '❌ PROMISE: ' + (e.reason?.message || e.reason);
-});
-setTimeout(() => {
-  const b = document.getElementById('DEBUG_BANNER');
-  if (b && b.textContent.startsWith('DEBUG: čekám')) {
-    b.innerHTML = `STATUS: API_URL=${typeof API_URL !== 'undefined' ? API_URL : 'UNDEF'} | loadAll=${typeof loadAll} | loadMagma=${typeof loadMagma} | loadMain=${typeof loadMain}`;
-  }
-}, 3000);
-</script>
 <div id="setupModal" style="display:none;">
   <div class="modal-box">
     <div class="modal-title">ČEPS <span>Live</span> Odchylky</div>
@@ -3467,3 +3449,7 @@ function setRefresh(seconds) {
     if (tozEl) tozEl.textContent = remaining + 's';
   }, 1000);
 }
+
+</script>
+</body>
+</html>
