@@ -2379,13 +2379,13 @@ function rlDrawLadder(canvas, _posLadder, _negLadder) {
     ctx.stroke();
   }
 
-  // === X AXIS - cas labels (kazda hodina HH:00) ===
+  // === X AXIS - cas labels (H1, H2, ... H24) - 1-indexed ===
   ctx.fillStyle = '#666';
   ctx.font = '10px JetBrains Mono, monospace';
   ctx.textAlign = 'center';
   for (let i = 0; i < Nhours; i++) {
-    const x = PAD.left + i * hourW;
-    ctx.fillText(`${hourKeys[i]}:00`, x, PAD.top + cH + 14);
+    const x = PAD.left + i * hourW + hourW / 2;
+    ctx.fillText(`H${parseInt(hourKeys[i]) + 1}`, x, PAD.top + cH + 14);
     // tick
     ctx.strokeStyle = '#888';
     ctx.lineWidth = 1;
@@ -2394,9 +2394,6 @@ function rlDrawLadder(canvas, _posLadder, _negLadder) {
     ctx.lineTo(x, PAD.top + cH + 4);
     ctx.stroke();
   }
-  // posledni label vpravo
-  ctx.fillText(`${parseInt(hourKeys[Nhours-1])+1 < 24 ? String(parseInt(hourKeys[Nhours-1])+1).padStart(2,'0') : '24'}:00`,
-               PAD.left + cW, PAD.top + cH + 14);
 
   // === BARVY pro 4 QH ===
   // 1.QH (:00) = modra, 2.QH (:15) = zelena, 3.QH (:30) = fialova, 4.QH (:45) = cervena
