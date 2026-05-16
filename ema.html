@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EMA8 · ČEPS Odchylka Strategy</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', -apple-system, sans-serif; background: #f4f5f9; color: #1a1a2e; padding: 14px; max-width: 1200px; margin: 0 auto; }
+h1 { font-size: 22px; margin-bottom: 4px; color: #0d47a1; font-weight: 700; }
+h1 small { font-size: 11px; color: #888; font-weight: 400; font-family: 'JetBrains Mono', monospace; }
+h2 { font-size: 14px; color: #555; margin: 16px 0 8px; font-weight: 600; }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.card { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.card-l { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; font-weight: 600; }
+.card-v { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1.2; }
+.card-v .u { font-size: 11px; color: #888; font-weight: 400; margin-left: 4px; }
+.card-s { font-size: 10px; color: #666; font-family: 'JetBrains Mono', monospace; margin-top: 4px; line-height: 1.4; }
+.big { font-size: 30px; }
+.signal-card { padding: 16px 18px; }
+.green { color: #2e7d32; }
+.red { color: #c62828; }
+.gray { color: #888; }
+.orange { color: #f57c00; }
+.blue { color: #1565c0; }
+table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; overflow: hidden; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+th { background: #f4f5f9; padding: 6px 8px; text-align: right; font-weight: 600; color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: .02em; }
+th:first-child, td:first-child { text-align: left; }
+td { padding: 5px 8px; border-top: 1px solid #f0f1f4; text-align: right; }
+tr.highlight td { background: #fff8e1; font-weight: 600; }
+tr.signal-now td { background: #e3f2fd; font-weight: 700; border-bottom: 2px solid #1565c0; }
+.bar-bg { background: #f0f1f4; border-radius: 3px; overflow: hidden; height: 6px; position: relative; }
+.bar-pos { background: #2e7d32; height: 100%; }
+.bar-neg { background: #c62828; height: 100%; }
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #e0e4ef; }
+.refresh { background: #1565c0; color: white; border: none; padding: 6px 14px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.refresh:hover { background: #0d47a1; }
+.meta { font-size: 10px; color: #888; font-family: 'JetBrains Mono', monospace; }
+@media (max-width: 600px) {
+  body { padding: 8px; }
+  h1 { font-size: 18px; }
+  .card-v { font-size: 18px; }
+  .big { font-size: 24px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>EMA8 Strategy <small>· ČEPS odchylka · CR balancing</small></h1>
+    <div class="meta" id="metaInfo">načítám…</div>
+  </div>
+  <button class="refresh" onclick="loadAll()">↺ Refresh</button>
+</header>
+
+<!-- AKTUÁLNÍ SIGNÁL -->
+<h2>🎯 AKTUÁLNÍ SIGNÁL</h2>
+<div class="row">
+  <div class="card signal-card" style="grid-column: span 2;">
+    <div class="card-l">Signál pro nadcházející QH</div>
+    <div class="card-v big" id="currentSignal">—</div>
+    <div class="card-s" id="currentSignalDetail">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">EMA8 hodnota</div>
+    <div class="card-v" id="emaValue">—<span class="u">EUR/MWh</span></div>
+    <div class="card-s" id="emaTrend">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Poslední cena</div>
+    <div class="card-v" id="lastPrice">—<span class="u">EUR/MWh</span></div>
+    <div class="card-s" id="lastPriceInterval">—</div>
+  </div>
+</div>
+
+<!-- VÝPOČET EMA8 -->
+<h2>📐 Výpočet EMA8 - posledních 8 publikovaných cen</h2>
+<div class="row" style="grid-template-columns: 1fr;">
+  <div class="card" style="padding: 0;">
+    <table>
+      <thead>
+        <tr>
+          <th>Interval (QH)</th>
+          <th>Cena Kč/MWh</th>
+          <th>Cena EUR/MWh</th>
+          <th>EMA8 EUR</th>
+          <th>Váha</th>
+          <th>Graf</th>
+        </tr>
+      </thead>
+      <tbody id="emaTable">
+        <tr><td colspan="6" style="text-align:center;color:#999;padding:20px;">načítám…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- TODAY BACKTEST -->
+<h2>📊 Dnešní backtest @ 1 MWh</h2>
+<div class="row">
+  <div class="card">
+    <div class="card-l">Profit dnes (LAG6 realistic)</div>
+    <div class="card-v big" id="bkProfit">—<span class="u">EUR</span></div>
+    <div class="card-s" id="bkProfitKc">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Trades dnes</div>
+    <div class="card-v" id="bkTrades">—</div>
+    <div class="card-s" id="bkTradesDetail">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Win rate</div>
+    <div class="card-v" id="bkWinrate">—<span class="u">%</span></div>
+    <div class="card-s" id="bkWinrateDetail">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Avg trade</div>
+    <div class="card-v" id="bkAvgTrade">—<span class="u">EUR</span></div>
+    <div class="card-s">historicky +14 EUR</div>
+  </div>
+</div>
+
+<!-- HODINOVÝ PROFIT -->
+<h2>🕐 Hodinový profit dnes</h2>
+<div class="row" style="grid-template-columns: 1fr;">
+  <div class="card" style="padding: 0;">
+    <table>
+      <thead>
+        <tr>
+          <th>Hodina</th>
+          <th>Trades</th>
+          <th>Win %</th>
+          <th>P&L EUR</th>
+          <th>P&L Kč</th>
+          <th>Graf</th>
+        </tr>
+      </thead>
+      <tbody id="hourlyTable">
+        <tr><td colspan="6" style="text-align:center;color:#999;padding:20px;">načítám…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- VŠECHNY TRADES DNES -->
+<h2>📋 Všechny trades dnes (chronologicky)</h2>
+<div class="row" style="grid-template-columns: 1fr;">
+  <div class="card" style="padding: 0;">
+    <table>
+      <thead>
+        <tr>
+          <th>QH</th>
+          <th>EMA8 (lag6)</th>
+          <th>Směr</th>
+          <th>Cena EUR</th>
+          <th>P&L EUR</th>
+          <th>Kumulativně</th>
+        </tr>
+      </thead>
+      <tbody id="tradesTable">
+        <tr><td colspan="6" style="text-align:center;color:#999;padding:20px;">načítám…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+const KURZ = 24.5;  // CZK/EUR
+const ALPHA = 2/9;  // EMA8 alpha
+const LAG = 6;      // realistic lag (T-60 publication delay)
+let API_URL = window.location.origin;
+
+async function loadAll() {
+  try {
+    // Fetch CEPS odchylky cena for today
+    const today = new Date().toISOString().slice(0,10);
+    const url = `${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59`;
+    const r = await fetch(url, { cache: 'no-store' });
+    const d = await r.json();
+    
+    if (!d.rows || d.rows.length === 0) {
+      document.getElementById('metaInfo').textContent = 'Žádná data pro dnešní den';
+      return;
+    }
+    
+    // Parse rows - "Estimated price [Kč/MWh]" + Date + Interval
+    const rows = [];
+    for (const row of d.rows) {
+      const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+      const interval = row['Interval'] || '';
+      const date = row['Date'] || '';
+      if (!interval) continue;
+      rows.push({
+        date,
+        interval,
+        kc: price_kc,
+        eur: price_kc / KURZ
+      });
+    }
+    
+    if (rows.length === 0) {
+      document.getElementById('metaInfo').textContent = 'Žádná validní data';
+      return;
+    }
+    
+    // Compute EMA8
+    const prices = rows.map(r => r.eur);
+    const ema = [prices[0]];
+    for (let i = 1; i < prices.length; i++) {
+      ema.push(ALPHA * prices[i] + (1 - ALPHA) * ema[i-1]);
+    }
+    
+    document.getElementById('metaInfo').textContent = 
+      `${rows.length} QH dnes · poslední ${rows[rows.length-1].interval} · LAG${LAG} (T-${LAG*15}min) · α=${ALPHA.toFixed(3)}`;
+    
+    renderCurrentSignal(rows, ema);
+    renderEmaTable(rows, ema);
+    renderBacktest(rows, ema);
+    
+  } catch(e) {
+    console.error(e);
+    document.getElementById('metaInfo').textContent = '⚠ Chyba: ' + e.message;
+  }
+}
+
+function renderCurrentSignal(rows, ema) {
+  const n = rows.length;
+  if (n < LAG + 1) return;
+  
+  // Aktuální signál = EMA8 z dat T-90 min (LAG6 = 6 QH zpět)
+  const sigIdx = n - 1 - LAG;  // index, ze kterého máme EMA8 pro PRIŠTÍ QH
+  const sigEma = ema[sigIdx];
+  const nextInterval = predictNextInterval(rows[n-1].interval);
+  
+  const direction = sigEma > 0 ? 'LONG ▲' : (sigEma < 0 ? 'SHORT ▼' : 'NEUTRAL');
+  const dirColor = sigEma > 0 ? 'green' : (sigEma < 0 ? 'red' : 'gray');
+  const dirEx = sigEma > 0 
+    ? 'Trh v deficitu → čekáme positive odchylku → LONG (kupujem energii)'
+    : 'Trh v přebytku → čekáme negative odchylku → SHORT (prodáváme)';
+  
+  document.getElementById('currentSignal').innerHTML = 
+    `<span class="${dirColor}">${direction}</span> <span style="font-size:14px;color:#666;">→ ${nextInterval}</span>`;
+  document.getElementById('currentSignalDetail').innerHTML = dirEx;
+  
+  document.getElementById('emaValue').innerHTML = 
+    `<span class="${dirColor}">${sigEma >= 0 ? '+' : ''}${sigEma.toFixed(1)}</span><span class="u">EUR/MWh</span>`;
+  
+  // Trend (EMA8 stoupá/klesá?)
+  const prevEma = ema[sigIdx - 1] || sigEma;
+  const dEma = sigEma - prevEma;
+  document.getElementById('emaTrend').innerHTML = 
+    `Trend: ${dEma >= 0 ? '↗' : '↘'} ${dEma >= 0 ? '+' : ''}${dEma.toFixed(1)} EUR vs předchozí QH`;
+  
+  // Poslední publikovaná cena
+  const lastPriceIdx = n - 1 - LAG;
+  const lastPrice = rows[lastPriceIdx];
+  document.getElementById('lastPrice').innerHTML = 
+    `${lastPrice.eur >= 0 ? '+' : ''}${lastPrice.eur.toFixed(1)}<span class="u">EUR/MWh</span>`;
+  document.getElementById('lastPriceInterval').textContent = 
+    `${lastPrice.interval} · ${lastPrice.kc.toFixed(0)} Kč/MWh`;
+}
+
+function predictNextInterval(lastInterval) {
+  // lastInterval = "13:00-13:15" → next = "13:15-13:30"
+  const m = lastInterval.match(/^(\d+):(\d+)-(\d+):(\d+)$/);
+  if (!m) return '???';
+  let h = parseInt(m[3]), mm = parseInt(m[4]);
+  mm += 15;
+  if (mm >= 60) { mm = 0; h++; }
+  let h2 = h, mm2 = mm + 15;
+  if (mm2 >= 60) { mm2 = 0; h2++; }
+  return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}-${String(h2).padStart(2,'0')}:${String(mm2).padStart(2,'0')}`;
+}
+
+function renderEmaTable(rows, ema) {
+  const n = rows.length;
+  if (n < 8) return;
+  
+  // Posledních 8 cen + jejich příspěvek k EMA8 + aktuální EMA8
+  const tbody = document.getElementById('emaTable');
+  const startIdx = Math.max(0, n - 8);
+  const sigIdx = n - 1 - LAG;
+  
+  let html = '';
+  for (let i = startIdx; i < n; i++) {
+    const r = rows[i];
+    const isLag = (i === sigIdx);
+    const cls = isLag ? 'signal-now' : '';
+    
+    // Váha bodu v EMA8 (jednoduchá aproximace - exponenciální zánik)
+    const weight = Math.pow(1 - ALPHA, n - 1 - i);
+    const weightPct = (weight * 100).toFixed(1);
+    
+    const eur = r.eur;
+    const barColor = eur >= 0 ? 'bar-pos' : 'bar-neg';
+    const maxAbs = Math.max(...rows.slice(startIdx).map(x => Math.abs(x.eur)));
+    const barW = maxAbs > 0 ? Math.min(100, Math.abs(eur)/maxAbs*100) : 0;
+    
+    html += `<tr class="${cls}">
+      <td>${r.interval}${isLag ? ' <span style="color:#1565c0;font-size:9px;">← LAG${LAG} (signál)</span>' : ''}</td>
+      <td>${r.kc.toFixed(0)}</td>
+      <td class="${eur >= 0 ? 'green' : 'red'}">${eur >= 0 ? '+' : ''}${eur.toFixed(1)}</td>
+      <td class="${ema[i] >= 0 ? 'green' : 'red'}">${ema[i] >= 0 ? '+' : ''}${ema[i].toFixed(1)}</td>
+      <td>${weightPct}%</td>
+      <td><div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div></td>
+    </tr>`;
+  }
+  tbody.innerHTML = html;
+}
+
+function renderBacktest(rows, ema) {
+  const n = rows.length;
+  if (n < LAG + 1) return;
+  
+  let profit = 0;
+  let wins = 0, losses = 0, trades = 0;
+  const hourly = {};
+  const tradeList = [];
+  
+  for (let i = LAG; i < n; i++) {
+    const sig = ema[i - LAG];
+    const actual = rows[i].eur;
+    if (Math.abs(sig) < 1) continue;
+    const direction = sig > 0 ? +1 : -1;
+    const pnl = direction * actual;
+    profit += pnl;
+    trades++;
+    if (pnl > 0) wins++;
+    else if (pnl < 0) losses++;
+    
+    const h = parseInt(rows[i].interval.split(':')[0]);
+    if (!hourly[h]) hourly[h] = { pnl: 0, n: 0, w: 0 };
+    hourly[h].pnl += pnl;
+    hourly[h].n++;
+    if (pnl > 0) hourly[h].w++;
+    
+    tradeList.push({
+      interval: rows[i].interval,
+      sig, direction, actual, pnl,
+      cumProfit: profit
+    });
+  }
+  
+  const wr = trades > 0 ? wins/trades*100 : 0;
+  const avg = trades > 0 ? profit/trades : 0;
+  const zeros = trades - wins - losses;
+  
+  document.getElementById('bkProfit').innerHTML = 
+    `<span class="${profit >= 0 ? 'green' : 'red'}">${profit >= 0 ? '+' : ''}${profit.toFixed(0)}</span><span class="u">EUR</span>`;
+  document.getElementById('bkProfitKc').textContent = 
+    `= ${(profit * KURZ).toFixed(0)} Kč · pro 24h extrap: ${(profit / Math.max(n*15, 1) * 1440).toFixed(0)} EUR`;
+  
+  document.getElementById('bkTrades').textContent = trades;
+  document.getElementById('bkTradesDetail').textContent = 
+    `${n-LAG} hodnocených QH · filtr |EMA8|>1 EUR`;
+  
+  document.getElementById('bkWinrate').innerHTML = 
+    `<span class="${wr >= 50 ? 'green' : 'red'}">${wr.toFixed(0)}</span><span class="u">%</span>`;
+  document.getElementById('bkWinrateDetail').textContent = 
+    `${wins} W · ${losses} L · ${zeros} zero`;
+  
+  document.getElementById('bkAvgTrade').innerHTML = 
+    `<span class="${avg >= 0 ? 'green' : 'red'}">${avg >= 0 ? '+' : ''}${avg.toFixed(1)}</span><span class="u">EUR</span>`;
+  
+  // Hodinová tabulka
+  const maxAbs = Math.max(...Object.values(hourly).map(s => Math.abs(s.pnl)), 1);
+  let hHtml = '';
+  for (const h of Object.keys(hourly).map(Number).sort((a,b)=>a-b)) {
+    const s = hourly[h];
+    const wRate = s.n > 0 ? (s.w/s.n*100).toFixed(0) : 0;
+    const barColor = s.pnl >= 0 ? 'bar-pos' : 'bar-neg';
+    const barW = Math.min(100, Math.abs(s.pnl)/maxAbs*100);
+    hHtml += `<tr>
+      <td><b>H${String(h).padStart(2,'0')}</b></td>
+      <td>${s.n}</td>
+      <td>${wRate}%</td>
+      <td class="${s.pnl >= 0 ? 'green' : 'red'}">${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(0)}</td>
+      <td class="${s.pnl >= 0 ? 'green' : 'red'}">${(s.pnl * KURZ).toFixed(0)}</td>
+      <td><div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div></td>
+    </tr>`;
+  }
+  document.getElementById('hourlyTable').innerHTML = hHtml || '<tr><td colspan="6" style="text-align:center;color:#999;">Žádné trades</td></tr>';
+  
+  // Všechny trades
+  let tHtml = '';
+  for (const t of tradeList) {
+    const dirIcon = t.direction > 0 ? '▲ LONG' : '▼ SHORT';
+    const dirClass = t.direction > 0 ? 'green' : 'red';
+    tHtml += `<tr>
+      <td>${t.interval}</td>
+      <td class="${t.sig >= 0 ? 'green' : 'red'}">${t.sig >= 0 ? '+' : ''}${t.sig.toFixed(1)}</td>
+      <td class="${dirClass}">${dirIcon}</td>
+      <td class="${t.actual >= 0 ? 'green' : 'red'}">${t.actual >= 0 ? '+' : ''}${t.actual.toFixed(1)}</td>
+      <td class="${t.pnl >= 0 ? 'green' : 'red'}"><b>${t.pnl >= 0 ? '+' : ''}${t.pnl.toFixed(1)}</b></td>
+      <td class="${t.cumProfit >= 0 ? 'green' : 'red'}">${t.cumProfit >= 0 ? '+' : ''}${t.cumProfit.toFixed(0)}</td>
+    </tr>`;
+  }
+  document.getElementById('tradesTable').innerHTML = tHtml || '<tr><td colspan="6" style="text-align:center;color:#999;">Žádné trades</td></tr>';
+}
+
+// Init
+loadAll();
+// Auto refresh every minute
+setInterval(loadAll, 60000);
+</script>
+</body>
+</html>
