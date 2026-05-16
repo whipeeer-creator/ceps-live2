@@ -165,7 +165,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   </div>
 </div>
 
-<h2>📅 Backtest posledních 7 dnů</h2>
+<h2>📅 Backtest posledních 30 dnů</h2>
 <div class="row" style="grid-template-columns: 1fr;">
   <div class="card" style="padding: 0;">
     <table>
@@ -186,7 +186,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
       </tbody>
       <tfoot>
         <tr id="weekTotal" style="background:#fff8e1;font-weight:700;">
-          <td colspan="3">SUMA 7 dnů</td>
+          <td colspan="3">SUMA 30 dnů</td>
           <td id="wkTrades">—</td>
           <td id="wkWR">—</td>
           <td id="wkNet">—</td>
@@ -506,27 +506,31 @@ async function loadWeekBacktest() {
   
   // Posledních 7 dní + dnes (8 dní celkem, ale dnes je incomplete)
   const days = [];
-  for (let d = 7; d >= 1; d--) {
+  for (let d = 30; d >= 1; d--) {
     const dt = new Date(Date.now() - d * 86400000);
     days.push(dt.toISOString().slice(0, 10));
   }
   
-  // Fetch paralelně
-  const promises = days.map(async (date) => {
-    try {
-      const [rO, rV] = await Promise.all([
-        fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }),
-        fetch(`${API_URL}/ote/vdt?date=${date}`, { cache: 'no-store' })
-      ]);
-      const dO = await rO.json();
-      const dV = await rV.json();
-      return computeDayBacktest(date, dO, dV);
-    } catch(e) {
-      return { date, error: e.message, trades: 0, wins: 0, net: 0, qhWithVdt: 0 };
-    }
-  });
-  
-  const results = await Promise.all(promises);
+  // Fetch po batch 5 (30 dnů = 6 batch) aby Render-server nezahlcen
+  const results = [];
+  const BATCH = 5;
+  for (let bi = 0; bi < days.length; bi += BATCH) {
+    const batch = days.slice(bi, bi + BATCH);
+    const batchResults = await Promise.all(batch.map(async (date) => {
+      try {
+        const [rO, rV] = await Promise.all([
+          fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }),
+          fetch(`${API_URL}/ote/vdt?date=${date}`, { cache: 'no-store' })
+        ]);
+        const dO = await rO.json();
+        const dV = await rV.json();
+        return computeDayBacktest(date, dO, dV);
+      } catch(e) {
+        return { date, error: e.message, trades: 0, wins: 0, net: 0, qhWithVdt: 0 };
+      }
+    }));
+    results.push(...batchResults);
+  }
   
   // Render
   let totalTrades = 0, totalWins = 0, totalNet = 0;
