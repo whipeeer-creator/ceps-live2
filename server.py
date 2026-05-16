@@ -1863,7 +1863,9 @@ class Handler(BaseHTTPRequestHandler):
         try:
             import urllib.request, urllib.error
             api_key = os.environ.get("METDESK_API_KEY", "")
-            api_key = api_key.strip("\n\r\t ")
+            # Normalizace: nahrad vsechny newliny/taby/multi-spaces jednou mezerou
+            import re
+            api_key = re.sub(r'\s+', ' ', api_key).strip()
             if not api_key:
                 self._json({"error": "METDESK_API_KEY not configured"}, 200); return
 
@@ -1883,7 +1885,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(out); return
 
             raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
-            auth_hdr = f"jwt {raw_token}"
+            # Pokud uz ma "jwt " prefix v env var, pouzij as-is. Jinak pridej "jwt ".
+            lower = api_key.lower()
+            if lower.startswith("jwt "):
+                auth_hdr = api_key  # uz ma "jwt prefix"
+            else:
+                auth_hdr = f"jwt {raw_token}"
             
             def fetch(url):
                 req = urllib.request.Request(url, headers={"Authorization": auth_hdr})
@@ -1909,7 +1916,8 @@ class Handler(BaseHTTPRequestHandler):
             end = (datetime.now(timezone.utc) + timedelta(hours=48)).strftime("%Y-%m-%dT00:00:00Z")
             fc_url = (f"https://api.metdesk.com/get/metdesk/powergen/v2/forecasts"
                       f"?model={model}&issue={latest_issue}&location={country}"
-                      f"&generation_type={gen_type}&start_dtg={start}&end_dtg={end}")
+                      f"&location_type=country&element={gen_type}&interval=hires"
+                      f"&start_dtg={start}&end_dtg={end}")
             try:
                 raw = fetch(fc_url)
             except urllib.error.HTTPError as e:
