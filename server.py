@@ -660,6 +660,54 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/weather":
             self._weather(qs); return
 
+        if parsed.path == "/metdesk/probe":
+            # Probe ruzne MetDesk endpointy - zjisti co funguje
+            try:
+                import urllib.request, urllib.error
+                api_key = os.environ.get("METDESK_API_KEY", "").strip("\n\r\t ")
+                if not api_key:
+                    self._json({"error": "no key"}); return
+                raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
+                
+                urls_to_test = [
+                    "https://api.metdesk.com/get/metdesk/magmaweather/v1/issues",
+                    "https://api.metdesk.com/get/metdesk/magmaweather/v1/models",
+                    "https://api.metdesk.com/get/metdesk/magmaweather/v1/locations",
+                    "https://api.metdesk.com/get/metdesk/ao/v1/issues",
+                    "https://api.metdesk.com/get/metdesk/ao/v1/models",
+                ]
+                
+                results = []
+                for url in urls_to_test:
+                    try:
+                        req = urllib.request.Request(url, headers={"Authorization": f"jwt {raw_token}"})
+                        with urllib.request.urlopen(req, timeout=8) as r:
+                            body = r.read(300).decode("utf-8", "replace")
+                            results.append({
+                                "url": url.split("/v1/")[0].split("/metdesk/")[1] + "/v1/" + url.split("/v1/")[1],
+                                "status": r.status,
+                                "preview": body[:150]
+                            })
+                    except urllib.error.HTTPError as e:
+                        err = ""
+                        try: err = e.read().decode("utf-8")[:150]
+                        except: pass
+                        results.append({
+                            "url": url.split("/v1/")[0].split("/metdesk/")[1] + "/v1/" + url.split("/v1/")[1],
+                            "status": e.code,
+                            "err": err
+                        })
+                    except Exception as e:
+                        results.append({
+                            "url": url,
+                            "err": str(e)[:100]
+                        })
+                
+                self._json({"results": results})
+            except Exception as e:
+                self._json({"error": str(e)}, 500)
+            return
+
         if parsed.path == "/metdesk/magma":
             self._metdesk_magma(qs); return
 
