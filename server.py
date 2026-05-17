@@ -2265,14 +2265,13 @@ class Handler(BaseHTTPRequestHandler):
             header_row_idx = None
             last_col_idx = None
             interval_col_idx = None
+            vwap_col_idx = None  # vážený průměr
             
             for row_idx, cells in enumerate(_xlsx_iter_rows(xlsx_bytes)):
-                # cells je list stringu (pozice v listu = index sloupce)
                 if not isinstance(cells, list):
                     cells = list(cells)
                 all_rows.append(cells)
                 
-                # Najdi header row
                 if header_row_idx is None:
                     for ci, val in enumerate(cells):
                         if isinstance(val, str):
@@ -2280,31 +2279,44 @@ class Handler(BaseHTTPRequestHandler):
                             if "posled" in vlow or "last" in vlow:
                                 last_col_idx = ci
                                 header_row_idx = row_idx
+                            # Vážený průměr - různé varianty
+                            if "vážený" in vlow or "vazeny" in vlow or "vwap" in vlow or "weighted" in vlow:
+                                vwap_col_idx = ci
+                                if header_row_idx is None:
+                                    header_row_idx = row_idx
+                            # Někdy je to "průměrná cena"
+                            if "průměrn" in vlow or "prumern" in vlow or "average" in vlow:
+                                if vwap_col_idx is None:
+                                    vwap_col_idx = ci
+                                    if header_row_idx is None:
+                                        header_row_idx = row_idx
                     if header_row_idx == row_idx:
-                        # Najdi interval sloupec v stejnem header rowu
                         for ci, val in enumerate(cells):
                             if isinstance(val, str):
                                 vlow = val.lower()
                                 if "interval" in vlow or "čas" in vlow or "cas" in vlow:
                                     interval_col_idx = ci
                                     break
+                        # Debug log
+                        print(f"  -> VDT {date_str}: header found row {row_idx}, last_col={last_col_idx}, vwap_col={vwap_col_idx}, interval_col={interval_col_idx}", flush=True)
+                        print(f"     headers: {[c for c in cells if isinstance(c, str) and c.strip()]}", flush=True)
                     continue
                 
-                # Data row - vytahni interval a last
-                if last_col_idx is not None and last_col_idx < len(cells):
+                # Data row - vytahni interval a vwap (preferred) nebo last
+                price_col_idx = vwap_col_idx if vwap_col_idx is not None else last_col_idx
+                if price_col_idx is not None and price_col_idx < len(cells):
                     interval = None
                     if interval_col_idx is not None and interval_col_idx < len(cells):
                         interval = cells[interval_col_idx]
                     if not interval:
-                        # Zkus prvni 3 sloupce
                         for ci in range(min(3, len(cells))):
                             v = cells[ci]
                             if isinstance(v, str) and ":" in v:
                                 interval = v; break
                     
-                    last_val = cells[last_col_idx]
+                    price_val = cells[price_col_idx]
                     
-                    if isinstance(interval, str) and ":" in interval and last_val:
+                    if isinstance(interval, str) and ":" in interval and price_val:
                         try:
                             time_part = interval.split("-")[0].strip() if "-" in interval else interval.strip()
                             parts = time_part.split(":")
@@ -2312,11 +2324,12 @@ class Handler(BaseHTTPRequestHandler):
                             hh = int(parts[0]); mm = int(parts[1])
                             if hh > 23 or mm > 59: continue
                             ts = day_dt.replace(hour=hh, minute=mm)
-                            price = float(str(last_val).replace(",", "."))
+                            price = float(str(price_val).replace(",", "."))
                             points.append({
                                 "ts": ts.strftime("%Y-%m-%dT%H:%MZ"),
                                 "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%S"),
                                 "last": price,
+                                "price_type": "vwap" if vwap_col_idx is not None else "last"
                             })
                         except (ValueError, IndexError):
                             pass
