@@ -145,8 +145,8 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 
 <h2>📋 Všechny trades dnes (chronologicky)</h2>
 <div class="row" style="grid-template-columns: 1fr;">
-  <div class="card" style="padding: 0;">
-    <table>
+  <div class="card" style="padding: 0; overflow-x: auto;">
+    <table style="min-width: 600px;">
       <thead>
         <tr>
           <th>QH</th>
@@ -501,23 +501,33 @@ function renderBacktest(rows, ema) {
   document.getElementById('bkAvgTrade').innerHTML = 
     `<span class="${avg >= 0 ? 'green' : 'red'}">${avg >= 0 ? '+' : ''}${avg.toFixed(1)}</span><span class="u">EUR</span>`;
   
-  // Hourly
+  // Hourly - ZAHRNUJ VŠECHNY hodiny dne (i bez tradů)
+  // Najdi range hodin v rows[]
+  const hoursInDay = new Set();
+  for (const r of rows) {
+    const h = parseInt(r.interval.split(':')[0]);
+    if (!isNaN(h)) hoursInDay.add(h);
+  }
+  
   const maxAbs = Math.max(...Object.values(hourly).map(s => Math.abs(s.pnl)), 1);
   let hHtml = '';
-  for (const h of Object.keys(hourly).map(Number).sort((a,b)=>a-b)) {
-    const s = hourly[h];
-    const wRate = s.n > 0 ? (s.w/s.n*100).toFixed(0) : 0;
+  for (const h of [...hoursInDay].sort((a,b)=>a-b)) {
+    const s = hourly[h] || { pnl: 0, n: 0, w: 0 };
+    const wRate = s.n > 0 ? (s.w/s.n*100).toFixed(0) + '%' : '—';
     const barColor = s.pnl >= 0 ? 'bar-pos' : 'bar-neg';
-    const barW = Math.min(100, Math.abs(s.pnl)/maxAbs*100);
-    hHtml += `<tr>
+    const barW = s.n > 0 ? Math.min(100, Math.abs(s.pnl)/maxAbs*100) : 0;
+    const rowStyle = s.n === 0 ? 'opacity:0.5;background:#f8f8f8;' : '';
+    const pnlClass = s.n === 0 ? 'gray' : (s.pnl >= 0 ? 'green' : 'red');
+    const pnlStr = s.n === 0 ? '—' : `${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(0)}`;
+    hHtml += `<tr style="${rowStyle}">
       <td><b>H${String(h).padStart(2,'0')}</b></td>
       <td>${s.n}</td>
-      <td>${wRate}%</td>
-      <td class="${s.pnl >= 0 ? 'green' : 'red'}">${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(0)}</td>
-      <td><div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div></td>
+      <td>${wRate}</td>
+      <td class="${pnlClass}">${pnlStr}</td>
+      <td>${s.n > 0 ? `<div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div>` : ''}</td>
     </tr>`;
   }
-  document.getElementById('hourlyTable').innerHTML = hHtml || '<tr><td colspan="6" style="text-align:center;color:#999;">Žádné trades</td></tr>';
+  document.getElementById('hourlyTable').innerHTML = hHtml || '<tr><td colspan="5" style="text-align:center;color:#999;">Žádné trades</td></tr>';
   
   // Trades list
   let tHtml = '';
