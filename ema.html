@@ -263,12 +263,22 @@ let API_URL = window.location.origin;
 
 async function loadAll() {
   try {
-    const today = new Date().toISOString().slice(0,10);
-    const cb = Date.now();  // cache buster
-    const [rOdch, rVdt] = await Promise.all([
+    const nowLocal = new Date();
+    const today = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth()+1).padStart(2,'0')}-${String(nowLocal.getDate()).padStart(2,'0')}`;
+    
+    // VČEREJŠÍ datum pro kontinuitu (SS3 potřebuje historii přes půlnoc)
+    const yesterdayLocal = new Date(nowLocal.getTime() - 86400000);
+    const yesterday = `${yesterdayLocal.getFullYear()}-${String(yesterdayLocal.getMonth()+1).padStart(2,'0')}-${String(yesterdayLocal.getDate()).padStart(2,'0')}`;
+    
+    const cb = Date.now();
+    const [rOdchY, rVdtY, rOdch, rVdt] = await Promise.all([
+      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${yesterday}T00:00:00&dateTo=${yesterday}T23:59:59&_=${cb}`, { cache: 'no-store' }),
+      fetch(`${API_URL}/ote/vdt?date=${yesterday}&_=${cb}`, { cache: 'no-store' }),
       fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`, { cache: 'no-store' }),
       fetch(`${API_URL}/ote/vdt?date=${today}&_=${cb}`, { cache: 'no-store' })
     ]);
+    const dOdchY = await rOdchY.json();
+    const dVdtY = await rVdtY.json();
     const dOdch = await rOdch.json();
     const dVdt = await rVdt.json();
     
@@ -277,26 +287,46 @@ async function loadAll() {
       return;
     }
     
-    // Build VDT lookup z OTE
+    // Build VDT lookup z OTE pro VČERA i DNES (s prefixem datumu)
     const vdtMap = {};
-    const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt.data || []);
-    for (const v of vdtList) {
-      const ts = v.timestamp || v.ts || '';
-      const m = ts.match(/T(\d{2}):(\d{2})/);
-      if (!m) continue;
-      const hh = m[1], mm = parseInt(m[2]);
-      let endMM = mm + 15, endHH = parseInt(hh);
-      if (endMM >= 60) { endMM = 0; endHH++; }
-      const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
-      const priceEur = parseFloat(v.last);
-      if (!isNaN(priceEur)) vdtMap[interval] = priceEur;
-    }
+    const buildVdt = (data, datePrefix) => {
+      const list = Array.isArray(data) ? data : (data.data || []);
+      for (const v of list) {
+        const ts = v.timestamp || v.ts || '';
+        const m = ts.match(/T(\d{2}):(\d{2})/);
+        if (!m) continue;
+        const hh = m[1], mm = parseInt(m[2]);
+        let endMM = mm + 15, endHH = parseInt(hh);
+        if (endMM >= 60) { endMM = 0; endHH++; }
+        const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+        const priceEur = parseFloat(v.last);
+        if (!isNaN(priceEur)) vdtMap[`${datePrefix}|${interval}`] = priceEur;
+      }
+    };
+    buildVdt(dVdtY, yesterday);
+    buildVdt(dVdt, today);
     
     const rows = [];
     const now = new Date();
     const nowMin = now.getHours() * 60 + now.getMinutes();
-    // ČEPS API už filtruje publikované ceny samo
-    // Bereme všechny QH co jsou v minulosti (qhEnd <= NOW)
+    
+    // VČEREJŠÍ data - vsechny QH
+    if (dOdchY.rows) {
+      for (const row of dOdchY.rows) {
+        const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+        const interval = row['Interval'] || '';
+        if (!interval) continue;
+        const vdt = vdtMap[`${yesterday}|${interval}`];
+        rows.push({
+          interval, date: yesterday, kc: price_kc,
+          odch: price_kc / KURZ,
+          vdt: (vdt !== undefined) ? vdt : null,
+          isToday: false
+        });
+      }
+    }
+    
+    // DNEŠNÍ data
     for (const row of dOdch.rows) {
       const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
       const interval = row['Interval'] || '';
@@ -317,13 +347,15 @@ async function loadAll() {
       let endMM = parseInt(mm) + 15, endHH = parseInt(hh);
       if (endMM >= 60) { endMM = 0; endHH++; }
       const lookupKey = `${hh}:${mm}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
-      const vdt_eur = vdtMap[lookupKey] !== undefined ? vdtMap[lookupKey] : (vdtMap[interval] !== undefined ? vdtMap[interval] : null);
+      const vdt_eur = vdtMap[`${today}|${lookupKey}`] !== undefined ? vdtMap[`${today}|${lookupKey}`] : 
+                      (vdtMap[`${today}|${interval}`] !== undefined ? vdtMap[`${today}|${interval}`] : null);
       rows.push({
-        date, interval,
+        date: today, interval,
         kc: price_kc,
         odch: odch_eur,
         vdt: vdt_eur,
-        spread: vdt_eur !== null ? (odch_eur - vdt_eur) : null
+        spread: vdt_eur !== null ? (odch_eur - vdt_eur) : null,
+        isToday: true
       });
     }
     
@@ -546,6 +578,9 @@ function renderBacktest(rows, ema) {
     const vdt = rows[i].vdt;
     const kc = rows[i].kc;
     
+    // Skip včerejší QH v dnešním backtestu (jen pro SS3 warm-up)
+    if (!rows[i].isToday) continue;
+    
     // Klasifikace QH
     let skipReason = null;
     let direction = 0;
@@ -681,7 +716,8 @@ async function loadWeekBacktest() {
   const days = [];
   for (let d = 30; d >= 1; d--) {
     const dt = new Date(Date.now() - d * 86400000);
-    days.push(dt.toISOString().slice(0, 10));
+    const dStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+    days.push(dStr);
   }
   
   // Fetch po batch 5 (30 dnů = 6 batch) aby Render-server nezahlcen
