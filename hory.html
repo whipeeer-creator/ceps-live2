@@ -3420,8 +3420,8 @@ async function loadAll() {
   tryCall('loadYearlyProfile', typeof loadYearlyProfile !== 'undefined' && loadYearlyProfile);
   try {
     if (typeof loadSpotTable === 'function') {
-      tasks.push(loadSpotTable('CZ', 'tbl-CZ').catch(e=>{}));
-      tasks.push(loadSpotTable('DE', 'tbl-DE').catch(e=>{}));
+      tasks.push(loadSpotTable('CZ', 'tbl-spot-cz').catch(e=>{}));
+      tasks.push(loadSpotTable('DE', 'tbl-spot-de').catch(e=>{}));
     }
   } catch(e) {}
   try {
