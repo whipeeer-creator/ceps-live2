@@ -243,7 +243,7 @@ async function loadAll() {
       return;
     }
     
-    // Build VDT lookup z OTE: {data: [{timestamp:"2026-05-16T17:00:00", last: 65.3, ...}]}
+    // Build VDT lookup z OTE
     const vdtMap = {};
     const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt.data || []);
     for (const v of vdtList) {
@@ -251,7 +251,6 @@ async function loadAll() {
       const m = ts.match(/T(\d{2}):(\d{2})/);
       if (!m) continue;
       const hh = m[1], mm = parseInt(m[2]);
-      // Vytvor interval string "HH:MM-HH:MM" (15min QH)
       let endMM = mm + 15, endHH = parseInt(hh);
       if (endMM >= 60) { endMM = 0; endHH++; }
       const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
@@ -311,8 +310,10 @@ async function loadAll() {
     }
     
     const vdtCount = rows.filter(r => r.vdt !== null).length;
+    const nowR = new Date();
+    const refreshTime = `${String(nowR.getHours()).padStart(2,'0')}:${String(nowR.getMinutes()).padStart(2,'0')}:${String(nowR.getSeconds()).padStart(2,'0')}`;
     document.getElementById('metaInfo').textContent = 
-      `${rows.length} QH · VDT: ${vdtCount}/${rows.length} · LAG${LAG} (T-${LAG*15}min) · α=${ALPHA.toFixed(3)}`;
+      `${rows.length} QH · VDT: ${vdtCount}/${rows.length} · LAG${LAG} · α=${ALPHA.toFixed(3)} · refresh ${refreshTime}`;
     
     renderCurrentSignal(rows, ema);
     renderEmaTable(rows, ema);
