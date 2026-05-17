@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>EMA8 · NET SPREAD Strategy</title>
+<title>SuperSmoother3 · NET SPREAD Strategy</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter', -apple-system, sans-serif; background: #f4f5f9; color: #1a1a2e; padding: 14px; max-width: 1200px; margin: 0 auto; }
@@ -49,15 +49,15 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 
 <header>
   <div>
-    <h1>EMA8 NET SPREAD <small>· VDT → Odchylka · Tom strategy</small></h1>
+    <h1>SS3 NET SPREAD <small>· VDT → Odchylka · Tom strategy</small></h1>
     <div class="meta" id="metaInfo">načítám…</div>
   </div>
   <button class="refresh" onclick="loadAll()">↺ Refresh</button>
 </header>
 
 <div class="formula">
-<b>STRATEGIE:</b> EMA8 signál → směr · Koupíš/prodáš MWh na VDT (OTE) · Pozici necháš do ČEPS odchylky · <b>NET = Odch − VDT</b> (LONG) nebo <b>VDT − Odch</b> (SHORT)<br>
-<b>Příklad:</b> Soustava v deficitu (EMA8>0). Kupuješ na VDT za 100 €/MWh, ČEPS dotuje odchylku 150 €/MWh → <b>NET +50 €</b>
+<b>STRATEGIE:</b> SS3 signál → směr · Koupíš/prodáš MWh na VDT (OTE) · Pozici necháš do ČEPS odchylky · <b>NET = Odch − VDT</b> (LONG) nebo <b>VDT − Odch</b> (SHORT)<br>
+<b>Příklad:</b> Soustava v deficitu (SS3>0). Kupuješ na VDT za 100 €/MWh, ČEPS dotuje odchylku 150 €/MWh → <b>NET +50 €</b>
 </div>
 
 <h2>🎯 AKTUÁLNÍ SIGNÁL</h2>
@@ -68,7 +68,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
     <div class="card-s" id="currentSignalDetail">—</div>
   </div>
   <div class="card">
-    <div class="card-l">EMA8 hodnota</div>
+    <div class="card-l">SS3 hodnota</div>
     <div class="card-v" id="emaValue">—<span class="u">EUR/MWh</span></div>
     <div class="card-s" id="emaTrend">—</div>
   </div>
@@ -79,7 +79,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   </div>
 </div>
 
-<h2>📐 Výpočet EMA8 - posledních 8 publikovaných cen odchylky</h2>
+<h2>📐 Výpočet SS3 - posledních 8 publikovaných cen odchylky</h2>
 <div class="row" style="grid-template-columns: 1fr;">
   <div class="card" style="padding: 0;">
     <table>
@@ -87,7 +87,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
         <tr>
           <th>Interval (QH)</th>
           <th>Cena EUR/MWh</th>
-          <th>EMA8 EUR</th>
+          <th>SS3 EUR</th>
           <th>Váha</th>
           <th>Graf</th>
         </tr>
@@ -150,7 +150,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
       <thead>
         <tr>
           <th>QH</th>
-          <th>EMA8</th>
+          <th>SS3</th>
           <th>Směr</th>
           <th>VDT</th>
           <th>Odch</th>
@@ -198,7 +198,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   </div>
 </div>
 
-<h2>📈 Historická referenční čísla · LAG4 + filtr |EMA8|>30 EUR</h2>
+<h2>📈 Historická referenční čísla · LAG4 · bez filtru</h2>
 <div class="row">
   <div class="card">
     <div class="card-l">2024 H2 (anomálie)</div>
@@ -224,8 +224,17 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 
 <script>
 const KURZ = 24.5;
+const SS_PERIOD = 3;  // SuperSmoother3 (Ehlers 2nd-order Butterworth)
+const LAG = 4;  // T-40 - Tom tradeu QH(i) ze signalu z dat T-60 stara
+// SuperSmoother koeficienty
+const SS_A1 = Math.exp(-1.414 * Math.PI / SS_PERIOD);
+const SS_B1 = 2 * SS_A1 * Math.cos(1.414 * Math.PI / SS_PERIOD);
+const SS_C2 = SS_B1;
+const SS_C3 = -SS_A1 * SS_A1;
+const SS_C1 = 1 - SS_C2 - SS_C3;
+
+// Backward compat - některé staré reference
 const ALPHA = 2/9;
-const LAG = 4;  // T-40 - Tom tradeu QH(i) ze signalu EMA8 z dat T-60 stara
 let API_URL = window.location.origin;
 
 async function loadAll() {
@@ -302,28 +311,32 @@ async function loadAll() {
     }
     
     const prices = rows.map(r => r.odch);
-    // EMA - SKIP 0 jen pro RECENT QH (<30 min po skončení = pravděpodobně nezúčtováno)
-    // Pro starší QH s 0 = LEGIT cena, zahrň
+    // SuperSmoother3 - SKIP 0 jen pro RECENT QH (<30 min po skončení = pravděpodobně nezúčtováno)
     const nowMinEma = new Date().getHours() * 60 + new Date().getMinutes();
-    const ema = [];
-    let lastEma = null;
+    const ema = [];  // ponecháno jméno 'ema' pro kompatibilitu, ale obsahuje SuperSmoother
+    const validPrices = [];
+    
     for (let i = 0; i < prices.length; i++) {
-      // Zjisti zda QH je recent (< 30 min po skončení)
       const tmE = rows[i].interval.match(/^(\d{1,2}):(\d{2})/);
       const qhEndE = tmE ? (parseInt(tmE[1])*60 + parseInt(tmE[2]) + 15) : 0;
       const isRecentE = (nowMinEma - qhEndE) < 30 && (nowMinEma - qhEndE) >= 0;
       
       if (prices[i] === 0 && isRecentE) {
-        // Recent QH s 0 = nezúčtováno, skip
-        ema.push(lastEma !== null ? lastEma : 0);
+        // Recent 0 = nezúčtováno, zachovej poslední
+        ema.push(ema.length > 0 ? ema[ema.length-1] : 0);
       } else {
-        // Starší QH s 0 = legit, NEBO normální cena
-        if (lastEma === null) {
-          lastEma = prices[i];
+        validPrices.push(prices[i]);
+        if (validPrices.length === 1) {
+          ema.push(prices[i]);
+        } else if (validPrices.length === 2) {
+          ema.push(prices[i]);
         } else {
-          lastEma = ALPHA * prices[i] + (1 - ALPHA) * lastEma;
+          // SuperSmoother: c1×(p[i]+p[i-1])/2 + c2×ss[i-1] + c3×ss[i-2]
+          const prev1 = ema[ema.length-1];
+          const prev2 = ema[ema.length-2];
+          const ss = SS_C1 * (prices[i] + prices[i-1]) / 2 + SS_C2 * prev1 + SS_C3 * prev2;
+          ema.push(ss);
         }
-        ema.push(lastEma);
       }
     }
     
@@ -331,7 +344,7 @@ async function loadAll() {
     const nowR = new Date();
     const refreshTime = `${String(nowR.getHours()).padStart(2,'0')}:${String(nowR.getMinutes()).padStart(2,'0')}:${String(nowR.getSeconds()).padStart(2,'0')}`;
     document.getElementById('metaInfo').textContent = 
-      `${rows.length} QH · VDT: ${vdtCount}/${rows.length} · LAG${LAG} · α=${ALPHA.toFixed(3)} · refresh ${refreshTime}`;
+      `${rows.length} QH · VDT: ${vdtCount}/${rows.length} · LAG${LAG} · SS${SS_PERIOD} · refresh ${refreshTime}`;
     
     renderCurrentSignal(rows, ema);
     renderEmaTable(rows, ema);
@@ -367,20 +380,20 @@ function renderCurrentSignal(rows, ema) {
   const tradableInterval = `${thh}:${tmm}-${ehh}:${emm}`;
   const leadMin = tradableStart - nowMin;
   
-  // Filter |EMA8|>30 STEJNĚ jako v backtestu
+  // Žádný filter - tradeu vždy
   let direction, dirColor, dirEx;
-  if (Math.abs(sigEma) < 30) {
-    direction = '⏸ NO TRADE';
-    dirColor = 'orange';
-    dirEx = `|EMA8| = ${Math.abs(sigEma).toFixed(1)} EUR < 30 → neobchoduj (slabý signál nebo chaos)`;
-  } else if (sigEma > 0) {
+  if (sigEma > 0) {
     direction = 'LONG ▲';
     dirColor = 'green';
     dirEx = 'Deficit → KUP na VDT, drž do odchylky (ČEPS dotuje +)';
-  } else {
+  } else if (sigEma < 0) {
     direction = 'SHORT ▼';
     dirColor = 'red';
     dirEx = 'Přebytek → PRODEJ na VDT, dorovnej v odchylce (cena ↓)';
+  } else {
+    direction = '⏸ NEUTRAL';
+    dirColor = 'gray';
+    dirEx = 'SS3 = 0 → žádný směr';
   }
   
   document.getElementById('currentSignal').innerHTML = 
@@ -440,7 +453,7 @@ function renderEmaTable(rows, ema) {
     const maxAbs = Math.max(...rows.slice(startIdx).map(x => Math.abs(x.odch)));
     const barW = maxAbs > 0 ? Math.min(100, Math.abs(eur)/maxAbs*100) : 0;
     html += `<tr class="${cls}">
-      <td>${r.interval}${isLag ? ' <span style="color:#1565c0;font-size:9px;">← poslední data EMA8</span>' : ''}</td>
+      <td>${r.interval}${isLag ? ' <span style="color:#1565c0;font-size:9px;">← poslední data SS3</span>' : ''}</td>
       <td class="${eur >= 0 ? 'green' : 'red'}">${eur >= 0 ? '+' : ''}${eur.toFixed(1)}</td>
       <td class="${ema[i] >= 0 ? 'green' : 'red'}">${ema[i] >= 0 ? '+' : ''}${ema[i].toFixed(1)}</td>
       <td>${weightPct}%</td>
@@ -475,9 +488,7 @@ function renderBacktest(rows, ema) {
     const qhEndMinBT = tmBT ? (parseInt(tmBT[1])*60 + parseInt(tmBT[2]) + 15) : 0;
     const isRecent = (nowMinBT - qhEndMinBT) < 30 && (nowMinBT - qhEndMinBT) >= 0;
     
-    if (Math.abs(sig) < 30) {
-      skipReason = '⏸ |EMA8|<30';
-    } else if (vdt === null || vdt === undefined) {
+    if (vdt === null || vdt === undefined) {
       skipReason = '⏸ chybí VDT';
       skipNoVdt++;
     } else if (kc === 0 && isRecent) {
@@ -519,7 +530,7 @@ function renderBacktest(rows, ema) {
   
   document.getElementById('bkTrades').textContent = trades;
   document.getElementById('bkTradesDetail').textContent = 
-    `${n-LAG} hodnocených QH · |EMA8|>30 EUR`;
+    `${n-LAG} hodnocených QH · bez filtru`;
   
   document.getElementById('bkWinrate').innerHTML = 
     `<span class="${wr >= 50 ? 'green' : 'red'}">${wr.toFixed(0)}</span><span class="u">%</span>`;
@@ -724,15 +735,15 @@ function computeDayBacktest(date, dOdch, dVdt) {
   
   // EMA8 - warm-up first 8 QH (init průměrem)
   const prices = rows.map(r => r.odch);
-  // Historická data - 0 = vždy legit (publikováno dlouho)
-  const nonZeroPrices = prices.filter(p => p !== 0).slice(0, 8);
-  const initAvg = nonZeroPrices.length > 0 ? nonZeroPrices.reduce((s,p) => s+p, 0) / nonZeroPrices.length : 0;
+  // SuperSmoother3 (stejně jako live)
   const ema = [];
-  let lastEma = initAvg;
   for (let i = 0; i < prices.length; i++) {
-    // V historických datech bereme 0 jako legit (nikoliv nezúčtováno)
-    lastEma = ALPHA * prices[i] + (1 - ALPHA) * lastEma;
-    ema.push(lastEma);
+    if (i < 2) {
+      ema.push(prices[i]);
+    } else {
+      const ss = SS_C1 * (prices[i] + prices[i-1]) / 2 + SS_C2 * ema[i-1] + SS_C3 * ema[i-2];
+      ema.push(ss);
+    }
   }
   
   // Backtest - SKIP prvních 8 QH (warm-up period)
@@ -741,9 +752,8 @@ function computeDayBacktest(date, dOdch, dVdt) {
     const sig = ema[i - LAG];
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
-    if (Math.abs(sig) < 30) continue;
     if (vdt === null || vdt === undefined) continue;
-    if (rows[i].kc === 0) continue;  // Odch nezuctovana
+    if (sig === 0) continue;  // EMA=0 = neutral
     
     const direction = sig > 0 ? +1 : -1;
     const net = direction * (actual - vdt);
