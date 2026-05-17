@@ -438,6 +438,7 @@ function renderBacktest(rows, ema) {
   const hourly = {};
   const tradeList = [];
   
+  const nowMinBT = new Date().getHours() * 60 + new Date().getMinutes();
   for (let i = LAG; i < n; i++) {
     const sig = ema[i - LAG];
     const actual = rows[i].odch;
@@ -449,14 +450,21 @@ function renderBacktest(rows, ema) {
     let direction = 0;
     let net = 0;
     
+    // Check jestli je to "recent" QH (skončila < 30 min nazpátek)
+    const tmBT = rows[i].interval.match(/^(\d{1,2}):(\d{2})/);
+    const qhEndMinBT = tmBT ? (parseInt(tmBT[1])*60 + parseInt(tmBT[2]) + 15) : 0;
+    const isRecent = (nowMinBT - qhEndMinBT) < 30 && (nowMinBT - qhEndMinBT) >= 0;
+    
     if (Math.abs(sig) < 30) {
       skipReason = '⏸ |EMA8|<30';
-    } else if (vdt === null || vdt === 0) {
+    } else if (vdt === null || vdt === undefined) {
       skipReason = '⏸ chybí VDT';
       skipNoVdt++;
-    } else if (kc === 0) {
-      skipReason = '⏸ Odch=0';
+    } else if (kc === 0 && isRecent) {
+      // 0 v recent QH = pravděpodobně nezúčtováno → skip
+      skipReason = '⏸ Odch=0 (recent)';
     } else {
+      // Trade (i s Odch=0 pokud je QH starší než 30 min = legit 0)
       direction = sig > 0 ? +1 : -1;
       net = direction * (actual - vdt);
       netProfit += net;
@@ -711,7 +719,7 @@ function computeDayBacktest(date, dOdch, dVdt) {
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
     if (Math.abs(sig) < 30) continue;
-    if (vdt === null || vdt === 0) continue;
+    if (vdt === null || vdt === undefined) continue;
     if (rows[i].kc === 0) continue;  // Odch nezuctovana
     
     const direction = sig > 0 ? +1 : -1;
