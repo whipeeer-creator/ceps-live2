@@ -454,8 +454,8 @@ function renderCurrentSignal(rows, ema) {
     bands.forEach((b, idx) => {
       if (isActive && idx === activeBand) {
         const shownSig = sigEma > 0 ? absSig.toFixed(0) : `-${absSig.toFixed(0)}`;
-        html += `<div style="display:grid;grid-template-columns:90px 110px 1fr;background:${accentColor};color:#fff;padding:6px 10px;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:2px 0;white-space:nowrap;">
-          <span>${b.label}</span><span>${shownSig} → ${recMwh} MWh</span><span style="opacity:0.85;">${b.desc}</span>
+        html += `<div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;background:${accentColor};color:#fff;font-weight:700;border-radius:4px;">
+          <b style="padding-left:6px;">${b.label}</b><span>${shownSig} → ${recMwh} MWh</span><span style="opacity:0.85;">${b.desc}</span>
         </div>`;
       } else {
         html += `<div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>${b.label}</b><span>${b.mwh}</span><span style="color:#999;">${b.desc}</span></div>`;
