@@ -231,9 +231,10 @@ let API_URL = window.location.origin;
 async function loadAll() {
   try {
     const today = new Date().toISOString().slice(0,10);
+    const cb = Date.now();  // cache buster
     const [rOdch, rVdt] = await Promise.all([
-      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59`, { cache: 'no-store' }),
-      fetch(`${API_URL}/ote/vdt?date=${today}`, { cache: 'no-store' })
+      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`, { cache: 'no-store' }),
+      fetch(`${API_URL}/ote/vdt?date=${today}&_=${cb}`, { cache: 'no-store' })
     ]);
     const dOdch = await rOdch.json();
     const dVdt = await rVdt.json();
@@ -294,9 +295,6 @@ async function loadAll() {
     }
     
     // ORIZNI TRAILING ZEROS - to jsou nezuctovane QH na konci
-    while (rows.length > 0 && rows[rows.length-1].kc === 0) {
-      rows.pop();
-    }
     
     if (rows.length === 0) {
       document.getElementById('metaInfo').textContent = 'Žádná validní data';
@@ -434,8 +432,10 @@ function renderBacktest(rows, ema) {
     const sig = ema[i - LAG];
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
+    const kc = rows[i].kc;
     if (Math.abs(sig) < 30) continue;
-    if (vdt === null || vdt === 0) { skipNoVdt++; continue; }  // 0 VDT = nepublikovano
+    if (vdt === null || vdt === 0) { skipNoVdt++; continue; }
+    if (kc === 0) continue;  // Odch nezuctovana (vzacne 0)
     
     const direction = sig > 0 ? +1 : -1;
     // NET = direction × (Odch - VDT)
@@ -645,9 +645,6 @@ function computeDayBacktest(date, dOdch, dVdt) {
   }
   
   // Orizni trailing zeros (nezuctovane na konci)
-  while (rows.length > 0 && rows[rows.length-1].kc === 0) {
-    rows.pop();
-  }
   
   if (rows.length < 12) return result;  // potřebujeme warmup + LAG
   
@@ -669,6 +666,7 @@ function computeDayBacktest(date, dOdch, dVdt) {
     const vdt = rows[i].vdt;
     if (Math.abs(sig) < 30) continue;
     if (vdt === null || vdt === 0) continue;
+    if (rows[i].kc === 0) continue;  // Odch nezuctovana
     
     const direction = sig > 0 ? +1 : -1;
     const net = direction * (actual - vdt);
