@@ -61,25 +61,25 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 </div>
 
 <h2>📊 Position Sizing</h2>
-<div class="row" style="grid-template-columns: 1fr 1fr;">
+<div class="row" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
   <div class="card" style="background:#e8f5e9; border-left:4px solid #2e7d32;">
     <div style="font-size:13px; font-weight:700; color:#2e7d32; margin-bottom:8px;">▲ LONG (SS3 > 0)</div>
     <div id="longSizing" style="font-size:11px; font-family:'JetBrains Mono',monospace;">
-      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>0-30</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
-      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>30-100</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
-      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>100-200</b><span>4-7 MWh</span><span style="color:#999;">silný</span></div>
-      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>200-300</b><span>7-9 MWh</span><span style="color:#999;">v.silný</span></div>
-      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>300+</b><span>10 MWh</span><span style="color:#999;">extrém</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>0-30</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>30-100</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>100-200</b><span>4-7 MWh</span><span style="color:#999;">silný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>200-300</b><span>7-9 MWh</span><span style="color:#999;">v.silný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>300+</b><span>10 MWh</span><span style="color:#999;">extrém</span></div>
     </div>
   </div>
   <div class="card" style="background:#ffebee; border-left:4px solid #c62828;">
     <div style="font-size:13px; font-weight:700; color:#c62828; margin-bottom:8px;">▼ SHORT (SS3 < 0)</div>
     <div id="shortSizing" style="font-size:11px; font-family:'JetBrains Mono',monospace;">
-      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>-30 až 0</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
-      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>-100 až -30</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
-      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>-200 až -100</b><span>4-7 MWh</span><span style="color:#999;">silný</span></div>
-      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>-300 až -200</b><span>7-9 MWh</span><span style="color:#999;">v.silný</span></div>
-      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>-300+</b><span>10 MWh</span><span style="color:#999;">extrém</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-30 až 0</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-100 až -30</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-200 až -100</b><span>4-7 MWh</span><span style="color:#999;">silný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-300 až -200</b><span>7-9 MWh</span><span style="color:#999;">v.silný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-300+</b><span>10 MWh</span><span style="color:#999;">extrém</span></div>
     </div>
   </div>
 </div>
@@ -454,11 +454,9 @@ function renderCurrentSignal(rows, ema) {
     bands.forEach((b, idx) => {
       if (isActive && idx === activeBand) {
         const shownSig = sigEma > 0 ? absSig.toFixed(0) : `-${absSig.toFixed(0)}`;
-        html += `<div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;background:${accentColor};color:#fff;font-weight:700;border-radius:4px;">
-          <b style="padding-left:6px;">${b.label}</b><span>${shownSig} → ${recMwh} MWh</span><span style="opacity:0.85;">${b.desc}</span>
-        </div>`;
+        html += `<div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;background:${accentColor};color:#fff;"><b>${b.label}</b><span>${shownSig} → ${recMwh} MWh</span><span style="opacity:0.85;">${b.desc}</span></div>`;
       } else {
-        html += `<div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>${b.label}</b><span>${b.mwh}</span><span style="color:#999;">${b.desc}</span></div>`;
+        html += `<div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>${b.label}</b><span>${b.mwh}</span><span style="color:#999;">${b.desc}</span></div>`;
       }
     });
     document.getElementById(boxId).innerHTML = html;
