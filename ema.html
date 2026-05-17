@@ -60,6 +60,30 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 <b>Příklad:</b> Soustava v deficitu (SS3>0). Kupuješ na VDT za 100 €/MWh, ČEPS dotuje odchylku 150 €/MWh → <b>NET +50 €</b>
 </div>
 
+<h2>📊 Position Sizing</h2>
+<div class="row" style="grid-template-columns: 1fr 1fr;">
+  <div class="card" style="background:#e8f5e9; border-left:4px solid #2e7d32;">
+    <div style="font-size:13px; font-weight:700; color:#2e7d32; margin-bottom:8px;">▲ LONG (SS3 > 0)</div>
+    <div id="longSizing" style="font-size:11px; font-family:'JetBrains Mono',monospace;">
+      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>0-30</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
+      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>30-100</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
+      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>100-200</b><span>4-7 MWh</span><span style="color:#999;">silný</span></div>
+      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>200-300</b><span>7-9 MWh</span><span style="color:#999;">v.silný</span></div>
+      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>300+</b><span>10 MWh</span><span style="color:#999;">extrém</span></div>
+    </div>
+  </div>
+  <div class="card" style="background:#ffebee; border-left:4px solid #c62828;">
+    <div style="font-size:13px; font-weight:700; color:#c62828; margin-bottom:8px;">▼ SHORT (SS3 < 0)</div>
+    <div id="shortSizing" style="font-size:11px; font-family:'JetBrains Mono',monospace;">
+      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>-30 až 0</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
+      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>-100 až -30</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
+      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>-200 až -100</b><span>4-7 MWh</span><span style="color:#999;">silný</span></div>
+      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>-300 až -200</b><span>7-9 MWh</span><span style="color:#999;">v.silný</span></div>
+      <div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>-300+</b><span>10 MWh</span><span style="color:#999;">extrém</span></div>
+    </div>
+  </div>
+</div>
+
 <h2>🎯 AKTUÁLNÍ SIGNÁL</h2>
 <div class="row">
   <div class="card signal-card" style="grid-column: span 2;">
@@ -399,6 +423,51 @@ function renderCurrentSignal(rows, ema) {
   document.getElementById('currentSignal').innerHTML = 
     `<span class="${dirColor}">${direction}</span> <span style="font-size:14px;color:#666;">→ ${tradableInterval} <span style="color:#999;font-size:11px;">(T+${leadMin}min)</span></span>`;
   document.getElementById('currentSignalDetail').innerHTML = dirEx;
+  
+  // Position sizing highlight - obarvi aktuální pásmo + ukaž doporučenou velikost
+  const absSig = Math.abs(sigEma);
+  let activeBand, recMwh;
+  if (absSig < 30) { activeBand = 0; recMwh = 1; }
+  else if (absSig < 100) { activeBand = 1; recMwh = Math.round(1 + (absSig-30)/70 * 2 * 10) / 10; }
+  else if (absSig < 200) { activeBand = 2; recMwh = Math.round((3 + (absSig-100)/100 * 4) * 10) / 10; }
+  else if (absSig < 300) { activeBand = 3; recMwh = Math.round((7 + (absSig-200)/100 * 2) * 10) / 10; }
+  else { activeBand = 4; recMwh = 10; }
+  
+  // Reset karty na původní HTML pak zvýraznit
+  const longBands = [
+    {label: '0-30', mwh: '1 MWh', desc: 'neutrální'},
+    {label: '30-100', mwh: '2-3 MWh', desc: 'mírný'},
+    {label: '100-200', mwh: '4-7 MWh', desc: 'silný'},
+    {label: '200-300', mwh: '7-9 MWh', desc: 'v.silný'},
+    {label: '300+', mwh: '10 MWh', desc: 'extrém'}
+  ];
+  const shortBands = [
+    {label: '-30 až 0', mwh: '1 MWh', desc: 'neutrální'},
+    {label: '-100 až -30', mwh: '2-3 MWh', desc: 'mírný'},
+    {label: '-200 až -100', mwh: '4-7 MWh', desc: 'silný'},
+    {label: '-300 až -200', mwh: '7-9 MWh', desc: 'v.silný'},
+    {label: '-300+', mwh: '10 MWh', desc: 'extrém'}
+  ];
+  
+  function renderSizing(boxId, isActive, accentColor, bands) {
+    let html = '';
+    bands.forEach((b, idx) => {
+      if (isActive && idx === activeBand) {
+        const shownSig = sigEma > 0 ? absSig.toFixed(0) : `-${absSig.toFixed(0)}`;
+        html += `<div style="display:grid;grid-template-columns:90px 110px 1fr;background:${accentColor};color:#fff;padding:6px 10px;border-radius:6px;font-weight:700;box-shadow:0 2px 8px rgba(0,0,0,0.2);margin:2px 0;white-space:nowrap;">
+          <span>👉 ${b.label}</span><span>${shownSig} → ${recMwh} MWh</span><span style="opacity:0.85;">${b.desc}</span>
+        </div>`;
+      } else {
+        html += `<div style="display:grid;grid-template-columns:90px 70px 1fr;padding:3px 0;white-space:nowrap;"><b>${b.label}</b><span>${b.mwh}</span><span style="color:#999;">${b.desc}</span></div>`;
+      }
+    });
+    document.getElementById(boxId).innerHTML = html;
+  }
+  
+  const isLong = sigEma > 0;
+  const isShort = sigEma < 0;
+  renderSizing('longSizing', isLong, '#2e7d32', longBands);
+  renderSizing('shortSizing', isShort, '#c62828', shortBands);
   document.getElementById('emaValue').innerHTML = 
     `<span class="${dirColor}">${sigEma >= 0 ? '+' : ''}${sigEma.toFixed(1)}</span><span class="u">EUR/MWh</span>`;
   const prevEma = ema[sigIdx - 1] || sigEma;
