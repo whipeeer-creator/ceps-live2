@@ -226,23 +226,23 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 <div class="row">
   <div class="card">
     <div class="card-l">2024 H2 (anomálie)</div>
-    <div class="card-v green">+728k<span class="u">EUR</span></div>
-    <div class="card-s">10,890 t · 78% WR · avg +67€</div>
+    <div class="card-v green">+746k<span class="u">EUR</span></div>
+    <div class="card-s">12,047 t · 77% WR · avg +62€</div>
   </div>
   <div class="card">
     <div class="card-l">2025 (celý rok)</div>
-    <div class="card-v green">+699k<span class="u">EUR</span></div>
-    <div class="card-s">25,468 t · 83% WR · avg +27€</div>
+    <div class="card-v green">+786k<span class="u">EUR</span></div>
+    <div class="card-s">27,622 t · 82% WR · avg +28€</div>
   </div>
   <div class="card">
     <div class="card-l">2026 YTD</div>
     <div class="card-v green">+247k<span class="u">EUR</span></div>
-    <div class="card-s">9,640 t · 87% WR · avg +26€</div>
+    <div class="card-s">10,231 t · 86% WR · avg +24€</div>
   </div>
   <div class="card">
     <div class="card-l">Roční extrap 2026</div>
-    <div class="card-v blue">+845k<span class="u">EUR/rok</span></div>
-    <div class="card-s">@ 1 MWh · maxDD -21k €</div>
+    <div class="card-v blue">+833k<span class="u">EUR/rok</span></div>
+    <div class="card-s">@ 1 MWh · maxDD -19k €</div>
   </div>
 </div>
 
@@ -402,7 +402,8 @@ function renderCurrentSignal(rows, ema) {
   const ehh = String(Math.floor(endMin / 60)).padStart(2,'0');
   const emm = String(endMin % 60).padStart(2,'0');
   const tradableInterval = `${thh}:${tmm}-${ehh}:${emm}`;
-  const leadMin = tradableStart - nowMin;
+  let leadMin = tradableStart - nowMin;
+  if (leadMin < 0) leadMin += 24*60;  // přes půlnoc
   
   // Žádný filter - tradeu vždy
   let direction, dirColor, dirEx;
