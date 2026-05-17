@@ -302,9 +302,29 @@ async function loadAll() {
     }
     
     const prices = rows.map(r => r.odch);
-    const ema = [prices[0]];
-    for (let i = 1; i < prices.length; i++) {
-      ema.push(ALPHA * prices[i] + (1 - ALPHA) * ema[i-1]);
+    // EMA - SKIP 0 jen pro RECENT QH (<30 min po skončení = pravděpodobně nezúčtováno)
+    // Pro starší QH s 0 = LEGIT cena, zahrň
+    const nowMinEma = new Date().getHours() * 60 + new Date().getMinutes();
+    const ema = [];
+    let lastEma = null;
+    for (let i = 0; i < prices.length; i++) {
+      // Zjisti zda QH je recent (< 30 min po skončení)
+      const tmE = rows[i].interval.match(/^(\d{1,2}):(\d{2})/);
+      const qhEndE = tmE ? (parseInt(tmE[1])*60 + parseInt(tmE[2]) + 15) : 0;
+      const isRecentE = (nowMinEma - qhEndE) < 30 && (nowMinEma - qhEndE) >= 0;
+      
+      if (prices[i] === 0 && isRecentE) {
+        // Recent QH s 0 = nezúčtováno, skip
+        ema.push(lastEma !== null ? lastEma : 0);
+      } else {
+        // Starší QH s 0 = legit, NEBO normální cena
+        if (lastEma === null) {
+          lastEma = prices[i];
+        } else {
+          lastEma = ALPHA * prices[i] + (1 - ALPHA) * lastEma;
+        }
+        ema.push(lastEma);
+      }
     }
     
     const vdtCount = rows.filter(r => r.vdt !== null).length;
@@ -704,12 +724,15 @@ function computeDayBacktest(date, dOdch, dVdt) {
   
   // EMA8 - warm-up first 8 QH (init průměrem)
   const prices = rows.map(r => r.odch);
-  // Inicializuj EMA jako průměr prvních 8 cen (lepší než single point)
-  const initAvg = prices.slice(0, 8).reduce((s,p) => s+p, 0) / 8;
+  // Historická data - 0 = vždy legit (publikováno dlouho)
+  const nonZeroPrices = prices.filter(p => p !== 0).slice(0, 8);
+  const initAvg = nonZeroPrices.length > 0 ? nonZeroPrices.reduce((s,p) => s+p, 0) / nonZeroPrices.length : 0;
   const ema = [];
-  ema[0] = initAvg;
-  for (let i = 1; i < prices.length; i++) {
-    ema.push(ALPHA * prices[i] + (1 - ALPHA) * ema[i-1]);
+  let lastEma = initAvg;
+  for (let i = 0; i < prices.length; i++) {
+    // V historických datech bereme 0 jako legit (nikoliv nezúčtováno)
+    lastEma = ALPHA * prices[i] + (1 - ALPHA) * lastEma;
+    ema.push(lastEma);
   }
   
   // Backtest - SKIP prvních 8 QH (warm-up period)
