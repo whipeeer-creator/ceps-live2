@@ -347,11 +347,21 @@ function renderCurrentSignal(rows, ema) {
   const tradableInterval = `${thh}:${tmm}-${ehh}:${emm}`;
   const leadMin = tradableStart - nowMin;
   
-  const direction = sigEma > 0 ? 'LONG ▲' : (sigEma < 0 ? 'SHORT ▼' : 'NEUTRAL');
-  const dirColor = sigEma > 0 ? 'green' : (sigEma < 0 ? 'red' : 'gray');
-  const dirEx = sigEma > 0 
-    ? 'Deficit → KUP na VDT, drž do odchylky (ČEPS dotuje +)'
-    : 'Přebytek → PRODEJ na VDT, dorovnej v odchylce (cena ↓)';
+  // Filter |EMA8|>30 STEJNĚ jako v backtestu
+  let direction, dirColor, dirEx;
+  if (Math.abs(sigEma) < 30) {
+    direction = '⏸ NO TRADE';
+    dirColor = 'orange';
+    dirEx = `|EMA8| = ${Math.abs(sigEma).toFixed(1)} EUR < 30 → neobchoduj (slabý signál nebo chaos)`;
+  } else if (sigEma > 0) {
+    direction = 'LONG ▲';
+    dirColor = 'green';
+    dirEx = 'Deficit → KUP na VDT, drž do odchylky (ČEPS dotuje +)';
+  } else {
+    direction = 'SHORT ▼';
+    dirColor = 'red';
+    dirEx = 'Přebytek → PRODEJ na VDT, dorovnej v odchylce (cena ↓)';
+  }
   
   document.getElementById('currentSignal').innerHTML = 
     `<span class="${dirColor}">${direction}</span> <span style="font-size:14px;color:#666;">→ ${tradableInterval} <span style="color:#999;font-size:11px;">(T+${leadMin}min)</span></span>`;
@@ -433,28 +443,40 @@ function renderBacktest(rows, ema) {
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
     const kc = rows[i].kc;
-    if (Math.abs(sig) < 30) continue;
-    if (vdt === null || vdt === 0) { skipNoVdt++; continue; }
-    if (kc === 0) continue;  // Odch nezuctovana (vzacne 0)
     
-    const direction = sig > 0 ? +1 : -1;
-    // NET = direction × (Odch - VDT)
-    const net = direction * (actual - vdt);
-    netProfit += net;
-    trades++;
-    if (net > 0) wins++;
-    else if (net < 0) losses++;
+    // Klasifikace QH
+    let skipReason = null;
+    let direction = 0;
+    let net = 0;
     
-    const h = parseInt(rows[i].interval.split(':')[0]);
-    if (!hourly[h]) hourly[h] = { pnl: 0, n: 0, w: 0 };
-    hourly[h].pnl += net;
-    hourly[h].n++;
-    if (net > 0) hourly[h].w++;
+    if (Math.abs(sig) < 30) {
+      skipReason = '⏸ |EMA8|<30';
+    } else if (vdt === null || vdt === 0) {
+      skipReason = '⏸ chybí VDT';
+      skipNoVdt++;
+    } else if (kc === 0) {
+      skipReason = '⏸ Odch=0';
+    } else {
+      direction = sig > 0 ? +1 : -1;
+      net = direction * (actual - vdt);
+      netProfit += net;
+      trades++;
+      if (net > 0) wins++;
+      else if (net < 0) losses++;
+      
+      const h = parseInt(rows[i].interval.split(':')[0]);
+      if (!hourly[h]) hourly[h] = { pnl: 0, n: 0, w: 0 };
+      hourly[h].pnl += net;
+      hourly[h].n++;
+      if (net > 0) hourly[h].w++;
+    }
     
+    // Vložit DO TABULKY i skipnutá QH
     tradeList.push({
       interval: rows[i].interval,
       sig, direction, vdt, actual, net,
-      cumProfit: netProfit
+      cumProfit: netProfit,
+      skipReason
     });
   }
   
@@ -500,17 +522,31 @@ function renderBacktest(rows, ema) {
   // Trades list
   let tHtml = '';
   for (const t of tradeList) {
-    const dirIcon = t.direction > 0 ? '▲ LONG' : '▼ SHORT';
-    const dirClass = t.direction > 0 ? 'green' : 'red';
-    tHtml += `<tr>
-      <td>${t.interval}</td>
-      <td class="${t.sig >= 0 ? 'green' : 'red'}">${t.sig >= 0 ? '+' : ''}${t.sig.toFixed(1)}</td>
-      <td class="${dirClass}">${dirIcon}</td>
-      <td>${t.vdt.toFixed(1)}</td>
-      <td class="${t.actual >= 0 ? 'green' : 'red'}">${t.actual >= 0 ? '+' : ''}${t.actual.toFixed(1)}</td>
-      <td class="${t.net >= 0 ? 'green' : 'red'}"><b>${t.net >= 0 ? '+' : ''}${t.net.toFixed(1)}</b></td>
-      <td class="${t.cumProfit >= 0 ? 'green' : 'red'}">${t.cumProfit >= 0 ? '+' : ''}${t.cumProfit.toFixed(0)}</td>
-    </tr>`;
+    if (t.skipReason) {
+      // SKIP řádek - grey, žádný trade
+      const vdtStr = (t.vdt === null || t.vdt === undefined) ? '—' : t.vdt.toFixed(1);
+      tHtml += `<tr style="opacity:0.5;background:#f8f8f8;">
+        <td>${t.interval}</td>
+        <td>${t.sig >= 0 ? '+' : ''}${t.sig.toFixed(1)}</td>
+        <td class="gray" style="font-size:10px;">${t.skipReason}</td>
+        <td>${vdtStr}</td>
+        <td>${t.actual >= 0 ? '+' : ''}${t.actual.toFixed(1)}</td>
+        <td class="gray">—</td>
+        <td class="${t.cumProfit >= 0 ? 'green' : 'red'}">${t.cumProfit >= 0 ? '+' : ''}${t.cumProfit.toFixed(0)}</td>
+      </tr>`;
+    } else {
+      const dirIcon = t.direction > 0 ? '▲ LONG' : '▼ SHORT';
+      const dirClass = t.direction > 0 ? 'green' : 'red';
+      tHtml += `<tr>
+        <td>${t.interval}</td>
+        <td class="${t.sig >= 0 ? 'green' : 'red'}">${t.sig >= 0 ? '+' : ''}${t.sig.toFixed(1)}</td>
+        <td class="${dirClass}">${dirIcon}</td>
+        <td>${t.vdt.toFixed(1)}</td>
+        <td class="${t.actual >= 0 ? 'green' : 'red'}">${t.actual >= 0 ? '+' : ''}${t.actual.toFixed(1)}</td>
+        <td class="${t.net >= 0 ? 'green' : 'red'}"><b>${t.net >= 0 ? '+' : ''}${t.net.toFixed(1)}</b></td>
+        <td class="${t.cumProfit >= 0 ? 'green' : 'red'}">${t.cumProfit >= 0 ? '+' : ''}${t.cumProfit.toFixed(0)}</td>
+      </tr>`;
+    }
   }
   document.getElementById('tradesTable').innerHTML = tHtml || '<tr><td colspan="7" style="text-align:center;color:#999;">Žádné trades</td></tr>';
 }
