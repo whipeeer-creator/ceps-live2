@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="cs"><head><meta charset="UTF-8"><title>🔮 Odhad odchylky</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+*{box-sizing:border-box}
+body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:12px;background:#f3f4f7;font-size:14px}
+h1{font-size:22px;margin:0 0 6px;color:#1565c0}
+h2{font-size:15px;margin:16px 0 8px}
+h2.actual{border-left:4px solid #2e7d32;padding-left:10px}
+h2.future{border-left:4px solid #1565c0;padding-left:10px}
+.meta{font-size:11px;color:#666;margin-bottom:14px;font-family:'JetBrains Mono',monospace}
+.row{display:grid;gap:10px;margin-bottom:10px;grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.card{background:#fff;border-radius:8px;padding:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06)}
+.card-l{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.3px}
+.card-v{font-size:26px;font-weight:700;margin:4px 0;font-family:'JetBrains Mono',monospace}
+.card-v.big{font-size:34px}
+.card-s{font-size:11px;color:#888;font-family:'JetBrains Mono',monospace}
+.u{font-size:12px;color:#888;font-weight:400;margin-left:4px}
+.green{color:#2e7d32}.red{color:#c62828}.orange{color:#ef6c00}.muted{color:#999}
+.signal-card{background:linear-gradient(135deg,#e3f2fd,#fff);border-left:4px solid #1565c0}
+.todo{background:#f5f5f5;border-left:3px solid #bdbdbd}
+.todo .card-v{color:#999;font-size:14px}
+.confbar{background:#e0e0e0;height:8px;border-radius:4px;margin-top:8px;overflow:hidden}
+.conffill{height:100%;transition:width 0.3s}
+table{width:100%;border-collapse:collapse;font-size:12px;font-family:'JetBrains Mono',monospace}
+th,td{padding:6px 10px;text-align:left;border-bottom:1px solid #e0e0e0}
+th{background:#f8f8f8;font-weight:600}
+</style></head><body>
+<h1>🔮 Odhad ceny odchylky - fundamenty</h1>
+<div class="meta" id="metaInfo">Načítám...</div>
+
+<div class="row">
+  <div class="card signal-card" style="grid-column:span 2">
+    <div class="card-l">Predikce pro nadcházející QH</div>
+    <div class="card-v big" id="predOdch">—</div>
+    <div class="card-s" id="predInterval">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Confidence</div>
+    <div class="card-v" id="confidence">—</div>
+    <div class="confbar"><div class="conffill" id="confFill" style="width:0;background:#999"></div></div>
+  </div>
+</div>
+
+<h2 class="actual">📡 AKTUÁLNÍ fundamenty (LIVE)</h2>
+<div class="row">
+  <div class="card"><div class="card-l">aFRR cena (5min)</div><div class="card-v" id="aFrrPrice">—</div><div class="card-s" id="aFrrTrend">—</div></div>
+  <div class="card"><div class="card-l">aFRR aktivace MW</div><div class="card-v" id="aFrrMW">—</div><div class="card-s" id="aFrrMWdir">—</div></div>
+  <div class="card"><div class="card-l">mFRR aktivace MW</div><div class="card-v" id="mFrrMW">—</div><div class="card-s" id="mFrrMWdir">—</div></div>
+  <div class="card todo"><div class="card-l">Frekvence sítě</div><div class="card-v">N/A</div><div class="card-s">FÁZE 2: ENTSO-E</div></div>
+  <div class="card todo"><div class="card-l">OZE produkce ČR</div><div class="card-v">N/A</div><div class="card-s">FÁZE 2: Generation</div></div>
+  <div class="card todo"><div class="card-l">Spotřeba ČR</div><div class="card-v">N/A</div><div class="card-s">FÁZE 2: Load</div></div>
+</div>
+
+<h2 class="future">🌬️ BUDOUCÍ fundamenty (forecast 24h)</h2>
+<div class="row">
+  <div class="card todo"><div class="card-l">Vítr DE prognóza</div><div class="card-v">N/A</div><div class="card-s">FÁZE 3: Open-Meteo</div></div>
+  <div class="card todo"><div class="card-l">Solární prognóza</div><div class="card-v">N/A</div><div class="card-s">FÁZE 3: Open-Meteo</div></div>
+  <div class="card todo"><div class="card-l">Prognóza spotřeby</div><div class="card-v">N/A</div><div class="card-s">FÁZE 3: ENTSO-E</div></div>
+  <div class="card todo"><div class="card-l">DAM cena</div><div class="card-v">N/A</div><div class="card-s">FÁZE 3: OTE DAM</div></div>
+</div>
+
+<h2>🔮 Predikce na dalších 8 QH</h2>
+<div class="card" style="padding:0">
+  <table><thead><tr><th>QH</th><th>T+min</th><th>Predikce</th><th>Směr</th><th>P(LONG)</th><th>Conf.</th></tr></thead>
+  <tbody id="futureTable"><tr><td colspan="6" class="muted">Načítám...</td></tr></tbody></table>
+</div>
+
+<script>
+const API_URL=window.location.origin;
+const KURZ=24.5;
+
+async function loadAll(){
+  try{
+    const n=new Date();
+    const today=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+    const cb=Date.now();
+    const [rA,rS]=await Promise.all([
+      fetch(`${API_URL}/api?method=AktualniCenaRE&agregation=MI&function=AVG&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null),
+      fetch(`${API_URL}/api?method=AktivaceSVRvCR&aggregation=MI&function=AVG&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null)
+    ]);
+    const dA=rA?await rA.json():{rows:[]};
+    const dS=rS?await rS.json():{rows:[]};
+    
+    const afrr=(dA.rows||[]).filter(r=>r['Time']).map(r=>({
+      time:r['Time'],
+      eur:parseFloat(r['aFRR [EUR/MWh]']||(r['aFRR [Kč/MWh]']?r['aFRR [Kč/MWh]']/KURZ:0))
+    })).filter(r=>!isNaN(r.eur));
+    
+    const svr=(dS.rows||[]).filter(r=>r['Time']).map(r=>({
+      time:r['Time'],
+      a:parseFloat(r['aFRR+ [MW]']||0)+parseFloat(r['aFRR- [MW]']||0),
+      m:parseFloat(r['mFRR+ [MW]']||0)+parseFloat(r['mFRR- [MW]']||0)
+    }));
+    
+    document.getElementById('metaInfo').textContent=`${afrr.length} min aFRR · ${svr.length} min SVR · refresh ${new Date().toLocaleTimeString('cs-CZ')}`;
+    
+    const l5=afrr.slice(-5);
+    const avg=l5.length?l5.reduce((s,r)=>s+r.eur,0)/l5.length:null;
+    const p5=afrr.slice(-10,-5);
+    const ap=p5.length?p5.reduce((s,r)=>s+r.eur,0)/p5.length:null;
+    const trend=(avg!==null&&ap!==null)?avg-ap:0;
+    
+    if(avg!==null){
+      const c=avg>30?'green':avg<-30?'red':'';
+      document.getElementById('aFrrPrice').innerHTML=`<span class="${c}">${avg.toFixed(0)}</span> <span class="u">EUR</span>`;
+      document.getElementById('aFrrTrend').textContent=trend>5?`↑ +${trend.toFixed(0)}`:trend<-5?`↓ ${trend.toFixed(0)}`:`→ stabilní`;
+    }
+    
+    const ls=svr.slice(-5);
+    const aMW=ls.length?ls.reduce((s,r)=>s+r.a,0)/ls.length:null;
+    const mMW=ls.length?ls.reduce((s,r)=>s+r.m,0)/ls.length:null;
+    
+    if(aMW!==null){
+      const c=aMW>5?'green':aMW<-5?'red':'';
+      document.getElementById('aFrrMW').innerHTML=`<span class="${c}">${aMW>0?'+':''}${aMW.toFixed(1)}</span> <span class="u">MW</span>`;
+      document.getElementById('aFrrMWdir').textContent=aMW>5?'▲ Deficit':aMW<-5?'▼ Přebytek':'→';
+    }
+    if(mMW!==null){
+      const c=mMW>5?'green':mMW<-5?'red':'';
+      document.getElementById('mFrrMW').innerHTML=`<span class="${c}">${mMW>0?'+':''}${mMW.toFixed(1)}</span> <span class="u">MW</span>`;
+      document.getElementById('mFrrMWdir').textContent=mMW>5?'▲ Deficit manuál':mMW<-5?'▼ Přebytek manuál':'→';
+    }
+    
+    let pred=0;const facts=[];
+    if(avg!==null){pred+=avg*0.6;facts.push(`aFRR ${avg.toFixed(0)}€`)}
+    if(aMW!==null&&Math.abs(aMW)>3){pred+=aMW*2;facts.push(`${aMW>0?'+':''}${aMW.toFixed(0)}MW`)}
+    if(mMW!==null&&Math.abs(mMW)>3){pred+=mMW*1.5}
+    if(Math.abs(trend)>8){pred+=trend*0.3}
+    
+    let conf=25;
+    const sd=(avg||0)*(aMW||0)>=0;
+    if(sd&&Math.abs(pred)>100)conf=75;
+    else if(sd&&Math.abs(pred)>30)conf=55;
+    else if(Math.abs(pred)>50)conf=35;
+    
+    const nm=new Date().getHours()*60+new Date().getMinutes();
+    const ts=(Math.floor(nm/15)+1)*15;
+    const tH=Math.floor(ts/60)%24,tM=ts%60;
+    const te=ts+15,tEH=Math.floor(te/60)%24,tEM=te%60;
+    const ti=`${tH.toString().padStart(2,'0')}:${tM.toString().padStart(2,'0')}-${tEH.toString().padStart(2,'0')}:${tEM.toString().padStart(2,'0')}`;
+    
+    const pc=pred>15?'green':pred<-15?'red':'';
+    document.getElementById('predOdch').innerHTML=`<span class="${pc}">${pred>0?'+':''}${pred.toFixed(0)}</span> <span class="u">EUR/MWh</span>`;
+    document.getElementById('predInterval').textContent=`Pro QH ${ti} · ${pred>15?'LONG':pred<-15?'SHORT':'NEUTRAL'} · ${facts.join(', ')||'slabý signál'}`;
+    
+    document.getElementById('confidence').innerHTML=`${conf}<span class="u">%</span>`;
+    const cc=conf>70?'#2e7d32':conf>40?'#ef6c00':'#c62828';
+    document.getElementById('confFill').style.width=`${conf}%`;
+    document.getElementById('confFill').style.background=cc;
+    
+    let fh='';
+    for(let q=1;q<=8;q++){
+      const fm=(Math.floor(nm/15)+q)*15;
+      const fH=Math.floor(fm/60)%24,fM=fm%60;
+      const fe=fm+15,fEH=Math.floor(fe/60)%24,fEM=fe%60;
+      const fi=`${fH.toString().padStart(2,'0')}:${fM.toString().padStart(2,'0')}-${fEH.toString().padStart(2,'0')}:${fEM.toString().padStart(2,'0')}`;
+      const dec=Math.max(0.3,1-(q-1)*0.1);
+      const fp=pred*dec;
+      const fc=Math.max(15,conf*(1-(q-1)*0.12));
+      let fpl=50;
+      if(fp>0)fpl=Math.min(50+Math.abs(fp)/4,90);
+      else if(fp<0)fpl=Math.max(50-Math.abs(fp)/4,10);
+      const fd=fp>15?'LONG ▲':fp<-15?'SHORT ▼':'—';
+      const fco=fp>15?'green':fp<-15?'red':'muted';
+      const fcc=fc>60?'green':fc>35?'orange':'red';
+      fh+=`<tr><td><b>${fi}</b></td><td class="muted">T+${q*15}</td><td><span class="${fco}">${fp>0?'+':''}${fp.toFixed(0)} €</span></td><td><span class="${fco}">${fd}</span></td><td>${fpl.toFixed(0)}%</td><td><span class="${fcc}">${fc.toFixed(0)}%</span></td></tr>`;
+    }
+    document.getElementById('futureTable').innerHTML=fh;
+  }catch(e){
+    console.error(e);
+    document.getElementById('metaInfo').textContent='CHYBA: '+e.message;
+  }
+}
+loadAll();
+setInterval(loadAll,30000);
+</script></body></html>
