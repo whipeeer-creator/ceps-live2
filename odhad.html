@@ -47,9 +47,9 @@ th{background:#f8f8f8;font-weight:600}
   <div class="card"><div class="card-l">aFRR cena (5min)</div><div class="card-v" id="aFrrPrice">—</div><div class="card-s" id="aFrrTrend">—</div></div>
   <div class="card"><div class="card-l">aFRR aktivace MW</div><div class="card-v" id="aFrrMW">—</div><div class="card-s" id="aFrrMWdir">—</div></div>
   <div class="card"><div class="card-l">mFRR aktivace MW</div><div class="card-v" id="mFrrMW">—</div><div class="card-s" id="mFrrMWdir">—</div></div>
-  <div class="card todo"><div class="card-l">Frekvence sítě</div><div class="card-v">N/A</div><div class="card-s">FÁZE 2: ENTSO-E</div></div>
-  <div class="card todo"><div class="card-l">OZE produkce ČR</div><div class="card-v">N/A</div><div class="card-s">FÁZE 2: Generation</div></div>
-  <div class="card todo"><div class="card-l">Spotřeba ČR</div><div class="card-v">N/A</div><div class="card-s">FÁZE 2: Load</div></div>
+  <div class="card todo"><div class="card-l">Frekvence sítě</div><div class="card-v" id="freq">N/A</div><div class="card-s" id="freqDir">FÁZE 2: ENTSO-E</div></div>
+  <div class="card"><div class="card-l">OZE produkce ČR</div><div class="card-v" id="oze">—</div><div class="card-s" id="ozeDir">—</div></div>
+  <div class="card"><div class="card-l">Spotřeba ČR</div><div class="card-v" id="load">—</div><div class="card-s" id="loadDir">—</div></div>
 </div>
 
 <h2 class="future">🌬️ BUDOUCÍ fundamenty (forecast 24h)</h2>
@@ -75,12 +75,18 @@ async function loadAll(){
     const n=new Date();
     const today=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
     const cb=Date.now();
-    const [rA,rS]=await Promise.all([
+    const [rA,rS,rL,rG,rR]=await Promise.all([
       fetch(`${API_URL}/api?method=AktualniCenaRE&agregation=MI&function=AVG&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null),
-      fetch(`${API_URL}/api?method=AktivaceSVRvCR&aggregation=MI&function=AVG&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null)
+      fetch(`${API_URL}/api?method=AktivaceSVRvCR&aggregation=MI&function=AVG&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null),
+      fetch(`${API_URL}/api?method=Load&agregation=QH&function=AVG&version=RT&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null),
+      fetch(`${API_URL}/api?method=Generation&agregation=QH&function=AVG&version=RT&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null),
+      fetch(`${API_URL}/api?method=GenerationRES&agregation=QH&function=AVG&version=RT&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null)
     ]);
     const dA=rA?await rA.json():{rows:[]};
     const dS=rS?await rS.json():{rows:[]};
+    const dL=rL?await rL.json():{rows:[]};
+    const dG=rG?await rG.json():{rows:[]};
+    const dR=rR?await rR.json():{rows:[]};
     
     const afrr=(dA.rows||[]).filter(r=>r['Time']).map(r=>({
       time:r['Time'],
@@ -93,7 +99,61 @@ async function loadAll(){
       m:parseFloat(r['mFRR+ [MW]']||0)+parseFloat(r['mFRR- [MW]']||0)
     }));
     
-    document.getElementById('metaInfo').textContent=`${afrr.length} min aFRR · ${svr.length} min SVR · refresh ${new Date().toLocaleTimeString('cs-CZ')}`;
+    document.getElementById('metaInfo').textContent=`${afrr.length} min aFRR · ${svr.length} min SVR · ${(dL.rows||[]).length} h Load · ${(dG.rows||[]).length} h Gen · refresh ${new Date().toLocaleTimeString('cs-CZ')}`;
+    
+    // === LOAD (spotřeba) ===
+    const loadRows=(dL.rows||[]).filter(r=>{
+      const v=Object.values(r).find(x=>typeof x==='number'||(typeof x==='string'&&parseFloat(x)>100));
+      return v!==undefined;
+    });
+    const lastLoad=loadRows.length?loadRows[loadRows.length-1]:null;
+    if(lastLoad){
+      // Najdi sloupec se spotřebou (číselný, >1000)
+      const loadKey=Object.keys(lastLoad).find(k=>{
+        const v=parseFloat(lastLoad[k]);
+        return !isNaN(v)&&v>1000&&v<20000;  // ČR spotřeba 4-10 GW
+      });
+      if(loadKey){
+        const loadMW=parseFloat(lastLoad[loadKey]);
+        const prevLoad=loadRows.length>1?parseFloat(loadRows[loadRows.length-2][loadKey]):null;
+        const loadTrend=prevLoad?loadMW-prevLoad:0;
+        document.getElementById('load').innerHTML=`${(loadMW/1000).toFixed(2)} <span class="u">GW</span>`;
+        document.getElementById('loadDir').textContent=loadTrend>100?`↑ +${loadTrend.toFixed(0)} MW`:loadTrend<-100?`↓ ${loadTrend.toFixed(0)} MW`:`→ stabilní`;
+      }
+    }
+    
+    // === OZE (GenerationRES = obnovitelné) ===
+    const resRows=dR.rows||[];
+    const lastRes=resRows.length?resRows[resRows.length-1]:null;
+    if(lastRes){
+      let totalRES=0;let solar=0,wind=0;
+      for(const [k,v] of Object.entries(lastRes)){
+        const num=parseFloat(v);
+        if(isNaN(num)||num<0)continue;
+        const kl=k.toLowerCase();
+        if(kl.includes('solar')||kl.includes('pv'))solar+=num;
+        else if(kl.includes('wind')||kl.includes('větr'))wind+=num;
+      }
+      totalRES=solar+wind;
+      if(totalRES>0){
+        document.getElementById('oze').innerHTML=`${(totalRES/1000).toFixed(2)} <span class="u">GW</span>`;
+        document.getElementById('ozeDir').textContent=`☀ ${(solar).toFixed(0)} · 💨 ${(wind).toFixed(0)} MW`;
+      } else {
+        // Fallback - sečti všechna čísla > 0
+        let sum=0;
+        for(const v of Object.values(lastRes)){
+          const num=parseFloat(v);
+          if(!isNaN(num)&&num>0&&num<10000)sum+=num;
+        }
+        if(sum>0){
+          document.getElementById('oze').innerHTML=`${(sum/1000).toFixed(2)} <span class="u">GW</span>`;
+          document.getElementById('ozeDir').textContent=`OZE celkem`;
+        }
+      }
+    }
+    
+    // === FREKVENCE (zatím N/A - není endpoint) ===
+    // Nechej "FÁZE 2" pokud nemáme frekvenci endpoint
     
     const l5=afrr.slice(-5);
     const avg=l5.length?l5.reduce((s,r)=>s+r.eur,0)/l5.length:null;
