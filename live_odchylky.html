@@ -347,6 +347,22 @@ const urlParams = new URLSearchParams(window.location.search);
 const apiFromUrl = urlParams.get('api');
 if (apiFromUrl) document.getElementById('apiInput').value = apiFromUrl;
 
+// Auto-start pokud běží na onrender.com nebo non-localhost
+const currentHost = window.location.hostname;
+if (currentHost && currentHost !== 'localhost' && currentHost !== '127.0.0.1' && currentHost !== '') {
+  // Použij stejný origin jako server
+  API_URL = window.location.origin;
+  // Skryj modal okamžitě
+  setTimeout(() => {
+    const modal = document.getElementById('setupModal');
+    if (modal) modal.style.display = 'none';
+    if (typeof initRegelleistungAfrr === 'function') initRegelleistungAfrr();
+    if (typeof loadAll === 'function') loadAll();
+    const rsel = document.getElementById('rsel');
+    if (rsel && typeof setRefresh === 'function') setRefresh(+rsel.value);
+  }, 50);
+}
+
 function startDashboard(useLocal) {
   API_URL = useLocal ? 'http://localhost:8765'
     : document.getElementById('apiInput').value.trim().replace(/\/$/, '');
