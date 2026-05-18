@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ČEPS · Live Odchylky</title>
 <style>
+/* Vypnout slashed-zero (vypadala jak 8) */
+body, * { font-variant-numeric: lining-nums tabular-nums; font-feature-settings: "zero" 0, "ss01" 0; }
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #f0f2f6; font-family: 'Inter', sans-serif; font-size: 12px; color: #1a1a2e; }
@@ -2583,74 +2586,95 @@ function _rlRedraw() {
 // Tabulka cen + ostatní
 // ============================================================
 async function loadSpotTable(country, tableId) {
-  // Spot cena DA pro CZ/DE - 24 hodin × 1 řádek
+  // Spot cena DA pro CZ/DE - dnes + šedý řádek zítra
   try {
     const now = new Date();
     const pad = n => String(n).padStart(2,'0');
     const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+    const tom = new Date(now.getTime() + 86400000);
+    const tomorrow = `${tom.getFullYear()}-${pad(tom.getMonth()+1)}-${pad(tom.getDate())}`;
     
     let rows = [];
+    let rowsTom = [];
     if (country === 'CZ') {
-      // CZ - dnesni DA ceny z /ote/spot (spotovaelektrina.cz)
+      // CZ dnes z /ote/spot
       const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
       if (!r.ok) return;
       const d = await r.json();
-      // Server vraci hours_today = [{hour, priceCZK, priceEur}, ...]
       const ht = d.hours_today || d.hoursToday || [];
       rows = ht.map(p => ({ 
         hour: p.hour, 
         price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
       })).filter(p => Number.isFinite(p.price_eur));
+      // Zítra z /ote/spot pokud existuje
+      const htTom = d.hours_tomorrow || d.hoursTomorrow || [];
+      rowsTom = htTom.map(p => ({ 
+        hour: p.hour, 
+        price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
+      })).filter(p => Number.isFinite(p.price_eur));
+      // Fallback: zkus přes /spot/prices?country=CZ&date=zítra
+      if (!rowsTom.length) {
+        try {
+          const rTom = await fetch(`${API_URL}/spot/prices?country=${country}&date=${tomorrow}`, { cache: 'no-store' });
+          if (rTom.ok) {
+            const dTom = await rTom.json();
+            if (dTom && !dTom.error && dTom.data) {
+              rowsTom = dTom.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+            }
+          }
+        } catch(e) {}
+      }
       if (!rows.length) return;
     } else {
-      // DE - z energy-charts.info via /spot/prices - posun o den zpatky
-      const yest = new Date(now.getTime() - 24*3600*1000);
-      const yestStr = `${yest.getFullYear()}-${pad(yest.getMonth()+1)}-${pad(yest.getDate())}`;
-      const r = await fetch(`${API_URL}/spot/prices?country=${country}&date=${yestStr}`, { cache: 'no-store' });
+      // DE z energy-charts.info via /spot/prices - dnes + zítra
+      const [r, rTom] = await Promise.all([
+        fetch(`${API_URL}/spot/prices?country=${country}&date=${today}`, { cache: 'no-store' }),
+        fetch(`${API_URL}/spot/prices?country=${country}&date=${tomorrow}`, { cache: 'no-store' }).catch(()=>null)
+      ]);
       if (!r.ok) return;
       const d = await r.json();
       if (d.error || !d.data || !d.data.length) return;
       rows = d.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+      if (rTom && rTom.ok) {
+        const dTom = await rTom.json().catch(()=>null);
+        if (dTom && !dTom.error && dTom.data) {
+          rowsTom = dTom.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+        }
+      }
     }
     
     if (!rows.length) return;
-    const vals = rows.map(r => r.price_eur).filter(v => Number.isFinite(v));
-    if (!vals.length) return;
+    const allVals = [...rows.map(r => r.price_eur), ...rowsTom.map(r => r.price_eur)].filter(v => Number.isFinite(v));
+    if (!allVals.length) return;
     
-    const vMin = Math.min(...vals);
-    const vMax = Math.max(...vals);
+    const vMin = Math.min(...allVals);
+    const vMax = Math.max(...allVals);
     const vRange = Math.max(1, vMax - vMin);
     
-    // Color: nízká = modrá (LEVNÉ/SHORT), vysoká = červená (DRAHÉ/LONG)
     function cellColor(v) {
-      const ratio = (v - vMin) / vRange;  // 0-1
+      const ratio = (v - vMin) / vRange;
       if (ratio < 0.33) {
-        // Modrá pro levné
         const r = Math.round(120 - ratio * 99);
         const g = Math.round(160 - ratio * 59);
         const b = Math.round(210 - ratio * 18);
         return `rgb(${r},${g},${b})`;
       } else if (ratio > 0.66) {
-        // Červená pro drahé
         const t = (ratio - 0.66) / 0.34;
         const r = Math.round(180 + t * 60);
         const g = Math.round(80 - t * 60);
         const b = Math.round(80 - t * 60);
         return `rgb(${r},${g},${b})`;
       } else {
-        // Oranžová střední
         return '#e67e22';
       }
     }
     
-    // Current hour highlight - HXX = interval (XX-1)-XX (CESKE oznaceni)
-    // Teď 18:33 → běží interval 18-19 → highlight H19
     const curHour = now.getHours() + 1;
-    
     const tbl = document.getElementById(tableId);
-    // STEJNA STRUKTURA jako loadCenaTable - H01-H24
     const priceByHour = {};
     rows.forEach(row => { priceByHour[row.hour] = row.price_eur; });
+    const priceByHourTom = {};
+    rowsTom.forEach(row => { priceByHourTom[row.hour] = row.price_eur; });
     
     let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
     for (let h = 1; h <= 24; h++) {
@@ -2660,11 +2684,12 @@ async function loadSpotTable(country, tableId) {
       const labelColor = isCur ? '#fff' : '#666';
       html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
     }
-    html += '</tr></thead><tbody><tr>';
+    html += '</tr></thead><tbody>';
+    
+    // Řádek 1 - DNES
+    html += '<tr>';
     html += `<td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;font-weight:600;">€/MWh</td>`;
     for (let h = 1; h <= 24; h++) {
-      // HXX = interval (XX-1)-XX, hour=XX-1 v datech
-      // H19 -> interval 18-19 -> hour=18
       const dataH = h - 1;
       if (!(dataH in priceByHour)) {
         html += `<td style="padding:3px 6px;background:#c8d8e8;border:1px solid #dde;text-align:center;color:#888;">—</td>`;
@@ -2677,7 +2702,27 @@ async function loadSpotTable(country, tableId) {
       const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
       html += `<td style="padding:3px 6px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
     }
-    html += '</tr></tbody>';
+    html += '</tr>';
+    
+    // Řádek 2 - ZÍTRA (šedý overlay)
+    if (rowsTom.length > 0) {
+      html += '<tr>';
+      html += `<td style="padding:3px 6px;background:#ececec;border:1px solid #dde;white-space:nowrap;font-weight:600;color:#666;font-size:9px;">zítra</td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        if (!(dataH in priceByHourTom)) {
+          html += `<td style="padding:3px 6px;background:#f0f0f0;border:1px solid #dde;text-align:center;color:#aaa;">—</td>`;
+          continue;
+        }
+        const v = priceByHourTom[dataH];
+        const bg = cellColor(v);
+        const txt = Math.round(v);
+        html += `<td style="padding:3px 6px;background:${bg};opacity:0.45;border:1px solid #dde;text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
+      }
+      html += '</tr>';
+    }
+    
+    html += '</tbody>';
     tbl.innerHTML = html;
   } catch (e) {
     console.warn(`spot ${country}:`, e);

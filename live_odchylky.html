@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>ČEPS · Live Odchylky</title>
 <style>
+/* Vypnout slashed-zero (vypadala jak 8) */
+body, * { font-variant-numeric: lining-nums tabular-nums; font-feature-settings: "zero" 0, "ss01" 0; }
+
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: #f0f2f6; font-family: 'Inter', sans-serif; font-size: 12px; color: #1a1a2e; }
@@ -145,7 +148,7 @@ canvas { max-width: 100%; display: block; }
   </div>
 </div>
 <header>
-  <div class="logo">ČEPS <em>LIVE</em> <span style="font-size:9px;color:#aaa;font-weight:400;letter-spacing:0;font-family:'JetBrains Mono',monospace;">v41-cena-spot-fix</span></div>
+  <div class="logo">ČEPS <em>LIVE</em> <span style="font-size:9px;color:#aaa;font-weight:400;letter-spacing:0;font-family:'JetBrains Mono',monospace;">v36-soustava</span></div>
   <div class="legend-dots" title="Barevný systém: zelená = long (drž / vybíjej do peaku), oranžová = průměr, červená = short (prodej / cena vysoko)">
     <span class="ldot ldot-g"></span><span class="ldot-l">long</span>
     <span class="ldot ldot-o"></span><span class="ldot-l">průměr</span>
@@ -170,9 +173,12 @@ canvas { max-width: 100%; display: block; }
   <div class="err-bar" id="err"></div>
   <div class="kpi-row">
     <div class="kpi" id="crd-O"><div class="kpi-l">Aktuální regulace</div><div class="kpi-v" id="dv-O">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-O">—</div></div>
-    <div class="kpi" id="crd-C"><div class="kpi-l" style="font-weight:700;color:#1a1a2e;">ČEPS</div><div class="kpi-l" style="font-size:10px;">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
+    <div class="kpi" id="crd-C"><div class="kpi-l">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">Kč/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
     <div class="kpi" id="crd-F"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
     <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
+  </div>
+  <div class="kpi-row">
+    <div class="kpi" id="crd-SO" style="grid-column: span 2;"><div class="kpi-l">Systémová soustava</div><div class="kpi-v" id="dv-SO">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-SO">🟢 Buy → potřebujeme soustavu mínus &nbsp;·&nbsp; 🔴 Sell → potřebujeme soustavu plus</div></div>
   </div>
 
   <div class="chart-panel">
@@ -195,36 +201,14 @@ canvas { max-width: 100%; display: block; }
     </div>
   </div>
 
-  <div class="kpi-row">
-    <div class="kpi" id="crd-SO" style="grid-column: span 4;"><div class="kpi-l">Systémová soustava</div><div class="kpi-v" id="dv-SO">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-SO">🟢 Buy → potřebujeme soustavu mínus &nbsp;·&nbsp; 🔴 Sell → potřebujeme soustavu plus</div></div>
-  </div>
-
   <div class="chart-panel">
-    <div class="panel-hdr">
-      <div>
-        <div class="panel-title">Systémová soustava</div>
-      </div>
-    </div>
-    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;" id="topWrap2">
-      <canvas id="topCanvas2" height="260" style="width:100%;height:260px;display:block;"></canvas>
-      <div id="topTip2" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);"></div>
-      <div id="topLine2" style="position:absolute;display:none;pointer-events:none;width:1px;background:rgba(26,26,46,0.3);top:0;bottom:0;z-index:9;"></div>
-    </div>
-    <div class="panel-legend">
-      <span class="pleg"><span class="pleg-sq" style="background:#4caf50;opacity:.8"></span>mFRR− [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#f44336;opacity:.8"></span>mFRR+ [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#00b4d8;opacity:.8"></span>aFRR− [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#ff9800;opacity:.8"></span>aFRR+ [MW]</span>
-    </div>
-  </div>
-
-  <div class="chart-panel">
-    <div class="panel-hdr"><div class="panel-title">ČEPS - CENY</div></div>
-    <div id="spotTablesWrap" style="overflow-x:auto;padding:8px 12px;">
+    <div class="panel-hdr"><div class="panel-title">Ceny — odchylka & spot (CZ/DE)</div></div>
+    <div style="overflow-x:auto;padding:8px 12px;">
+      <div style="font-size:10px;color:#666;margin-bottom:3px;font-family:'JetBrains Mono',monospace;">Odhadovaná cena odchylky · Kč/MWh</div>
       <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">CZ DT</div>
+      <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ spot cena (DA) · EUR/MWh</div>
       <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">DE DT</div>
+      <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE spot cena (DA) · EUR/MWh</div>
       <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
     </div>
   </div>
@@ -232,7 +216,7 @@ canvas { max-width: 100%; display: block; }
   <div class="chart-panel">
     <div class="panel-hdr">
       <div>
-        <div class="panel-title">15minutové bloky — průměrná regulace [MW]</div>
+        <div class="panel-title">15minutové bloky — průměrná odchylka [MW]</div>
         <div class="panel-sub">červené číslo = průměr MW za 15 min · modrá = záporná · červená = kladná odchylka</div>
       </div>
     </div>
@@ -358,28 +342,10 @@ canvas { max-width: 100%; display: block; }
 let API_URL = '';
 let refreshTimer = null, countdownTimer = null;
 let _topMeta = null;
-let _topMeta2 = null;
 
 const urlParams = new URLSearchParams(window.location.search);
 const apiFromUrl = urlParams.get('api');
 if (apiFromUrl) document.getElementById('apiInput').value = apiFromUrl;
-
-// AUTO-START: pokud bezi na render.com (nebo jakekoliv https), automaticky spust
-(function autoStart(){
-  try {
-    const origin = window.location.origin;
-    if (origin && origin !== 'null' && !origin.startsWith('file:')) {
-      document.getElementById('apiInput').value = apiFromUrl || origin;
-      setTimeout(() => {
-        API_URL = (apiFromUrl || origin).replace(/\/$/, '');
-        document.getElementById('setupModal').style.display = 'none';
-        initRegelleistungAfrr();
-        loadAll();
-        setRefresh(+document.getElementById('rsel').value);
-      }, 100);
-    }
-  } catch(e) {}
-})();
 
 function startDashboard(useLocal) {
   API_URL = useLocal ? 'http://localhost:8765'
@@ -403,28 +369,6 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   });
-  
-  // BRUTAL FIX: kazdou pul vterinu opravit dv-SO podle dv-O (invert)
-  // Vzdy zobrazi posledni hodnotu, i kdyz je zaporna nebo nulova
-  setInterval(() => {
-    const dvO = document.getElementById('dv-O');
-    const dvSO = document.getElementById('dv-SO');
-    if (!dvO || !dvSO) return;
-    // Pouzij window._lastLO pokud existuje (presnejsi nez text scrape)
-    let lO = null;
-    if (typeof window._lastLO === 'number' && !isNaN(window._lastLO)) {
-      lO = window._lastLO;
-    } else {
-      const txt = dvO.textContent || '';
-      const m = txt.match(/(-?\d+(?:\.\d+)?)/);
-      if (m) lO = parseFloat(m[1]);
-    }
-    if (lO === null || isNaN(lO)) return;
-    const lSO = -lO;
-    const soColor = lSO < 0 ? '#c0392b' : (lSO > 0 ? '#27ae60' : '#666');
-    const soSign = lSO > 0 ? '+' : '';
-    dvSO.innerHTML = `<span style="color:${soColor};font-weight:700;">${soSign}${lSO.toFixed(1)}</span><span class="kpi-u">MW</span>`;
-  }, 500);
 });
 
 function ft(ds) {
@@ -432,7 +376,7 @@ function ft(ds) {
   const d = new Date(ds);
   return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 }
-function sign(v) { return v > 0 ? '+' : (v < 0 ? '-' : ''); }
+function sign(v) { return v > 0 ? '+' : ''; }
 function vc(v)   { return v > 0.05 ? 'vp' : v < -0.05 ? 'vn' : 'v0'; }
 
 function nowCet() {
@@ -542,7 +486,7 @@ function setupCanvas(canvas, h) {
   return { ctx, W, H };
 }
 
-function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colMm, flip) {
+function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colMm) {
   const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||260);
   const PAD = { top: 16, right: 64, bottom: 28, left: 44 };
   const cW = W - PAD.left - PAD.right;
@@ -550,7 +494,7 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
   const n  = odchRows.length;
   if (!n) return;
 
-  if (flip) _topMeta2 = { rows: odchRows, PAD, cW, n }; else _topMeta = { rows: odchRows, PAD, cW, n };
+  _topMeta = { rows: odchRows, PAD, cW, n };
 
   const getAllVals = col => col ? odchRows.map((_,i) => parseFloat((svrRows[i]||{})[col])||0) : [];
   const odchVals = odchRows.map(r => parseFloat(r[colO])||0);
@@ -564,11 +508,7 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
   const yMax = dMax+pad; const yMin = dMin-pad; const yR = yMax-yMin;
 
   function xP(i) { return PAD.left + (i/(n-1||1))*cW; }
-  // Pokud flip=true, invertujeme Y mapping - kladne dolu, zaporne nahoru
-  function yP(v) {
-    if (flip) return PAD.top + cH - cH*((v-yMin)/yR);
-    return PAD.top + cH*((v-yMin)/yR);
-  }
+  function yP(v) { return PAD.top + cH*((v-yMin)/yR); }
   const y0 = yP(0);
 
   ctx.fillStyle = '#dce8f5';
@@ -692,13 +632,12 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
 
   ctx.fillStyle = '#6688aa'; ctx.font = '10px JetBrains Mono, monospace'; ctx.textAlign = 'right';
   const yTicks = [-250,-200,-150,-100,-50,0,50,100,150,200,250].filter(v => v>=yMin && v<=yMax);
-  // Original graf zobrazuje -v na ose (uz invertuje). Pri flip=true zobrazujeme v (raw data).
-  yTicks.forEach(v => { ctx.fillText(flip ? v : -v, PAD.left-5, yP(v)+3); });
+  yTicks.forEach(v => { ctx.fillText(-v, PAD.left-5, yP(v)+3); });
   ctx.textAlign = 'left';
-  yTicks.filter((_,i)=>i%2===0).forEach(v => { ctx.fillText(flip ? v : -v, PAD.left+cW+4, yP(v)+3); });
+  yTicks.filter((_,i)=>i%2===0).forEach(v => { ctx.fillText(-v, PAD.left+cW+4, yP(v)+3); });
 
   const lastV = odchVals[odchVals.length-1];
-  if (!isNaN(lastV) && !flip) {
+  if (!isNaN(lastV)) {
     const toZ = Math.abs(lastV).toFixed(1);
     ctx.font = 'bold 11px Inter, sans-serif';
     const chipTxt = `to zero: ${toZ}`;
@@ -824,11 +763,8 @@ async function loadMain() {
   const lAm = colAm ? parseFloat(lastS[colAm])||0 : 0;
   const avg = dO.rows.reduce((a,r)=>a+(parseFloat(r[colO])||0),0)/dO.rows.length;
   document.getElementById('lastTime').textContent = ft(lastO.date);
-  // CEPS API vraci opacne znamenko nez graf - INVERTUJEME aby KPI sedela s grafem
-  const lO_disp = -lO;
-  const avg_disp = -avg;
-  // Aktualni regulace - znamenko stejne jako graf (po inverzi)
-  setKPI('O', lO_disp, 'MW', `prům. dne: ${sign(avg_disp)}${avg_disp.toFixed(1)} MW`, dO.fetched_at,
+  // Aktualni regulace - znamenko stejne jako graf
+  setKPI('O', lO, 'MW', `prům. dne: ${sign(avg)}${avg.toFixed(1)} MW`, dO.fetched_at,
     {greenBelow: -100, redAbove: 100});
   
   // Systemova soustava - INVERZNI k aktualni regulaci
@@ -849,7 +785,6 @@ async function loadMain() {
     {greenBelow: 30, redAbove: 100});
 
   drawTopChart(document.getElementById('topCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
-  drawTopChart(document.getElementById('topCanvas2'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm, true);
 
   const odch15 = agg15(dO.rows, colO);
   const ap15   = colAp ? agg15(dS.rows, colAp) : odch15.map(b=>({lbl:b.lbl,v:0}));
@@ -1073,7 +1008,7 @@ function drawCenaRE(canvas, d, d2, d3, d4, d5) {
       .sort((a, b) => a.min - b.min);
   }
 
-  // VDT (15min last cena - OTE uz vraci v EUR/MWh)
+  // VDT (15min last cena - server vraci Kc/MWh, prevedeme na EUR)
   let vdtPoints = [];
   if (d5 && d5.data && d5.data.length) {
     vdtPoints = d5.data.map(p => {
@@ -1081,7 +1016,9 @@ function drawCenaRE(canvas, d, d2, d3, d4, d5) {
       const ts = p.timestamp || p.ts || '';
       const m = ts.match(/T(\d{2}):(\d{2})/);
       if (m) minStart = parseInt(m[1]) * 60 + parseInt(m[2]);
-      const priceEur = parseFloat(p.last);
+      // Kc -> EUR (KURZ_KC_EUR = 24.5)
+      const priceKc = parseFloat(p.last);
+      const priceEur = priceKc / KURZ_KC_EUR;
       return { min: minStart, vdt: priceEur };
     }).filter(p => Number.isFinite(p.min) && Number.isFinite(p.vdt))
       .sort((a, b) => a.min - b.min);
@@ -1366,21 +1303,7 @@ function drawCenaRE(canvas, d, d2, d3, d4, d5) {
     if (odchPoints.length) {
       const odchMatch = odchPoints.find(p => min >= p.min && min < p.min + 15);
       if (odchMatch) {
-        html += `<span style="color:#5b8fc9;">Odch:</span> <b>${odchMatch.odch.toFixed(1)} €</b><br>`;
-      }
-    }
-    // DA spot CZ (hodinova granularita)
-    if (daPoints.length) {
-      const daMatch = daPoints.find(p => min >= p.min && min < p.min + 60);
-      if (daMatch) {
-        html += `<span style="color:#6c5ce7;">DA:</span> <b>${daMatch.da.toFixed(1)} €</b><br>`;
-      }
-    }
-    // VDT (15min granularita)
-    if (vdtPoints.length) {
-      const vdtMatch = vdtPoints.find(p => min >= p.min && min < p.min + 15);
-      if (vdtMatch) {
-        html += `<span style="color:#27ae60;">VDT:</span> <b>${vdtMatch.vdt.toFixed(1)} €</b>`;
+        html += `<span style="color:#5b8fc9;">Odch:</span> <b>${odchMatch.odch.toFixed(1)} €</b>`;
       }
     }
     tip.innerHTML = html;
@@ -1693,14 +1616,15 @@ function drawResChart(canvas, rows, cols, daPoints, idPoints) {
     ctx.lineWidth = 1.8;
     ctx.beginPath();
     let started = false;
-    // Hladka linie - bod uprostred 15min intervalu (linearni interpolace)
     points.forEach((p) => {
       const ms = new Date(p.ts).getTime();
       if (ms + 15*60*1000 < tStartMs || ms > tStartMs + tRangeMs) return;
-      const xMid = xT(ms + 7.5*60*1000);
-      const y = yP(p.value || 0);
-      if (!started) { ctx.moveTo(xMid, y); started = true; }
-      else ctx.lineTo(xMid, y);
+      const x1 = Math.max(PAD.left, xT(ms));
+      const x2 = Math.min(PAD.left + cW, xT(ms + 15*60*1000));
+      const y  = yP(p.value || 0);
+      if (!started) { ctx.moveTo(x1, y); started = true; }
+      else ctx.lineTo(x1, y);
+      ctx.lineTo(x2, y);
     });
     ctx.stroke();
   }
@@ -2488,88 +2412,73 @@ function _rlRedraw() {
 // Tabulka cen + ostatní
 // ============================================================
 async function loadSpotTable(country, tableId) {
-  // Spot cena DA pro CZ/DE - 24 hodin × 1 řádek
+  // Spot cena DA pro CZ/DE - 24 hodin × 1 řádek + zítřejší jako šedý řádek
   try {
     const now = new Date();
     const pad = n => String(n).padStart(2,'0');
     const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+    const tom = new Date(now.getTime() + 86400000);
+    const tomorrow = `${tom.getFullYear()}-${pad(tom.getMonth()+1)}-${pad(tom.getDate())}`;
     
-    let rows = [];
-    if (country === 'CZ') {
-      // CZ - dnesni DA ceny z /ote/spot (spotovaelektrina.cz)
-      const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
-      if (!r.ok) return;
-      const d = await r.json();
-      // Server vraci hours_today = [{hour, priceCZK, priceEur}, ...]
-      const ht = d.hours_today || d.hoursToday || [];
-      rows = ht.map(p => ({ 
-        hour: p.hour, 
-        price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
-      })).filter(p => Number.isFinite(p.price_eur));
-      if (!rows.length) return;
-    } else {
-      // DE - z energy-charts.info via /spot/prices - posun o den zpatky
-      const yest = new Date(now.getTime() - 24*3600*1000);
-      const yestStr = `${yest.getFullYear()}-${pad(yest.getMonth()+1)}-${pad(yest.getDate())}`;
-      const r = await fetch(`${API_URL}/spot/prices?country=${country}&date=${yestStr}`, { cache: 'no-store' });
-      if (!r.ok) return;
-      const d = await r.json();
-      if (d.error || !d.data || !d.data.length) return;
-      rows = d.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
-    }
+    const [r, rTom] = await Promise.all([
+      fetch(`${API_URL}/spot/prices?country=${country}&date=${today}`, { cache: 'no-store' }),
+      fetch(`${API_URL}/spot/prices?country=${country}&date=${tomorrow}`, { cache: 'no-store' }).catch(() => null)
+    ]);
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error || !d.data || !d.data.length) return;
     
-    if (!rows.length) return;
-    const vals = rows.map(r => r.price_eur).filter(v => Number.isFinite(v));
+    const dTom = rTom && rTom.ok ? await rTom.json().catch(() => null) : null;
+    const tomRows = (dTom && dTom.data && !dTom.error) ? dTom.data.filter(p => p.minute === 0) : [];
+    const priceByHourTom = {};
+    tomRows.forEach(row => { priceByHourTom[row.hour] = row.price_eur; });
+    
+    // d.data = [{hour, minute, ts, price_eur}, ...]
+    const rows = d.data.filter(p => p.minute === 0);  // jen celé hodiny
+    const vals = rows.map(r => r.price_eur);
     if (!vals.length) return;
     
-    const vMin = Math.min(...vals);
-    const vMax = Math.max(...vals);
+    // Range vč. zítřejších cen pro barvení
+    const allVals = [...vals, ...tomRows.map(r => r.price_eur)];
+    const vMin = Math.min(...allVals);
+    const vMax = Math.max(...allVals);
     const vRange = Math.max(1, vMax - vMin);
     
     // Color: nízká = modrá (LEVNÉ/SHORT), vysoká = červená (DRAHÉ/LONG)
     function cellColor(v) {
       const ratio = (v - vMin) / vRange;  // 0-1
       if (ratio < 0.33) {
-        // Modrá pro levné
         const r = Math.round(120 - ratio * 99);
         const g = Math.round(160 - ratio * 59);
         const b = Math.round(210 - ratio * 18);
         return `rgb(${r},${g},${b})`;
       } else if (ratio > 0.66) {
-        // Červená pro drahé
         const t = (ratio - 0.66) / 0.34;
         const r = Math.round(180 + t * 60);
         const g = Math.round(80 - t * 60);
         const b = Math.round(80 - t * 60);
         return `rgb(${r},${g},${b})`;
       } else {
-        // Oranžová střední
         return '#e67e22';
       }
     }
     
-    // Current hour highlight - HXX = interval (XX-1)-XX (CESKE oznaceni)
-    // Teď 18:33 → běží interval 18-19 → highlight H19
     const curHour = now.getHours() + 1;
-    
     const tbl = document.getElementById(tableId);
-    // STEJNA STRUKTURA jako loadCenaTable - H01-H24
     const priceByHour = {};
     rows.forEach(row => { priceByHour[row.hour] = row.price_eur; });
     
     let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
     for (let h = 1; h <= 24; h++) {
       const isCur = h === curHour;
-      const fromHr = String(h-1).padStart(2,'0');
-      const toHr = String(h).padStart(2,'0');
-      const labelColor = isCur ? '#fff' : '#666';
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
     }
-    html += '</tr></thead><tbody><tr>';
+    html += '</tr></thead><tbody>';
+    
+    // Řádek 1: DNES
+    html += '<tr>';
     html += `<td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;font-weight:600;">€/MWh</td>`;
     for (let h = 1; h <= 24; h++) {
-      // HXX = interval (XX-1)-XX, hour=XX-1 v datech
-      // H19 -> interval 18-19 -> hour=18
       const dataH = h - 1;
       if (!(dataH in priceByHour)) {
         html += `<td style="padding:3px 6px;background:#c8d8e8;border:1px solid #dde;text-align:center;color:#888;">—</td>`;
@@ -2582,7 +2491,28 @@ async function loadSpotTable(country, tableId) {
       const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
       html += `<td style="padding:3px 6px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
     }
-    html += '</tr></tbody>';
+    html += '</tr>';
+    
+    // Řádek 2: ZÍTRA (šedý, jen pokud máme data)
+    if (tomRows.length > 0) {
+      html += '<tr>';
+      html += `<td style="padding:3px 6px;background:#ececec;border:1px solid #dde;white-space:nowrap;font-weight:600;color:#666;font-size:9px;">zítra</td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        if (!(dataH in priceByHourTom)) {
+          html += `<td style="padding:3px 6px;background:#f0f0f0;border:1px solid #dde;text-align:center;color:#aaa;">—</td>`;
+          continue;
+        }
+        const v = priceByHourTom[dataH];
+        const bg = cellColor(v);
+        const txt = Math.round(v);
+        // Šedý overlay - menší opacity přes původní barvu
+        html += `<td style="padding:3px 6px;background:${bg};opacity:0.45;border:1px solid #dde;text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
+      }
+      html += '</tr>';
+    }
+    
+    html += '</tbody>';
     tbl.innerHTML = html;
   } catch (e) {
     console.warn(`spot ${country}:`, e);
@@ -2601,13 +2531,10 @@ async function loadCenaTable() {
     if (!d.rows || !d.rows.length) return;
 
     const col = 'Estimated price [Kč/MWh]';
-    const KURZ = 24.5;
     const rows = d.rows.map(r => {
       const [start] = r['Interval'].split('-');
       const [h, m] = start.split(':').map(Number);
-      // Prevod Kc na EUR
-      const vKc = parseFloat(r[col]) || 0;
-      return { h, m, v: vKc / KURZ };
+      return { h, m, v: parseFloat(r[col]) || 0 };
     });
 
     // VŽDY 24 hodin pro zarovnání s ostatními tabulkami - H01 az H24
@@ -2634,21 +2561,18 @@ async function loadCenaTable() {
     }
 
     const tbl = document.getElementById('tbl-cena');
-    const curHour = now.getHours() + 1;  // HXX = interval (XX-1)-XX
+    const curHour = now.getHours() + 1;  // 0-23 -> H01-H24
     let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
     hours.forEach(h => {
       const isCur = h === curHour;
-      const fromHr = String(h-1).padStart(2,'0');
-      const toHr = String(h).padStart(2,'0');
-      const labelColor = isCur ? '#fff' : '#666';
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
     });
     html += '</tr></thead><tbody>';
 
     minutes.forEach(m => {
       html += `<tr><td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;">:${String(m).padStart(2,'0')}</td>`;
       hours.forEach(h => {
-        // HXX = interval (XX-1)-XX, data hour = h-1
+        // h = 1-24 (tabulka), data ma 0-23 -> data hour = h-1
         const dataH = h - 1;
         const row = rows.find(r => r.h === dataH && r.m === m);
         const v = row ? row.v : 0;
@@ -2665,53 +2589,16 @@ async function loadCenaTable() {
   } catch(e) {}
 }
 
-// Vycentruje highlight sloupec v scroll-wrapperu uprostred
-let _centered = false;
-function centerHighlightOnce() {
-  if (_centered) return;
-  const wrap = document.getElementById('spotTablesWrap');
-  if (!wrap) return;
-  // Najit zvyrazneny TH v jedne z tabulek
-  const hl = wrap.querySelector('th[style*="#1565c0"]');
-  if (!hl) return;
-  const wrapRect = wrap.getBoundingClientRect();
-  const hlRect = hl.getBoundingClientRect();
-  // Posun: scrollLeft + (hl center relativni k wrap) - (wrap center)
-  const hlCenterInWrap = (hlRect.left - wrapRect.left) + hl.offsetWidth/2;
-  const wrapCenter = wrap.clientWidth / 2;
-  const targetScroll = wrap.scrollLeft + (hlCenterInWrap - wrapCenter);
-  wrap.scrollTo({ left: targetScroll, behavior: 'smooth' });
-  _centered = true;
-}
-
 async function loadCena() {
   const d = await apiFetch('OdhadovanaCenaOdchylky');
-  if (!d.rows.length) return;
+  const fRows = d.rows.filter(r => parseFloat(r[d.columns[0]]) > 0);
+  if (!fRows.length) return;
   const priceCol = d.columns.find(c=>/price|estim/i.test(c))||d.columns[0];
   const intCol   = d.columns.find(c=>c==='Interval')||'';
-  
-  // Najit POSLEDNI ZUCTOVANOU QH = posledni radek s nenulovou cenou (kladnou i zapornou)
-  // (nezuctovane QH maji v ceps API hodnotu 0 nebo null)
-  let last = null;
-  for (let i = d.rows.length - 1; i >= 0; i--) {
-    const raw = d.rows[i][priceCol];
-    if (raw === null || raw === undefined || raw === '') continue;
-    const v = parseFloat(raw);
-    if (isNaN(v)) continue;
-    if (v === 0) continue;  // nezuctovane
-    // Akceptujeme kladne i zaporne ceny
-    last = d.rows[i];
-    break;
-  }
-  // Fallback: vezmi proste posledni radek
-  if (!last) last = d.rows[d.rows.length-1];
-  
-  // Cena odchylky - prevod Kc -> EUR (kurz 24.5)
-  // EUR thresholdy: <40 EUR zelena, >120 EUR cervena
-  const cenaKc = parseFloat(last[priceCol])||0;
-  const cenaEur = cenaKc / 24.5;
-  setKPI('C', cenaEur, 'EUR/MWh', `interval: ${last[intCol]||'—'}`, d.fetched_at,
-    {greenBelow: 40, redAbove: 120});
+  const last     = fRows[fRows.length-1];
+  // Cena odchylky - <1000 Kc zelena (levne), >3000 cervena (drahe), mezi = oranzova
+  setKPI('C', parseFloat(last[priceCol])||0, 'Kč/MWh', `interval: ${last[intCol]||'—'}`, d.fetched_at,
+    {greenBelow: 1000, redAbove: 3000});
 }
 
 // Throttling pro pomalé endpointy
@@ -3083,13 +2970,8 @@ async function loadAll() {
       _lastCenaTableLoad = now;
       tasks.push(loadCenaTable());
       tasks.push(loadCenaRE());  // Cena RE - minutova granularita, throttle 60s
-      tasks.push(Promise.all([
-        loadSpotTable('CZ', 'tbl-spot-cz'),
-        loadSpotTable('DE', 'tbl-spot-de'),
-      ]).then(() => {
-        // Vycentruj highlight uprostred scroll wrapperu (jen pri prvnim nacteni)
-        setTimeout(centerHighlightOnce, 200);
-      }));
+      tasks.push(loadSpotTable('CZ', 'tbl-spot-cz'));
+      tasks.push(loadSpotTable('DE', 'tbl-spot-de'));
     }
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;

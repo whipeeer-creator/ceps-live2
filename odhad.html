@@ -2,6 +2,9 @@
 <html lang="cs"><head><meta charset="UTF-8"><title>🔮 Odhad odchylky</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <style>
+/* Vypnout slashed-zero (vypadala jak 8) */
+body, * { font-variant-numeric: lining-nums tabular-nums; font-feature-settings: "zero" 0, "ss01" 0; }
+
 *{box-sizing:border-box}
 body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:12px;background:#f3f4f7;font-size:14px}
 h1{font-size:22px;margin:0 0 6px;color:#1565c0}
@@ -50,14 +53,16 @@ th{background:#f8f8f8;font-weight:600}
   <div class="card todo"><div class="card-l">Frekvence sítě</div><div class="card-v" id="freq">N/A</div><div class="card-s" id="freqDir">FÁZE 2: ENTSO-E</div></div>
   <div class="card"><div class="card-l">OZE produkce ČR</div><div class="card-v" id="oze">—</div><div class="card-s" id="ozeDir">—</div></div>
   <div class="card"><div class="card-l">Spotřeba ČR</div><div class="card-v" id="load">—</div><div class="card-s" id="loadDir">—</div></div>
+  <div class="card"><div class="card-l">Výroba ČR (celkem)</div><div class="card-v" id="gen">—</div><div class="card-s" id="genDir">—</div></div>
+  <div class="card"><div class="card-l">Residual Load DE</div><div class="card-v" id="residDe">—</div><div class="card-s" id="residDeDir">—</div></div>
 </div>
 
 <h2 class="future">🌬️ BUDOUCÍ fundamenty (forecast 24h)</h2>
 <div class="row">
-  <div class="card todo"><div class="card-l">Vítr DE prognóza</div><div class="card-v">N/A</div><div class="card-s">FÁZE 3: Open-Meteo</div></div>
-  <div class="card todo"><div class="card-l">Solární prognóza</div><div class="card-v">N/A</div><div class="card-s">FÁZE 3: Open-Meteo</div></div>
-  <div class="card todo"><div class="card-l">Prognóza spotřeby</div><div class="card-v">N/A</div><div class="card-s">FÁZE 3: ENTSO-E</div></div>
-  <div class="card todo"><div class="card-l">DAM cena</div><div class="card-v">N/A</div><div class="card-s">FÁZE 3: OTE DAM</div></div>
+  <div class="card"><div class="card-l">Vítr DE prognóza</div><div class="card-v" id="windFc">—</div><div class="card-s" id="windFcDir">—</div></div>
+  <div class="card"><div class="card-l">Solární prognóza ČR</div><div class="card-v" id="solarFc">—</div><div class="card-s" id="solarFcDir">—</div></div>
+  <div class="card todo"><div class="card-l">Prognóza spotřeby</div><div class="card-v">N/A</div><div class="card-s">FÁZE 3+: ENTSO-E</div></div>
+  <div class="card"><div class="card-l">DAM cena (current H)</div><div class="card-v" id="damFc">—</div><div class="card-s" id="damFcDir">—</div></div>
 </div>
 
 <h2>🔮 Predikce na dalších 8 QH</h2>
@@ -75,18 +80,26 @@ async function loadAll(){
     const n=new Date();
     const today=`${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
     const cb=Date.now();
-    const [rA,rS,rL,rG,rR]=await Promise.all([
+    const [rA,rS,rL,rG,rR,rWind,rSolar,rSpot,rResid]=await Promise.all([
       fetch(`${API_URL}/api?method=AktualniCenaRE&agregation=MI&function=AVG&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null),
       fetch(`${API_URL}/api?method=AktivaceSVRvCR&aggregation=MI&function=AVG&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null),
       fetch(`${API_URL}/api?method=Load&agregation=QH&function=AVG&version=RT&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null),
       fetch(`${API_URL}/api?method=Generation&agregation=QH&function=AVG&version=RT&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null),
-      fetch(`${API_URL}/api?method=GenerationRES&agregation=QH&function=AVG&version=RT&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null)
+      fetch(`${API_URL}/api?method=GenerationRES&agregation=QH&function=AVG&version=RT&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`).catch(()=>null),
+      fetch(`${API_URL}/wind-de?_=${cb}`).catch(()=>null),
+      fetch(`${API_URL}/entsoe/solar?day=${today}&_=${cb}`).catch(()=>null),
+      fetch(`${API_URL}/spot/prices?country=CZ&date=${today}&_=${cb}`).catch(()=>null),
+      fetch(`${API_URL}/entsoe/residual?days_back=2&_=${cb}`).catch(()=>null)
     ]);
     const dA=rA?await rA.json():{rows:[]};
     const dS=rS?await rS.json():{rows:[]};
     const dL=rL?await rL.json():{rows:[]};
     const dG=rG?await rG.json():{rows:[]};
     const dR=rR?await rR.json():{rows:[]};
+    const dWind=rWind?await rWind.json().catch(()=>null):null;
+    const dSolar=rSolar?await rSolar.json().catch(()=>null):null;
+    const dSpot=rSpot?await rSpot.json().catch(()=>null):null;
+    const dResid=rResid?await rResid.json().catch(()=>null):null;
     
     // Find time key (může být "Time", "Date", "Cas", atd.)
     function findTimeKey(row){
@@ -121,6 +134,7 @@ async function loadAll(){
     document.getElementById('metaInfo').textContent=`${afrr.length} min aFRR · ${svr.length} min SVR · ${(dL.rows||[]).length} h Load · ${(dG.rows||[]).length} h Gen · refresh ${new Date().toLocaleTimeString('cs-CZ')}`;
     
     // === LOAD (spotřeba) ===
+    let loadTotal=null;
     const loadRows=dL.rows||[];
     if(loadRows.length){
       // Najdi sloupec se spotřebou (z first row, číselný 1000-20000)
@@ -130,11 +144,32 @@ async function loadAll(){
         return !isNaN(v)&&v>1000&&v<20000;
       });
       if(loadKey){
-        const loadMW=parseFloat(sample[loadKey]);
+        loadTotal=parseFloat(sample[loadKey]);
         const prev=loadRows.length>1?parseFloat(loadRows[loadRows.length-2][loadKey]):null;
-        const loadTrend=prev?loadMW-prev:0;
-        document.getElementById('load').innerHTML=`${(loadMW/1000).toFixed(2)} <span class="u">GW</span>`;
+        const loadTrend=prev?loadTotal-prev:0;
+        document.getElementById('load').innerHTML=`${(loadTotal/1000).toFixed(2)} <span class="u">GW</span>`;
         document.getElementById('loadDir').textContent=loadTrend>50?`↑ +${loadTrend.toFixed(0)} MW`:loadTrend<-50?`↓ ${loadTrend.toFixed(0)} MW`:`→ stabilní`;
+      }
+    }
+    
+    // === GENERATION (výroba ČR celkem) ===
+    let genTotal=null;
+    const genRows=dG.rows||[];
+    if(genRows.length){
+      const sample=genRows[genRows.length-1];
+      // Sečti všechny kladné MW hodnoty (jaderky, uhlí, plyn, OZE, ...)
+      let total=0;
+      for(const [k,v] of Object.entries(sample)){
+        const num=parseFloat(v);
+        if(!isNaN(num)&&num>0&&num<20000)total+=num;
+      }
+      if(total>0){
+        genTotal=total;
+        document.getElementById('gen').innerHTML=`${(total/1000).toFixed(2)} <span class="u">GW</span>`;
+        if(loadTotal){
+          const diff=total-loadTotal;
+          document.getElementById('genDir').textContent=diff>500?`↑ +${(diff/1000).toFixed(1)} GW export`:diff<-500?`↓ ${(Math.abs(diff)/1000).toFixed(1)} GW import`:`vyrovnáno`;
+        }
       }
     }
     
@@ -168,8 +203,101 @@ async function loadAll(){
       }
     }
     
-    // === FREKVENCE (zatím N/A - není endpoint) ===
-    // Nechej "FÁZE 2" pokud nemáme frekvenci endpoint
+    // === RESIDUAL LOAD DE (forecast vs actual delta) ===
+    let residActual=null, residForecast=null, residDelta=null;
+    if(dResid && dResid.data){
+      const pts=dResid.data;
+      const now=Date.now();
+      // Najdi nejnovější bod s actual
+      let lastActual=null, currForecast=null;
+      for(let i=pts.length-1;i>=0;i--){
+        const p=pts[i];
+        const t=new Date(p.berlin_time||p.ts).getTime();
+        if(isNaN(t))continue;
+        if(!lastActual && p.residual_load_actual_mw!=null)lastActual=p;
+        // Forecast pro nejbližší hodinu dopředu
+        if(!currForecast && p.residual_load_forecast_mw!=null && t>=now-1800000 && t<=now+1800000)currForecast=p;
+      }
+      if(lastActual){
+        residActual=parseFloat(lastActual.residual_load_actual_mw);
+        document.getElementById('residDe').innerHTML=`${(residActual/1000).toFixed(1)} <span class="u">GW</span>`;
+      }
+      if(currForecast && lastActual){
+        residForecast=parseFloat(currForecast.residual_load_forecast_mw);
+        residDelta=residActual-residForecast;  // actual - forecast
+        // residDelta > 0 = víc spotřeby/méně OZE než čekali = deficit pravděpodobný
+        // residDelta < 0 = méně spotřeby/více OZE = přebytek
+        document.getElementById('residDeDir').textContent=Math.abs(residDelta)>500?
+          `Δ ${residDelta>0?'+':''}${(residDelta/1000).toFixed(1)} GW vs FC ${residDelta>0?'(deficit)':'(přebytek)'}`:
+          `≈ podle prognózy`;
+      } else if(lastActual){
+        document.getElementById('residDeDir').textContent=`actual DE-LU`;
+      }
+    }
+    
+    // === BUDOUCÍ - WIND DE forecast ===
+    let windCurrent=null, windNext=null;
+    if(dWind && dWind.points){
+      const pts=dWind.points;
+      const now=Date.now();
+      // Najdi nejbližší k aktuálnímu času + 1h dopředu
+      let bestNow=null, bestNext=null;
+      for(const p of pts){
+        const t=new Date(p.timestamp||p.ts||p.time).getTime();
+        if(isNaN(t))continue;
+        if(t<=now && (!bestNow||t>new Date(bestNow.timestamp||bestNow.ts||bestNow.time).getTime()))bestNow=p;
+        if(t>now+3000000 && t<now+5400000 && !bestNext)bestNext=p;  // 50-90 min dopředu
+      }
+      if(bestNow){
+        windCurrent=parseFloat(bestNow.value||bestNow.wind||bestNow.MW||0);
+        document.getElementById('windFc').innerHTML=`${(windCurrent/1000).toFixed(2)} <span class="u">GW</span>`;
+      }
+      if(bestNext){
+        windNext=parseFloat(bestNext.value||bestNext.wind||bestNext.MW||0);
+        const diff=windNext-(windCurrent||windNext);
+        document.getElementById('windFcDir').textContent=Math.abs(diff)>500?`za 1h: ${diff>0?'↑':'↓'} ${(diff/1000).toFixed(1)} GW`:`stabilní`;
+      }
+    }
+    
+    // === SOLAR ENTSO-E forecast ===
+    let solarNow=null;
+    if(dSolar && dSolar.intraday){
+      const pts=dSolar.intraday;
+      const now=Date.now();
+      let best=null;
+      for(const p of pts){
+        const t=new Date(p.timestamp||p.ts||p.time).getTime();
+        if(isNaN(t))continue;
+        if(t<=now+900000 && (!best||t>new Date(best.timestamp||best.ts||best.time).getTime()))best=p;
+      }
+      if(best){
+        solarNow=parseFloat(best.value||best.solar||best.MW||0);
+        document.getElementById('solarFc').innerHTML=`${solarNow.toFixed(0)} <span class="u">MW</span>`;
+        document.getElementById('solarFcDir').textContent=`ČR intraday`;
+      }
+    }
+    
+    // === DAM CENA ===
+    let damCurrent=null;
+    if(dSpot && Array.isArray(dSpot)){
+      const nowH=new Date().getHours();
+      const match=dSpot.find(p=>{
+        const h=new Date(p.timestamp||p.ts||p.time).getHours();
+        return h===nowH;
+      });
+      if(match){
+        damCurrent=parseFloat(match.price||match.value||0);
+        document.getElementById('damFc').innerHTML=`${damCurrent.toFixed(0)} <span class="u">EUR</span>`;
+        document.getElementById('damFcDir').textContent=`hodina ${nowH}:00`;
+      }
+    } else if(dSpot && dSpot.prices){
+      const nowH=new Date().getHours();
+      const match=dSpot.prices.find(p=>p.hour===nowH);
+      if(match){
+        damCurrent=parseFloat(match.price);
+        document.getElementById('damFc').innerHTML=`${damCurrent.toFixed(0)} <span class="u">EUR</span>`;
+      }
+    }
     
     const l5=afrr.slice(-5);
     const avg=l5.length?l5.reduce((s,r)=>s+r.eur,0)/l5.length:null;
@@ -198,17 +326,100 @@ async function loadAll(){
       document.getElementById('mFrrMWdir').textContent=mMW>5?'▲ Deficit manuál':mMW<-5?'▼ Přebytek manuál':'→';
     }
     
-    let pred=0;const facts=[];
-    if(avg!==null){pred+=avg*0.6;facts.push(`aFRR ${avg.toFixed(0)}€`)}
-    if(aMW!==null&&Math.abs(aMW)>3){pred+=aMW*2;facts.push(`${aMW>0?'+':''}${aMW.toFixed(0)}MW`)}
-    if(mMW!==null&&Math.abs(mMW)>3){pred+=mMW*1.5}
-    if(Math.abs(trend)>8){pred+=trend*0.3}
+    // ═══════════════════════════════════════════════════════════
+    // KOMPLEXNÍ PREDIKCE - kombinuje VŠECHNY zdroje s váhami
+    // ═══════════════════════════════════════════════════════════
+    let pred=0;const facts=[];const factors={};
     
-    let conf=25;
-    const sd=(avg||0)*(aMW||0)>=0;
-    if(sd&&Math.abs(pred)>100)conf=75;
-    else if(sd&&Math.abs(pred)>30)conf=55;
-    else if(Math.abs(pred)>50)conf=35;
+    // === 1. aFRR cena (váha 0.6) - hlavní signál ===
+    // Korelace 0.94 s cenou odchylky, ale je TOO současná
+    // Snižuji váhu na 0.6 protože predikujeme budoucí QH
+    if(avg!==null){
+      const w=avg*0.6;
+      pred+=w; factors.aFrr=w;
+      facts.push(`aFRR ${avg.toFixed(0)}€`);
+    }
+    
+    // === 2. aFRR MW aktivace (váha 0.3) - síla deficitu ===
+    if(aMW!==null&&Math.abs(aMW)>3){
+      const w=aMW*0.3;
+      pred+=w; factors.aFrrMW=w;
+      if(Math.abs(aMW)>10) facts.push(`${aMW>0?'+':''}${aMW.toFixed(0)}MW`);
+    }
+    
+    // === 3. mFRR MW (váha 0.15) ===
+    if(mMW!==null&&Math.abs(mMW)>3){
+      const w=mMW*0.15;
+      pred+=w; factors.mFrrMW=w;
+    }
+    
+    // === 4. Trend aFRR (váha 0.25) - kam to směřuje ===
+    if(Math.abs(trend)>5){
+      const w=trend*0.25;
+      pred+=w; factors.trend=w;
+      facts.push(`trend ${trend>0?'↑':'↓'}${Math.abs(trend).toFixed(0)}`);
+    }
+    
+    // === 5. Residual Load DE Δ (váha 0.025/MW) - regionální vliv ===
+    if(residDelta!==null && Math.abs(residDelta)>500){
+      const w=residDelta*0.025;  // 1 GW delta = 25€ impact
+      pred+=w; factors.residDe=w;
+      facts.push(`resid Δ${residDelta>0?'+':''}${(residDelta/1000).toFixed(1)}GW`);
+    }
+    
+    // === 6. Wind DE forecast change (váha 0.015/MW) ===
+    // Pokud vítr DE roste → tlak dolů na ceny v regionu
+    if(windCurrent!==null && windNext!==null){
+      const windChange = windNext - windCurrent;
+      if(Math.abs(windChange)>500){
+        const w = -windChange*0.015;  // záporné = vyšší vítr = nižší cena
+        pred+=w; factors.windChange=w;
+        facts.push(`wind ${windChange>0?'↑':'↓'}${Math.abs(windChange/1000).toFixed(1)}GW`);
+      }
+    }
+    
+    // === 7. DAM cena (váha 0.2) - výchozí bod hodiny ===
+    // DAM cena je co trh očekával, cena odchylky se od ní odchýlí
+    if(damCurrent!==null){
+      // Pokud aFRR je nad DAM → silný deficit
+      // Pokud aFRR je pod DAM → silný přebytek
+      const damSpread = (avg!==null) ? avg - damCurrent : 0;
+      if(Math.abs(damSpread)>20){
+        const w=damSpread*0.2;
+        pred+=w; factors.damSpread=w;
+        facts.push(`vs DAM ${damSpread>0?'+':''}${damSpread.toFixed(0)}`);
+      }
+    }
+    
+    // === 8. Spotřeba ČR (kontext, malá váha) ===
+    // Vysoká spotřeba = větší zranitelnost na odchylky
+    // Bere se jen jako multiplier confidence
+    
+    // === 8. ČR Generation - Load balance ===
+    // Pokud výroba > spotřeba → export → přebytek ČR → tlak dolů
+    // Pokud výroba < spotřeba → import → deficit ČR → tlak nahoru
+    if(genTotal!==null && loadTotal!==null){
+      const crBalance = genTotal - loadTotal;  // + = export, - = import
+      if(Math.abs(crBalance)>300){
+        const w = -crBalance * 0.01;  // záporná = export tlačí dolů
+        pred += w; factors.crBalance = w;
+        facts.push(`ČR ${crBalance>0?'export':'import'} ${Math.abs(crBalance/1000).toFixed(1)}GW`);
+      }
+    }
+    
+    console.log('Prediction factors:', factors, 'total:', pred);
+    
+    // === CONFIDENCE - počet dostupných signálů × konzistence ===
+    const signalCount = Object.keys(factors).length;
+    const sameDirection = Object.values(factors).filter(v => v*pred > 0).length;
+    const consistency = signalCount > 0 ? sameDirection / signalCount : 0;
+    
+    let conf=20;
+    conf += Math.min(60, signalCount * 10);
+    conf += consistency * 20;
+    if(Math.abs(pred) > 100) conf += 10;
+    if(Math.abs(pred) > 200) conf += 5;
+    conf = Math.min(95, Math.max(15, conf));
     
     const nm=new Date().getHours()*60+new Date().getMinutes();
     const ts=(Math.floor(nm/15)+1)*15;
