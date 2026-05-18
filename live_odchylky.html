@@ -173,7 +173,7 @@ canvas { max-width: 100%; display: block; }
   <div class="err-bar" id="err"></div>
   <div class="kpi-row">
     <div class="kpi" id="crd-O"><div class="kpi-l">Aktuální regulace</div><div class="kpi-v" id="dv-O">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-O">—</div></div>
-    <div class="kpi" id="crd-C"><div class="kpi-l">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">Kč/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
+    <div class="kpi" id="crd-C"><div class="kpi-l">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
     <div class="kpi" id="crd-F"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
     <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
   </div>
@@ -202,9 +202,25 @@ canvas { max-width: 100%; display: block; }
   </div>
 
   <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title">Systémová soustava</div>
+        <div class="panel-sub">inverzní k aktuální regulaci · 🟢 buy = soustava mínus · 🔴 sell = soustava plus</div>
+      </div>
+    </div>
+    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;" id="soWrap">
+      <canvas id="soCanvas" height="260" style="width:100%;height:260px;display:block;"></canvas>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#27ae60;opacity:.8"></span>buy zone (soustava −)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#e74c3c;opacity:.8"></span>sell zone (soustava +)</span>
+    </div>
+  </div>
+
+  <div class="chart-panel">
     <div class="panel-hdr"><div class="panel-title">Ceny — odchylka & spot (CZ/DE)</div></div>
     <div style="overflow-x:auto;padding:8px 12px;">
-      <div style="font-size:10px;color:#666;margin-bottom:3px;font-family:'JetBrains Mono',monospace;">Odhadovaná cena odchylky · Kč/MWh</div>
+      <div style="font-size:10px;color:#666;margin-bottom:3px;font-family:'JetBrains Mono',monospace;">Odhadovaná cena odchylky · EUR/MWh</div>
       <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ spot cena (DA) · EUR/MWh</div>
       <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
@@ -666,6 +682,99 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
   }
 }
 
+// Systémová soustava - inverzní k odchylce (regulační směr)
+function drawSoustavaChart(canvas, rows, colO) {
+  if (!canvas || !rows || !rows.length) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  
+  const PAD = { top: 10, right: 50, bottom: 25, left: 50 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+  
+  // Inverzní hodnoty - odchylka × -1
+  const vals = rows.map(r => -(parseFloat(r[colO]) || 0));
+  const n = vals.length;
+  if (!n) return;
+  
+  const vMax = Math.max(...vals.map(Math.abs), 50);
+  const yScale = cH / 2 / vMax;
+  const yMid = PAD.top + cH / 2;
+  
+  // Grid + nulová čára
+  ctx.strokeStyle = '#b8c5d6';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD.left, yMid);
+  ctx.lineTo(PAD.left + cW, yMid);
+  ctx.stroke();
+  
+  // Y labels
+  ctx.fillStyle = '#666';
+  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.textAlign = 'right';
+  for (let i = -2; i <= 2; i++) {
+    const y = yMid - i * (cH / 4);
+    const v = i * vMax / 2;
+    ctx.fillText(Math.round(v), PAD.left - 4, y + 3);
+    if (i !== 0) {
+      ctx.strokeStyle = '#dde4ed';
+      ctx.beginPath();
+      ctx.moveTo(PAD.left, y);
+      ctx.lineTo(PAD.left + cW, y);
+      ctx.stroke();
+    }
+  }
+  
+  // Plocha pod křivkou - zelená pro positive (buy), červená pro negative (sell)
+  for (let zone = 0; zone < 2; zone++) {
+    ctx.beginPath();
+    ctx.moveTo(PAD.left, yMid);
+    for (let i = 0; i < n; i++) {
+      const x = PAD.left + i / (n - 1) * cW;
+      let v = vals[i];
+      if (zone === 0 && v < 0) v = 0;  // jen pozitivní (buy zone)
+      if (zone === 1 && v > 0) v = 0;  // jen negativní (sell zone)
+      const y = yMid - v * yScale;
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(PAD.left + cW, yMid);
+    ctx.closePath();
+    ctx.fillStyle = zone === 0 ? 'rgba(39, 174, 96, 0.4)' : 'rgba(231, 76, 60, 0.4)';
+    ctx.fill();
+  }
+  
+  // Linka
+  ctx.strokeStyle = '#1a1a2e';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const x = PAD.left + i / (n - 1) * cW;
+    const y = yMid - vals[i] * yScale;
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  
+  // X labels - hodiny
+  ctx.fillStyle = '#666';
+  ctx.textAlign = 'center';
+  const step = Math.max(1, Math.floor(n / 6));
+  for (let i = 0; i < n; i += step) {
+    const r = rows[i];
+    const t = r['Time'] || r['time'] || '';
+    const m = String(t).match(/(\d{2}):(\d{2})/);
+    if (m) {
+      const x = PAD.left + i / (n - 1) * cW;
+      ctx.fillText(`${m[1]}:${m[2]}`, x, H - 8);
+    }
+  }
+}
+
 (function() {
   const canvas = document.getElementById('topCanvas');
   const tip    = document.getElementById('topTip');
@@ -784,15 +893,19 @@ async function loadMain() {
     {greenBelow: -100, redAbove: 100});
   
   // Systemova soustava - INVERZNI k aktualni regulaci
-  // Pouzivame setTimeout aby to bezelo PO vsech ostatnich KPI nastavenich
   const lSO = -lO;
   setTimeout(() => {
     const dvSO = document.getElementById('dv-SO');
     if (dvSO) {
-      // Cervena pro zaporne, zelena pro kladne
       const soColor = lSO < 0 ? '#c0392b' : '#27ae60';
-      const soSign = lSO > 0 ? '+' : (lSO < 0 ? '' : '');  // mínus se da automaticky cislem
+      const soSign = lSO > 0 ? '+' : '';  // '-' už je v čísle
       dvSO.innerHTML = `<span style="color:${soColor};font-weight:700;">${soSign}${lSO.toFixed(1)}</span><span class="kpi-u">MW</span>`;
+    }
+    // Update i sub text
+    const dsSO = document.getElementById('ds-SO');
+    if (dsSO) {
+      const dirText = lSO > 0 ? '🔴 Sell · soustava+ ' : lSO < 0 ? '🟢 Buy · soustava−' : '—';
+      dsSO.innerHTML = `${dirText} (Aktuální regulace ${lO > 0 ? '+' : ''}${lO.toFixed(1)} MW × −1)`;
     }
   }, 0);
   
@@ -801,6 +914,7 @@ async function loadMain() {
     {greenBelow: 30, redAbove: 100});
 
   drawTopChart(document.getElementById('topCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
+  drawSoustavaChart(document.getElementById('soCanvas'), dO.rows, colO);
 
   const odch15 = agg15(dO.rows, colO);
   const ap15   = colAp ? agg15(dS.rows, colAp) : odch15.map(b=>({lbl:b.lbl,v:0}));
@@ -2547,10 +2661,12 @@ async function loadCenaTable() {
     if (!d.rows || !d.rows.length) return;
 
     const col = 'Estimated price [Kč/MWh]';
+    const KURZ = 24.5;
     const rows = d.rows.map(r => {
       const [start] = r['Interval'].split('-');
       const [h, m] = start.split(':').map(Number);
-      return { h, m, v: parseFloat(r[col]) || 0 };
+      const kc = parseFloat(r[col]) || 0;
+      return { h, m, v: kc / KURZ };  // EUR
     });
 
     // VŽDY 24 hodin pro zarovnání s ostatními tabulkami - H01 az H24
@@ -2593,7 +2709,7 @@ async function loadCenaTable() {
         const row = rows.find(r => r.h === dataH && r.m === m);
         const v = row ? row.v : 0;
         const bg = cellColor(v);
-        const txt = v === 0 ? '0' : Math.round(v).toLocaleString('cs');
+        const txt = v === 0 ? '0' : Math.round(v).toString();
         const isCur = h === curHour;
         const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
         html += `<td style="padding:3px 6px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
@@ -2612,9 +2728,11 @@ async function loadCena() {
   const priceCol = d.columns.find(c=>/price|estim/i.test(c))||d.columns[0];
   const intCol   = d.columns.find(c=>c==='Interval')||'';
   const last     = fRows[fRows.length-1];
-  // Cena odchylky - <1000 Kc zelena (levne), >3000 cervena (drahe), mezi = oranzova
-  setKPI('C', parseFloat(last[priceCol])||0, 'Kč/MWh', `interval: ${last[intCol]||'—'}`, d.fetched_at,
-    {greenBelow: 1000, redAbove: 3000});
+  const priceKc = parseFloat(last[priceCol])||0;
+  const priceEur = priceKc / 24.5;
+  // Cena odchylky v EUR - <40 EUR zelena (levne), >120 cervena (drahe)
+  setKPI('C', priceEur, 'EUR/MWh', `interval: ${last[intCol]||'—'} · ${priceKc.toFixed(0)} Kč`, d.fetched_at,
+    {greenBelow: 40, redAbove: 120});
 }
 
 // Throttling pro pomalé endpointy
