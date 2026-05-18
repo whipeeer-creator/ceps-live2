@@ -88,37 +88,53 @@ async function loadAll(){
     const dG=rG?await rG.json():{rows:[]};
     const dR=rR?await rR.json():{rows:[]};
     
-    const afrr=(dA.rows||[]).filter(r=>r['Time']).map(r=>({
-      time:r['Time'],
-      eur:parseFloat(r['aFRR [EUR/MWh]']||(r['aFRR [Kč/MWh]']?r['aFRR [Kč/MWh]']/KURZ:0))
-    })).filter(r=>!isNaN(r.eur));
+    // Find time key (může být "Time", "Date", "Cas", atd.)
+    function findTimeKey(row){
+      for(const k of Object.keys(row||{})){
+        const v=String(row[k]);
+        if(/\d{2}:\d{2}/.test(v)) return k;
+      }
+      return null;
+    }
     
-    const svr=(dS.rows||[]).filter(r=>r['Time']).map(r=>({
-      time:r['Time'],
+    const afrrTimeKey = (dA.rows && dA.rows.length) ? findTimeKey(dA.rows[0]) : null;
+    const svrTimeKey = (dS.rows && dS.rows.length) ? findTimeKey(dS.rows[0]) : null;
+    console.log('aFRR sample row:', dA.rows && dA.rows[0]);
+    console.log('SVR sample row:', dS.rows && dS.rows[0]);
+    console.log('Load sample row:', dL.rows && dL.rows[0]);
+    console.log('GenRES sample row:', dR.rows && dR.rows[0]);
+    
+    // aFRR - tahej VŠECHNY rows i bez Time key (hory.html-style)
+    const afrr=(dA.rows||[]).map((r,idx)=>({
+      idx,
+      time:afrrTimeKey?r[afrrTimeKey]:`row${idx}`,
+      eur:parseFloat(r['aFRR [EUR/MWh]']||(r['aFRR [Kč/MWh]']?r['aFRR [Kč/MWh]']/KURZ:0))
+    })).filter(r=>!isNaN(r.eur)&&r.eur!==0);
+    
+    const svr=(dS.rows||[]).map((r,idx)=>({
+      idx,
+      time:svrTimeKey?r[svrTimeKey]:`row${idx}`,
       a:parseFloat(r['aFRR+ [MW]']||0)+parseFloat(r['aFRR- [MW]']||0),
       m:parseFloat(r['mFRR+ [MW]']||0)+parseFloat(r['mFRR- [MW]']||0)
-    }));
+    })).filter(r=>!isNaN(r.a));
     
     document.getElementById('metaInfo').textContent=`${afrr.length} min aFRR · ${svr.length} min SVR · ${(dL.rows||[]).length} h Load · ${(dG.rows||[]).length} h Gen · refresh ${new Date().toLocaleTimeString('cs-CZ')}`;
     
     // === LOAD (spotřeba) ===
-    const loadRows=(dL.rows||[]).filter(r=>{
-      const v=Object.values(r).find(x=>typeof x==='number'||(typeof x==='string'&&parseFloat(x)>100));
-      return v!==undefined;
-    });
-    const lastLoad=loadRows.length?loadRows[loadRows.length-1]:null;
-    if(lastLoad){
-      // Najdi sloupec se spotřebou (číselný, >1000)
-      const loadKey=Object.keys(lastLoad).find(k=>{
-        const v=parseFloat(lastLoad[k]);
-        return !isNaN(v)&&v>1000&&v<20000;  // ČR spotřeba 4-10 GW
+    const loadRows=dL.rows||[];
+    if(loadRows.length){
+      // Najdi sloupec se spotřebou (z first row, číselný 1000-20000)
+      const sample=loadRows[loadRows.length-1];
+      const loadKey=Object.keys(sample).find(k=>{
+        const v=parseFloat(sample[k]);
+        return !isNaN(v)&&v>1000&&v<20000;
       });
       if(loadKey){
-        const loadMW=parseFloat(lastLoad[loadKey]);
-        const prevLoad=loadRows.length>1?parseFloat(loadRows[loadRows.length-2][loadKey]):null;
-        const loadTrend=prevLoad?loadMW-prevLoad:0;
+        const loadMW=parseFloat(sample[loadKey]);
+        const prev=loadRows.length>1?parseFloat(loadRows[loadRows.length-2][loadKey]):null;
+        const loadTrend=prev?loadMW-prev:0;
         document.getElementById('load').innerHTML=`${(loadMW/1000).toFixed(2)} <span class="u">GW</span>`;
-        document.getElementById('loadDir').textContent=loadTrend>100?`↑ +${loadTrend.toFixed(0)} MW`:loadTrend<-100?`↓ ${loadTrend.toFixed(0)} MW`:`→ stabilní`;
+        document.getElementById('loadDir').textContent=loadTrend>50?`↑ +${loadTrend.toFixed(0)} MW`:loadTrend<-50?`↓ ${loadTrend.toFixed(0)} MW`:`→ stabilní`;
       }
     }
     
@@ -131,8 +147,8 @@ async function loadAll(){
         const num=parseFloat(v);
         if(isNaN(num)||num<0)continue;
         const kl=k.toLowerCase();
-        if(kl.includes('solar')||kl.includes('pv'))solar+=num;
-        else if(kl.includes('wind')||kl.includes('větr'))wind+=num;
+        if(kl.includes('solar')||kl.includes('pv')||kl.includes('pvpp'))solar+=num;
+        else if(kl.includes('wind')||kl.includes('větr')||kl.includes('wpp'))wind+=num;
       }
       totalRES=solar+wind;
       if(totalRES>0){
