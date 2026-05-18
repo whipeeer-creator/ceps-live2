@@ -688,24 +688,10 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
 // Systémová soustava - stejný graf jako Aktuální regulace, ale odchylka × -1
 function drawSoustavaChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colMm) {
   if (!canvas || !odchRows || !odchRows.length) return;
-  // Zrus pripadny CSS flip z drivejska
-  canvas.style.transform = '';
-  // Invertuj odchylku (cernou caru) a SVR (mFRR/aFRR aktivace) - jen DATA, ne labels
-  const invertedRows = odchRows.map(r => {
-    const copy = {...r};
-    copy[colO] = -(parseFloat(r[colO]) || 0);
-    return copy;
-  });
-  const invertedSvr = (svrRows || []).map(r => {
-    const copy = {...r};
-    if (colAp) copy[colAp] = -(parseFloat(r[colAp]) || 0);
-    if (colAm) copy[colAm] = -(parseFloat(r[colAm]) || 0);
-    if (colMp) copy[colMp] = -(parseFloat(r[colMp]) || 0);
-    if (colMm) copy[colMm] = -(parseFloat(r[colMm]) || 0);
-    return copy;
-  });
-  // Prohod role aFRR+/aFRR- a mFRR+/mFRR- (po inverzi se znamenko prevrati)
-  drawTopChart(canvas, invertedRows, colO, invertedSvr, colAm, colAp, colMm, colMp);
+  // Vykresli STEJNY graf jako Aktualni regulace - presne ta stejna data
+  drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colMm);
+  // Otoc vzhuru nohama
+  canvas.style.transform = 'scaleY(-1)';
 }
 
 (function() {
@@ -822,34 +808,27 @@ async function loadMain() {
   const lAm = colAm ? parseFloat(lastS[colAm])||0 : 0;
   const avg = dO.rows.reduce((a,r)=>a+(parseFloat(r[colO])||0),0)/dO.rows.length;
   document.getElementById('lastTime').textContent = ft(lastO.date);
-  // Aktualni regulace - znamenko stejne jako graf
-  setKPI('O', lO, 'MW', `prům. dne: ${sign(avg)}${avg.toFixed(1)} MW`, dO.fetched_at,
-    {greenBelow: -100, redAbove: 100});
+  // KPI #1: Aktualni regulace - + pro kladne, - pro zaporne
+  const oSign = lO > 0 ? '+' : (lO < 0 ? '−' : '');
+  const oAbs = Math.abs(lO).toFixed(1);
+  document.getElementById('dv-O').innerHTML = `${oSign}${oAbs}<span class="kpi-u">MW</span>`;
+  document.getElementById('ds-O').textContent = `prům. dne: ${sign(avg)}${avg.toFixed(1)} MW · upd ${nowCet()}`;
+  const cardO = document.getElementById('crd-O');
+  if (cardO) cardO.className = 'kpi' + (lO < -100 ? ' pos' : lO > 100 ? ' neg' : ' mid');
   
-  // Systemova soustava - INVERZNI k aktualni regulaci
-  // Akt. regulace +X → Soustava −X (potřebujeme soustavu mínus = BUY)
-  // Akt. regulace −X → Soustava +X (potřebujeme soustavu plus = SELL)
-  const lSO = -lO;
+  // KPI #5: Systemova soustava - OPACNE ZNAMENKO nez KPI #1, stejna hodnota
   setTimeout(() => {
     const dvSO = document.getElementById('dv-SO');
     if (dvSO) {
-      const soColor = lSO < 0 ? '#c0392b' : '#27ae60';
-      // Vždy explicitně + nebo −
-      let formatted;
-      if (lSO > 0) formatted = `+${lSO.toFixed(1)}`;
-      else if (lSO < 0) formatted = `−${Math.abs(lSO).toFixed(1)}`;
-      else formatted = '0.0';
-      dvSO.innerHTML = `<span style="color:${soColor};font-weight:700;">${formatted}</span><span class="kpi-u">MW</span>`;
+      // Pokud lO > 0 → SO ukaze '-X', pokud lO < 0 → SO ukaze '+X'
+      const soSign = lO > 0 ? '−' : (lO < 0 ? '+' : '');
+      const soAbs = Math.abs(lO).toFixed(1);
+      dvSO.innerHTML = `${soSign}${soAbs}<span class="kpi-u">MW</span>`;
     }
-    // Update i sub text
     const dsSO = document.getElementById('ds-SO');
     if (dsSO) {
-      // lSO > 0 (soustava +, = akt. regulace −) = přebytek → SELL (prodáváme do soustavy)
-      // lSO < 0 (soustava −, = akt. regulace +) = deficit → BUY (kupujeme ze soustavy)
-      const dirText = lSO > 0 ? '🔴 Sell · soustava+ (přebytek)' : lSO < 0 ? '🟢 Buy · soustava− (deficit)' : '—';
-      const loSign = lO > 0 ? '+' : (lO < 0 ? '−' : '');
-      const loAbs = Math.abs(lO).toFixed(1);
-      dsSO.innerHTML = `${dirText} · Aktuální regulace ${loSign}${loAbs} MW`;
+      const dirText = lO > 0 ? '🟢 Buy · soustava− (deficit)' : lO < 0 ? '🔴 Sell · soustava+ (přebytek)' : '—';
+      dsSO.innerHTML = dirText;
     }
   }, 0);
   
