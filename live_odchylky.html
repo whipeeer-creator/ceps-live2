@@ -688,10 +688,24 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
 // Systémová soustava - stejný graf jako Aktuální regulace, ale odchylka × -1
 function drawSoustavaChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colMm) {
   if (!canvas || !odchRows || !odchRows.length) return;
-  // Vykresli stejny graf jako Aktualni regulace
-  drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colMm);
-  // Otoc vzhuru nohama pres CSS
-  canvas.style.transform = 'scaleY(-1)';
+  // Zrus pripadny CSS flip z drivejska
+  canvas.style.transform = '';
+  // Invertuj odchylku (cernou caru) a SVR (mFRR/aFRR aktivace) - jen DATA, ne labels
+  const invertedRows = odchRows.map(r => {
+    const copy = {...r};
+    copy[colO] = -(parseFloat(r[colO]) || 0);
+    return copy;
+  });
+  const invertedSvr = (svrRows || []).map(r => {
+    const copy = {...r};
+    if (colAp) copy[colAp] = -(parseFloat(r[colAp]) || 0);
+    if (colAm) copy[colAm] = -(parseFloat(r[colAm]) || 0);
+    if (colMp) copy[colMp] = -(parseFloat(r[colMp]) || 0);
+    if (colMm) copy[colMm] = -(parseFloat(r[colMm]) || 0);
+    return copy;
+  });
+  // Prohod role aFRR+/aFRR- a mFRR+/mFRR- (po inverzi se znamenko prevrati)
+  drawTopChart(canvas, invertedRows, colO, invertedSvr, colAm, colAp, colMm, colMp);
 }
 
 (function() {
