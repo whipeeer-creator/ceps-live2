@@ -2656,12 +2656,14 @@ async function loadHistOdchTable() {
     const mm = now.getMonth() + 1;
     const dd = now.getDate();
     
-    // Fetch den po dni paralelne (rychlejsi nez 1 velky request, ČEPS API limit)
+    // Fetch den po dni paralelne, VYNECHAT DNESEK (je vyse v tbl-cena)
     const dayPromises = [];
-    for (let d = 1; d <= dd; d++) {
+    const daysToFetch = [];
+    for (let d = 1; d < dd; d++) {
+      daysToFetch.push(d);
       const dStart = `${yyyy}-${pad(mm)}-${pad(d)}T00:00:00`;
       const dEnd = `${yyyy}-${pad(mm)}-${pad(d)}T23:59:59`;
-      const u = `${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${encodeURIComponent(dStart)}&dateTo=${encodeURIComponent(dEnd)}`;
+      const u = `${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${encodeURIComponent(dStart)}&dateTo=${encodeURIComponent(dEnd)}&agregation=MI&function=AVG`;
       dayPromises.push(
         fetch(u, { cache: 'no-store' })
           .then(r => r.ok ? r.json() : null)
@@ -2676,7 +2678,7 @@ async function loadHistOdchTable() {
     const allRows = [];
     dayResults.forEach((res, idx) => {
       if (!res || res.error || !res.rows) return;
-      const dayNum = idx + 1;
+      const dayNum = daysToFetch[idx];
       const col = (res.columns || []).find(c => /price|estim/i.test(c)) || priceCol;
       priceCol = col;
       res.rows.forEach(row => {
