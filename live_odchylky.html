@@ -248,7 +248,9 @@ canvas { max-width: 100%; display: block; }
           <span><span style="display:inline-block;width:14px;height:10px;background:#ececec;border:1px solid #ccc;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>cena > 0 EUR</span>
           <span><span style="display:inline-block;width:14px;height:10px;background:#c0392b;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><b>top 5%</b> nejdražší</span>
         </div>
-        <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+        <div style="max-height:600px;overflow:auto;border:1px solid #dde;border-radius:4px;">
+          <table id="tbl-hist-odch" style="border-collapse:separate;border-spacing:0;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+        </div>
         <div style="margin-top:14px;padding:8px 0;border-top:1px solid #dde;">
           <div style="font-size:11px;color:#1a1a2e;font-weight:600;margin-bottom:4px;font-family:'JetBrains Mono',monospace;">
             Distribuce ceny pro aktuální QH <span id="histQhLabel" style="color:#1565c0;">—</span> <span style="color:#8590a0;font-weight:400;">· last 30 days</span>
@@ -2793,10 +2795,10 @@ async function loadHistOdchTable() {
     // Build header
     const curHourH = now.getHours() + 1;  // H01-H24
     let html = '<thead><tr>';
-    html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;position:sticky;left:0;z-index:2;font-size:9px;"></th>';
+    html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;position:sticky;left:0;top:0;z-index:3;font-size:9px;"></th>';
     for (let h = 1; h <= 24; h++) {
       const isCur = h === curHourH;
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${pad(h)}</th>`;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;position:sticky;top:0;z-index:2;">H${pad(h)}</th>`;
     }
     html += '</tr></thead><tbody>';
     
@@ -2844,7 +2846,7 @@ async function loadHistOdchTable() {
     
     // SOUCET RADEK - kolik QH bylo 0 nebo zaporne pro AKTUALNI QH (:00/:15/:30/:45) napric vsemi dny
     const pad2 = n => String(n).padStart(2,'0');
-    html += `<tr><td style="padding:4px 6px;background:#1565c0;color:#fff;border:1px solid #1565c0;font-size:10px;text-align:center;font-weight:700;position:sticky;left:0;z-index:1;">:${pad2(curQh)}<br><span style="font-size:8px;font-weight:400;color:#a8c5e5;">30d</span></td>`;
+    html += `<tr><td style="padding:4px 6px;background:#1565c0;color:#fff;border:1px solid #1565c0;font-size:10px;text-align:center;font-weight:700;position:sticky;left:0;bottom:0;z-index:3;">:${pad2(curQh)}<br><span style="font-size:8px;font-weight:400;color:#a8c5e5;">30d</span></td>`;
     for (let h = 1; h <= 24; h++) {
       const dataH = h - 1;
       let zerosOrNeg = 0, total = 0;
@@ -2859,7 +2861,7 @@ async function loadHistOdchTable() {
       const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #1565c0;';
       const bg = isCurCol ? '#0d47a1' : '#1565c0';
       const txt = `${zerosOrNeg}<span style="color:#a8c5e5;font-weight:400;">/${total}</span>`;
-      html += `<td style="padding:4px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:10px;">${txt}</td>`;
+      html += `<td style="padding:4px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:10px;position:sticky;bottom:0;z-index:2;">${txt}</td>`;
     }
     html += '</tr>';
     
