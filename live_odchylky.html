@@ -835,10 +835,9 @@ async function loadMain() {
   }, 0);
   
   // aFRR aktivni - <30 zelena (klid), >100 cervena (stres), mezi = oranzova
-  // aFRR aktivni - aFRR+ = kladne, aFRR- = zaporne (jako hory.html)
-  const aFrrVal = lAp > 0 ? lAp : (lAm > 0 ? -lAm : 0);
-  setKPI('S', aFrrVal, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
-    {greenBelow: -30, redAbove: 30});
+  // aFRR aktivni - <30 zelena (klid), >100 cervena (stres), mezi = oranzova
+  setKPI('S', lAp||lAm, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
+    {greenBelow: 30, redAbove: 100});
 
   drawTopChart(document.getElementById('topCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
   drawSoustavaChart(document.getElementById('soCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
