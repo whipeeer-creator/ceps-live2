@@ -835,8 +835,11 @@ async function loadMain() {
   }, 0);
   
   // aFRR aktivni - <30 zelena (klid), >100 cervena (stres), mezi = oranzova
-  setKPI('S', lAp||lAm, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
-    {greenBelow: 30, redAbove: 100});
+  // aFRR aktivni - aFRR+ se ukaze jako záporne (sell), aFRR- jako kladne (buy)
+  // = stejna logika jako hory.html, znamenko opacne k aktivaci
+  const aFrrSignedVal = lAp > 0 ? -lAp : (lAm > 0 ? lAm : 0);
+  setKPI('S', aFrrSignedVal, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
+    {greenBelow: -30, redAbove: 30});
 
   drawTopChart(document.getElementById('topCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
   drawSoustavaChart(document.getElementById('soCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
@@ -1804,10 +1807,13 @@ async function loadFreq() {
     if (!d.rows.length) return;
     const col = 'aFRR [EUR/MWh]';
     const last = d.rows[d.rows.length-1];
-    const v = parseFloat(last[col]) || 0;
-    // Cena reg. energie - < 50 EUR = levne (zelena), > 150 EUR = drahe (cervena)
+    let v = parseFloat(last[col]) || 0;
+    // Invertovat znamenko podle smeru regulace (jako Cena odchylky)
+    // Kdyz Aktualni regulace > 0 → cena bude v minusu
+    const lO_global = window._lastRegulaceO;
+    if (typeof lO_global === 'number' && lO_global > 0) v = -v;
     setKPI('F', v, 'EUR/MWh', `aFRR · ${ft(last.date)}`, d.fetched_at,
-      {greenBelow: 50, redAbove: 150});
+      {greenBelow: 0, redAbove: 0});
   } catch(e) {}
 }
 
