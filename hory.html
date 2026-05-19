@@ -2588,37 +2588,49 @@ function _rlRedraw() {
 // Tabulka cen + ostatní
 // ============================================================
 async function loadSpotQhTable(tableId) {
-  // 15min CZ DT ceny z /ote/qh
+  // 15min CZ DT ceny z OTE-CR.cz - dnes + zitra (sedy)
   try {
-    const r = await fetch(`${API_URL}/ote/qh`, { cache: 'no-store' });
-    if (!r.ok) return;
-    const d = await r.json();
-    if (d.error) return;
+    const [rToday, rTom] = await Promise.all([
+      fetch(`${API_URL}/ote/dt15?day=0`, { cache: 'no-store' }),
+      fetch(`${API_URL}/ote/dt15?day=1`, { cache: 'no-store' }).catch(() => null)
+    ]);
+    if (!rToday.ok) return;
+    const dToday = await rToday.json();
+    if (dToday.error) return;
     
-    // Server vraci hours_today array s 4 QH per hodina, nebo struct s qh/15min
-    let qhRows = [];
-    if (d.qh && Array.isArray(d.qh)) {
-      qhRows = d.qh;
-    } else if (d.hours_today && Array.isArray(d.hours_today)) {
-      // Pokud server vraci jen hodinove, nelze zobrazit QH
-      qhRows = d.hours_today;
-    } else if (d.last_8 && Array.isArray(d.last_8)) {
-      qhRows = [...(d.last_8 || []), ...(d.next_8 || [])];
+    const todayRows = dToday.qh || [];
+    let tomorrowRows = [];
+    if (rTom && rTom.ok) {
+      const dTom = await rTom.json().catch(() => null);
+      if (dTom && !dTom.error && dTom.qh) tomorrowRows = dTom.qh;
     }
-    if (!qhRows.length) return;
+    if (!todayRows.length) return;
     
-    // Mapa hour -> [4 ceny pro :00 :15 :30 :45]
+    // Mapa pro dnes
     const priceByHourMin = {};
-    qhRows.forEach(row => {
+    todayRows.forEach(row => {
       const h = row.hour;
       const m = row.minute ?? 0;
-      const price = row.price_eur ?? row.priceEur ?? row.price;
+      const price = row.price_eur;
       if (!Number.isFinite(price) || h == null) return;
       if (!priceByHourMin[h]) priceByHourMin[h] = {};
       priceByHourMin[h][m] = price;
     });
+    // Mapa pro zitra
+    const priceByHourMinTom = {};
+    tomorrowRows.forEach(row => {
+      const h = row.hour;
+      const m = row.minute ?? 0;
+      const price = row.price_eur;
+      if (!Number.isFinite(price) || h == null) return;
+      if (!priceByHourMinTom[h]) priceByHourMinTom[h] = {};
+      priceByHourMinTom[h][m] = price;
+    });
     
-    const allVals = Object.values(priceByHourMin).flatMap(m => Object.values(m)).filter(v => Number.isFinite(v));
+    const allVals = [
+      ...Object.values(priceByHourMin).flatMap(m => Object.values(m)),
+      ...Object.values(priceByHourMinTom).flatMap(m => Object.values(m))
+    ].filter(v => Number.isFinite(v));
     if (!allVals.length) return;
     const vMin = Math.min(...allVals);
     const vMax = Math.max(...allVals);
@@ -2658,6 +2670,7 @@ async function loadSpotQhTable(tableId) {
     html += '</tr></thead><tbody>';
     
     const minutes = [0, 15, 30, 45];
+    
     minutes.forEach(m => {
       html += `<tr><td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;">:${String(m).padStart(2,'0')}</td>`;
       for (let h = 1; h <= 24; h++) {
@@ -2675,10 +2688,30 @@ async function loadSpotQhTable(tableId) {
       }
       html += '</tr>';
     });
+    
+    if (tomorrowRows.length) {
+      minutes.forEach((m, idx) => {
+        const label = idx === 0 ? `zítra :${String(m).padStart(2,'0')}` : `:${String(m).padStart(2,'0')}`;
+        html += `<tr><td style="padding:3px 6px;background:#ececec;border:1px solid #dde;white-space:nowrap;color:#666;font-size:9px;font-weight:600;">${label}</td>`;
+        for (let h = 1; h <= 24; h++) {
+          const dataH = h - 1;
+          const v = priceByHourMinTom[dataH]?.[m];
+          if (!Number.isFinite(v)) {
+            html += `<td style="padding:3px 6px;background:#f0f0f0;border:1px solid #dde;text-align:center;color:#aaa;">—</td>`;
+            continue;
+          }
+          const bg = cellColor(v);
+          const txt = Math.round(v);
+          html += `<td style="padding:3px 6px;background:${bg};opacity:0.45;border:1px solid #dde;text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
+        }
+        html += '</tr>';
+      });
+    }
+    
     html += '</tbody>';
     tbl.innerHTML = html;
   } catch (e) {
-    console.warn('spot QH:', e);
+    console.warn('spot QH (OTE):', e);
   }
 }
 
