@@ -231,7 +231,7 @@ canvas { max-width: 100%; display: block; }
         if(w.style.display==='none'){
           w.style.display='block';
           arrow.textContent='▾';
-          if(typeof loadHistOdchTable==='function'&&!window._histOdchLoaded){
+          if(typeof loadHistOdchTable==='function'){
             loadHistOdchTable();
           }
         }else{
@@ -2644,7 +2644,8 @@ async function loadSpotTable(country, tableId) {
 async function loadHistOdchTable() {
   // Historicke ceny odchylek za aktualni mesic - po QH (15min)
   // Pro kazdy den: 4 radky (:00 :15 :30 :45) x 24 sloupcu H01-H24
-  if (window._histOdchLoaded) return;
+  if (window._histOdchLoading) return;
+  window._histOdchLoading = true;
   try {
     const tbl = document.getElementById('tbl-hist-odch');
     if (!tbl) return;
@@ -2673,6 +2674,17 @@ async function loadHistOdchTable() {
     
     const dayResults = await Promise.all(dayPromises);
     
+    // Debug log
+    let totalRowsFromApi = 0;
+    let daysWithData = 0;
+    dayResults.forEach(res => {
+      if (res && !res.error && res.rows) {
+        totalRowsFromApi += res.rows.length;
+        if (res.rows.length > 0) daysWithData++;
+      }
+    });
+    console.log('[HIST ODCH] Fetched:', daysWithData, 'days,', totalRowsFromApi, 'total rows');
+    
     // Sber vsechny radky
     let priceCol = 'Estimated price [Kč/MWh]';
     const allRows = [];
@@ -2681,14 +2693,31 @@ async function loadHistOdchTable() {
       const dayNum = daysToFetch[idx];
       const col = (res.columns || []).find(c => /price|estim/i.test(c)) || priceCol;
       priceCol = col;
+      const intervalCol = (res.columns || []).find(c => /interval/i.test(c));
       res.rows.forEach(row => {
-        const dateStr = row.date || row.Date;
-        if (!dateStr) return;
-        const dt = new Date(dateStr);
-        if (isNaN(dt)) return;
+        // Parsuj hodinu a minutu z Intervalu "HH:MM-HH:MM" nebo z timestamp
+        let h = 0, m = 0;
+        if (intervalCol && row[intervalCol]) {
+          const intervalStr = String(row[intervalCol]);
+          const im = intervalStr.match(/^(\d{1,2}):(\d{2})/);
+          if (im) {
+            h = parseInt(im[1], 10);
+            m = parseInt(im[2], 10);
+          }
+        } else {
+          const dateStr = row.date || row.Date;
+          if (dateStr) {
+            const dt = new Date(dateStr);
+            if (!isNaN(dt)) {
+              h = dt.getHours();
+              m = dt.getMinutes();
+            }
+          }
+        }
         allRows.push({
           day: dayNum,
-          dt: dt,
+          h: h,
+          m: Math.floor(m / 15) * 15,
           price: parseFloat(row[col]) || 0,
         });
       });
@@ -2703,9 +2732,7 @@ async function loadHistOdchTable() {
     
     // Struktura: byDay[day][hour][minute] = price EUR
     const byDay = {};
-    allRows.forEach(({day, dt, price}) => {
-      const h = dt.getHours();
-      const m = Math.floor(dt.getMinutes() / 15) * 15;
+    allRows.forEach(({day, h, m, price}) => {
       if (price === 0) return;
       const priceEur = price / KURZ;
       if (!byDay[day]) byDay[day] = {};
@@ -2790,6 +2817,7 @@ async function loadHistOdchTable() {
     html += '</tbody>';
     tbl.innerHTML = html;
     window._histOdchLoaded = true;
+    window._histOdchLoading = false;
     
     // === HISTOGRAM pravdepodobnosti pro aktualni QH ===
     drawQhProbHistogram(byDay, curHour, curQh);
@@ -2797,6 +2825,7 @@ async function loadHistOdchTable() {
     console.warn('hist odch:', e);
     const tbl = document.getElementById('tbl-hist-odch');
     if (tbl) tbl.innerHTML = `<tr><td style="padding:8px;color:#c0392b;">Chyba: ${e.message}</td></tr>`;
+    window._histOdchLoading = false;
   }
 }
 
