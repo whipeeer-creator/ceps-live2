@@ -2808,12 +2808,36 @@ async function loadHistOdchTable() {
             continue;
           }
           const txt = v === 0 ? '0' : Math.round(v).toString();
-          const color = v === 0 ? '#999' : '#1a1a2e';
-          html += `<td style="padding:3px 4px;background:#ececec;${borderStyle}text-align:center;color:${color};font-weight:600;font-size:10px;">${txt}</td>`;
+          const bgColor = v <= 0 ? '#c8d8e8' : '#ececec';
+          const color = v <= 0 ? '#1565c0' : '#1a1a2e';
+          html += `<td style="padding:3px 4px;background:${bgColor};${borderStyle}text-align:center;color:${color};font-weight:600;font-size:10px;">${txt}</td>`;
         }
         html += '</tr>';
       });
     });
+    
+    // SOUCET RADEK - kolik QH bylo 0 nebo zaporne v dane hodine napric vsemi dny
+    html += `<tr><td style="padding:4px 6px;background:#1565c0;color:#fff;border:1px solid #1565c0;font-size:10px;text-align:center;font-weight:700;position:sticky;left:0;z-index:1;">0 / −</td>`;
+    for (let h = 1; h <= 24; h++) {
+      const dataH = h - 1;
+      let zerosOrNeg = 0, total = 0;
+      days.forEach(day => {
+        [0, 15, 30, 45].forEach(min => {
+          const v = byDay[day]?.[dataH]?.[min];
+          if (Number.isFinite(v)) {
+            total++;
+            if (v <= 0) zerosOrNeg++;
+          }
+        });
+      });
+      const isCurCol = h === curHour;
+      const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #1565c0;';
+      const bg = isCurCol ? '#0d47a1' : '#1565c0';
+      const txt = `${zerosOrNeg}<span style="color:#a8c5e5;font-weight:400;">/${total}</span>`;
+      html += `<td style="padding:4px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:10px;">${txt}</td>`;
+    }
+    html += '</tr>';
+    
     html += '</tbody>';
     tbl.innerHTML = html;
     window._histOdchLoaded = true;
