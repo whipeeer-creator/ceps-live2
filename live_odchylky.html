@@ -225,10 +225,6 @@ canvas { max-width: 100%; display: block; }
     <div style="overflow-x:auto;padding:8px 12px;">
       <div style="font-size:10px;color:#666;margin-bottom:3px;font-family:'JetBrains Mono',monospace;">Odhadovaná cena odchylky · EUR/MWh</div>
       <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ spot cena (DA) · EUR/MWh</div>
-      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE spot cena (DA) · EUR/MWh</div>
-      <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       <div onclick="
         var w=document.getElementById('tbl-hist-odch-wrap');
         var arrow=this.querySelector('.hist-arrow');
@@ -258,6 +254,10 @@ canvas { max-width: 100%; display: block; }
           <div id="histProbStats" style="font-size:10px;color:#555;margin-top:6px;font-family:'JetBrains Mono',monospace;display:flex;gap:14px;flex-wrap:wrap;"></div>
         </div>
       </div>
+      <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ spot cena (DA) · EUR/MWh</div>
+      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+      <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE spot cena (DA) · EUR/MWh</div>
+      <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
     </div>
   </div>
 
@@ -2655,37 +2655,57 @@ async function loadHistOdchTable() {
     const yyyy = now.getFullYear();
     const mm = now.getMonth() + 1;
     const dd = now.getDate();
-    const monthStart = `${yyyy}-${pad(mm)}-01T00:00:00`;
-    const monthEnd = `${yyyy}-${pad(mm)}-${pad(dd)}T23:59:59`;
     
-    const url = `${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${encodeURIComponent(monthStart)}&dateTo=${encodeURIComponent(monthEnd)}`;
-    const r = await fetch(url, { cache: 'no-store' });
-    if (!r.ok) {
-      tbl.innerHTML = '<tr><td style="padding:8px;color:#c0392b;">HTTP ' + r.status + '</td></tr>';
-      return;
+    // Fetch den po dni paralelne (rychlejsi nez 1 velky request, ČEPS API limit)
+    const dayPromises = [];
+    for (let d = 1; d <= dd; d++) {
+      const dStart = `${yyyy}-${pad(mm)}-${pad(d)}T00:00:00`;
+      const dEnd = `${yyyy}-${pad(mm)}-${pad(d)}T23:59:59`;
+      const u = `${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${encodeURIComponent(dStart)}&dateTo=${encodeURIComponent(dEnd)}`;
+      dayPromises.push(
+        fetch(u, { cache: 'no-store' })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+      );
     }
-    const d = await r.json();
-    if (d.error || !d.rows || !d.rows.length) {
+    
+    const dayResults = await Promise.all(dayPromises);
+    
+    // Sber vsechny radky
+    let priceCol = 'Estimated price [Kč/MWh]';
+    const allRows = [];
+    dayResults.forEach((res, idx) => {
+      if (!res || res.error || !res.rows) return;
+      const dayNum = idx + 1;
+      const col = (res.columns || []).find(c => /price|estim/i.test(c)) || priceCol;
+      priceCol = col;
+      res.rows.forEach(row => {
+        const dateStr = row.date || row.Date;
+        if (!dateStr) return;
+        const dt = new Date(dateStr);
+        if (isNaN(dt)) return;
+        allRows.push({
+          day: dayNum,
+          dt: dt,
+          price: parseFloat(row[col]) || 0,
+        });
+      });
+    });
+    
+    if (!allRows.length) {
       tbl.innerHTML = '<tr><td style="padding:8px;color:#666;">Žádná data</td></tr>';
       return;
     }
     
-    const priceCol = d.columns.find(c => /price|estim/i.test(c)) || 'Estimated price [Kč/MWh]';
     const KURZ = 24.5;
     
     // Struktura: byDay[day][hour][minute] = price EUR
     const byDay = {};
-    d.rows.forEach(row => {
-      const dateStr = row.date || row.Date;
-      if (!dateStr) return;
-      const dt = new Date(dateStr);
-      if (isNaN(dt)) return;
-      const day = dt.getDate();
+    allRows.forEach(({day, dt, price}) => {
       const h = dt.getHours();
       const m = Math.floor(dt.getMinutes() / 15) * 15;
-      const priceKc = parseFloat(row[priceCol]) || 0;
-      if (priceKc === 0) return;
-      const priceEur = priceKc / KURZ;
+      if (price === 0) return;
+      const priceEur = price / KURZ;
       if (!byDay[day]) byDay[day] = {};
       if (!byDay[day][h]) byDay[day][h] = {};
       byDay[day][h][m] = priceEur;
@@ -2756,12 +2776,11 @@ async function loadHistOdchTable() {
           const isCurCell = h === curHour && min === curQh;
           const borderStyle = isCurCell ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
           if (!Number.isFinite(v)) {
-            html += `<td style="padding:3px 4px;background:#f0f0f0;${borderStyle}text-align:center;color:#aaa;font-size:10px;">—</td>`;
+            html += `<td style="padding:3px 4px;background:#ececec;${borderStyle}text-align:center;color:#aaa;font-size:10px;">—</td>`;
             continue;
           }
-          const bg = cellColor(v);
           const txt = Math.round(v);
-          html += `<td style="padding:3px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:600;font-size:10px;">${txt}</td>`;
+          html += `<td style="padding:3px 4px;background:#ececec;${borderStyle}text-align:center;color:#1a1a2e;font-weight:600;font-size:10px;">${txt}</td>`;
         }
         html += '</tr>';
       });
