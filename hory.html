@@ -210,8 +210,10 @@ canvas { max-width: 100%; display: block; }
       <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT</div>
       <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:11px;color:#000;font-weight:700;margin:6px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · 15min QH</div>
-      <table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+      <div onclick="document.getElementById('tbl-spot-cz-qh-wrap').style.display=document.getElementById('tbl-spot-cz-qh-wrap').style.display==='none'?'block':'none';this.querySelector('.qh-arrow').textContent=document.getElementById('tbl-spot-cz-qh-wrap').style.display==='none'?'▸':'▾';" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:6px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:4px 8px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="qh-arrow">▸</span> 🇨🇿 CZ DT · 15min QH (rozkliknout)</div>
+      <div id="tbl-spot-cz-qh-wrap" style="display:none;">
+        <table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+      </div>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE DT</div>
       <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
     </div>
