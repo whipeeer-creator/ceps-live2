@@ -173,7 +173,7 @@ canvas { max-width: 100%; display: block; }
   <div class="err-bar" id="err"></div>
   <div class="kpi-row">
     <div class="kpi" id="crd-O"><div class="kpi-l">Aktuální regulace</div><div class="kpi-v" id="dv-O">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-O">—</div></div>
-    <div class="kpi" id="crd-C"><div class="kpi-l">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
+    <div class="kpi" id="crd-C"><div class="kpi-l" style="font-weight:700;color:#1a1a2e;">ČEPS</div><div class="kpi-l" style="font-size:10px;">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
     <div class="kpi" id="crd-F"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
     <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
   </div>
@@ -835,11 +835,9 @@ async function loadMain() {
   }, 0);
   
   // aFRR aktivni - <30 zelena (klid), >100 cervena (stres), mezi = oranzova
-  // aFRR aktivni - aFRR+ se ukaze jako záporne (sell), aFRR- jako kladne (buy)
-  // = stejna logika jako hory.html, znamenko opacne k aktivaci
-  const aFrrSignedVal = lAp > 0 ? -lAp : (lAm > 0 ? lAm : 0);
-  setKPI('S', aFrrSignedVal, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
-    {greenBelow: -30, redAbove: 30});
+  // aFRR aktivni - <30 zelena (klid), >100 cervena (stres), mezi = oranzova
+  setKPI('S', lAp||lAm, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
+    {greenBelow: 30, redAbove: 100});
 
   drawTopChart(document.getElementById('topCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
   drawSoustavaChart(document.getElementById('soCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
@@ -1807,13 +1805,10 @@ async function loadFreq() {
     if (!d.rows.length) return;
     const col = 'aFRR [EUR/MWh]';
     const last = d.rows[d.rows.length-1];
-    let v = parseFloat(last[col]) || 0;
-    // Invertovat znamenko podle smeru regulace (jako Cena odchylky)
-    // Kdyz Aktualni regulace > 0 → cena bude v minusu
-    const lO_global = window._lastRegulaceO;
-    if (typeof lO_global === 'number' && lO_global > 0) v = -v;
+    const v = parseFloat(last[col]) || 0;
+    // Cena reg. energie - < 50 EUR = levne (zelena), > 150 EUR = drahe (cervena)
     setKPI('F', v, 'EUR/MWh', `aFRR · ${ft(last.date)}`, d.fetched_at,
-      {greenBelow: 0, redAbove: 0});
+      {greenBelow: 50, redAbove: 150});
   } catch(e) {}
 }
 
@@ -2692,24 +2687,28 @@ async function loadCenaTable() {
 
 async function loadCena() {
   const d = await apiFetch('OdhadovanaCenaOdchylky');
-  const fRows = d.rows.filter(r => parseFloat(r[d.columns[0]]) > 0);
-  if (!fRows.length) return;
+  if (!d.rows.length) return;
   const priceCol = d.columns.find(c=>/price|estim/i.test(c))||d.columns[0];
   const intCol   = d.columns.find(c=>c==='Interval')||'';
-  const last     = fRows[fRows.length-1];
-  const priceKc = parseFloat(last[priceCol])||0;
-  let priceEur = priceKc / 24.5;
   
-  // Invertovat znaménko podle aktuální regulace
-  // Když Aktuální regulace > 0 (deficit/sell zone) → cena má být v mínusu
-  // Když Aktuální regulace < 0 (přebytek/buy zone) → cena zůstane plusová
-  const lO_global = window._lastRegulaceO;
-  if (typeof lO_global === 'number' && lO_global > 0) {
-    priceEur = -priceEur;
+  // Najit POSLEDNI ZUCTOVANOU QH = posledni radek s nenulovou cenou (kladnou i zapornou)
+  let last = null;
+  for (let i = d.rows.length - 1; i >= 0; i--) {
+    const raw = d.rows[i][priceCol];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const v = parseFloat(raw);
+    if (isNaN(v)) continue;
+    if (v === 0) continue;
+    last = d.rows[i];
+    break;
   }
+  if (!last) last = d.rows[d.rows.length-1];
   
-  setKPI('C', priceEur, 'EUR/MWh', `interval: ${last[intCol]||'—'} · ${priceKc.toFixed(0)} Kč`, d.fetched_at,
-    {greenBelow: 0, redAbove: 0});
+  // Cena odchylky - prevod Kc -> EUR (kurz 24.5)
+  const cenaKc = parseFloat(last[priceCol])||0;
+  const cenaEur = cenaKc / 24.5;
+  setKPI('C', cenaEur, 'EUR/MWh', `interval: ${last[intCol]||'—'}`, d.fetched_at,
+    {greenBelow: 40, redAbove: 120});
 }
 
 // Throttling pro pomalé endpointy
