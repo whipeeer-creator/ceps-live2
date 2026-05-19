@@ -802,7 +802,7 @@ async function loadMain() {
 
   const lastO = dO.rows[dO.rows.length-1];
   const lastS = dS.rows[dS.rows.length-1];
-  const lO  = -(parseFloat(lastO[colO])||0);  // invertovano - data jsou opacne nez trader cita
+  const lO  = parseFloat(lastO[colO])||0;
   window._lastRegulaceO = lO;  // pro inverze v jiných funkcích
   const lAp = colAp ? parseFloat(lastS[colAp])||0 : 0;
   const lAm = colAm ? parseFloat(lastS[colAm])||0 : 0;
