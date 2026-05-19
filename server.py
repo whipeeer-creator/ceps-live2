@@ -1359,12 +1359,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _ote_dt15(self, qs):
         """Vraci 15-min ceny z OTE-CR.cz oficialni denni trh.
-        Zdroj: HTML stranky www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/denni-trh
-        Vraci data pro DNES (default) nebo zadane datum.
+        Primary: XLSX, Fallback: HTML stranky.
         Cache 5 min.
         """
         try:
-            day_offset = int(qs.get("day", ["0"])[0])  # 0=dnes, 1=zitra, -1=vcera
+            day_offset = int(qs.get("day", ["0"])[0])
             nocache = qs.get("nocache", ["0"])[0] in ("1", "true", "yes")
             
             cache_key = f"_OTE_DT15_CACHE_{day_offset}"
@@ -1376,67 +1375,150 @@ class Handler(BaseHTTPRequestHandler):
                 out = dict(cache["data"]); out["_cache"] = "hit"
                 self._json(out); return
             
-            # Datum v Berlin TZ
             now_utc = datetime.now(timezone.utc)
             month_now = now_utc.month
             berlin_offset = 2 if 4 <= month_now <= 10 else 1
             berlin_now = now_utc + timedelta(hours=berlin_offset)
             target_date = berlin_now + timedelta(days=day_offset)
-            date_str_url = target_date.strftime("%d.%m.%Y")  # 19.05.2026
-            date_str_iso = target_date.strftime("%Y-%m-%d")  # 2026-05-19
+            yyyy = target_date.year
+            mm = target_date.month
+            dd = target_date.day
+            date_str_iso = target_date.strftime("%Y-%m-%d")
             
-            # OTE URL s parametrem datumu
-            url = f"https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/denni-trh?date={date_str_url}"
-            r = _request_with_retry(
-                requests.get,
-                url,
-                timeout=15,
-                headers={"User-Agent": "Mozilla/5.0 (compatible; ceps-dashboard)"}
-            )
-            if r.status_code != 200:
-                self._json({"error": f"OTE DT15 HTTP {r.status_code}"}, 502); return
-            
-            html = r.text
-            # Parsuj radky s casovymi intervaly: "HH:MM-HH:MM" + 15min cena
-            # Format: <td>00:00-00:15</td><td>162,46</td><td>1 038,450</td>...
-            import re
-            # Najdi tabulku - hledame radek s intervalem a cenou
-            pattern = re.compile(
-                r'(\d{2}):(\d{2})-(\d{2}):(\d{2})[^<]*</td>\s*<td[^>]*>([\d\s,.\-]+)</td>',
-                re.DOTALL
-            )
-            rows = []
-            for m in pattern.finditer(html):
-                h_start = int(m.group(1))
-                min_start = int(m.group(2))
-                price_str = m.group(5).strip().replace(' ', '').replace(',', '.')
-                try:
-                    price_eur = float(price_str)
-                except ValueError:
-                    continue
-                rows.append({
-                    "hour": h_start,
-                    "minute": min_start,
-                    "interval": f"{h_start:02d}:{min_start:02d}-{m.group(3)}:{m.group(4)}",
-                    "price_eur": round(price_eur, 2),
-                })
-            
-            # Dedupe podle (hour, minute)
-            seen = set()
             unique_rows = []
-            for row in rows:
-                key = (row["hour"], row["minute"])
-                if key not in seen:
-                    seen.add(key)
-                    unique_rows.append(row)
-            unique_rows.sort(key=lambda r: (r["hour"], r["minute"]))
+            source_str = ""
+            error_msg = ""
+            
+            # === PRIMARY: XLSX ===
+            try:
+                xlsx_url = (
+                    f"https://www.ote-cr.cz/pubweb/attachments/01/{yyyy}/"
+                    f"month{mm:02d}/day{dd:02d}/DT_15MIN_{dd:02d}_{mm:02d}_{yyyy}_CZ.xlsx"
+                )
+                r = _request_with_retry(
+                    requests.get, xlsx_url, timeout=20,
+                    headers={"User-Agent": "Mozilla/5.0 (compatible; ceps-dashboard)"}
+                )
+                if r.status_code == 200:
+                    from openpyxl import load_workbook
+                    from io import BytesIO
+                    import re as _re
+                    wb = load_workbook(BytesIO(r.content), read_only=True, data_only=True)
+                    ws = wb.active
+                    rows = []
+                    for row in ws.iter_rows(values_only=True):
+                        if row is None or len(row) < 2: continue
+                        for c_idx in range(len(row) - 1):
+                            interval_val = row[c_idx]
+                            if interval_val is None: continue
+                            interval_str = str(interval_val).strip()
+                            m = _re.match(r'^(\d{2}):(\d{2})-(\d{2}):(\d{2})$', interval_str)
+                            if not m: continue
+                            price_val = row[c_idx + 1]
+                            if price_val is None: continue
+                            try:
+                                if isinstance(price_val, (int, float)):
+                                    price_eur = float(price_val)
+                                else:
+                                    ps = str(price_val).strip().replace(' ', '').replace(',', '.').replace('\xa0', '')
+                                    price_eur = float(ps)
+                            except (ValueError, TypeError):
+                                continue
+                            rows.append({
+                                "hour": int(m.group(1)),
+                                "minute": int(m.group(2)),
+                                "interval": f"{m.group(1)}:{m.group(2)}-{m.group(3)}:{m.group(4)}",
+                                "price_eur": round(price_eur, 2),
+                            })
+                            break  # 1 interval per row
+                    wb.close()
+                    
+                    seen = set()
+                    for row in rows:
+                        key = (row["hour"], row["minute"])
+                        if key not in seen:
+                            seen.add(key)
+                            unique_rows.append(row)
+                    unique_rows.sort(key=lambda r: (r["hour"], r["minute"]))
+                    if unique_rows:
+                        source_str = "ote-cr.cz XLSX"
+                else:
+                    error_msg = f"XLSX HTTP {r.status_code}"
+            except Exception as e:
+                error_msg = f"XLSX parse: {e}"
+            
+            # === FALLBACK: HTML parsing ===
+            if not unique_rows:
+                try:
+                    date_url = target_date.strftime("%d.%m.%Y")
+                    html_url = f"https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/denni-trh?date={date_url}"
+                    r2 = _request_with_retry(
+                        requests.get, html_url, timeout=15,
+                        headers={"User-Agent": "Mozilla/5.0 (compatible; ceps-dashboard)"}
+                    )
+                    if r2.status_code == 200:
+                        import re as _re
+                        html = r2.text
+                        # OTE má 2 tabulky: 1) BASE/PEAK shrnutí 2) QH detail
+                        # Najdi POSLEDNÍ tabulku se 4-cifernymi intervaly
+                        # Pattern: jen rows s intervalem co skutečně začíná hodinami 00-23
+                        # Format z OTE: <td>HH:MM-HH:MM</td><td>cena</td>...
+                        # Cena ma format "162,46" nebo "1 038,450" (s mezerou)
+                        # 15min cena je vzdy 2 sloupec po intervalu
+                        
+                        # Najdi <tbody> nebo prosto vsechny <tr> s intervalem
+                        # Robustni pattern - bere prvni cislo po intervalu
+                        row_pattern = _re.compile(
+                            r'<td[^>]*>\s*(\d{2}):(\d{2})-(\d{2}):(\d{2})\s*</td>\s*'
+                            r'<td[^>]*>\s*([-\d][\d\s,.\xa0]*?)\s*</td>',
+                            _re.DOTALL
+                        )
+                        for m in row_pattern.finditer(html):
+                            h_start = int(m.group(1))
+                            min_start = int(m.group(2))
+                            # 15min cena - jednoduche formatovani (mala cislo bez tisicovych mezer)
+                            # Vetsi cisla (mnozstvi) maji format "1 038,450" - tj 4+ digity
+                            price_raw = m.group(5).strip()
+                            price_str = price_raw.replace('\xa0', '').replace(' ', '').replace(',', '.')
+                            try:
+                                price_eur = float(price_str)
+                            except ValueError:
+                                continue
+                            # Cena RE 15min v CZ je typicky -200 az 500 EUR
+                            # Mnozstvi je 800-1500 MWh - pokud > 1000, mozna chytame spatny sloupec
+                            # ALE cena muze legitimne byt 500+. Hard limit 600.
+                            if abs(price_eur) > 600:
+                                continue
+                            unique_rows.append({
+                                "hour": h_start,
+                                "minute": min_start,
+                                "interval": f"{h_start:02d}:{min_start:02d}-{m.group(3)}:{m.group(4)}",
+                                "price_eur": round(price_eur, 2),
+                            })
+                        # Dedupe + sort
+                        seen = set()
+                        deduped = []
+                        for row in unique_rows:
+                            key = (row["hour"], row["minute"])
+                            if key not in seen:
+                                seen.add(key)
+                                deduped.append(row)
+                        deduped.sort(key=lambda r: (r["hour"], r["minute"]))
+                        unique_rows = deduped
+                        if unique_rows:
+                            source_str = "ote-cr.cz HTML fallback"
+                except Exception as e:
+                    error_msg += f" | HTML: {e}"
+            
+            if not unique_rows:
+                self._json({"error": f"OTE DT15: no data - {error_msg}"}, 502); return
             
             out = {
                 "date": date_str_iso,
                 "day_offset": day_offset,
                 "qh": unique_rows,
                 "count": len(unique_rows),
-                "source": "ote-cr.cz (oficialni 15min DT)",
+                "source": source_str,
                 "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "_cache": "miss",
             }
@@ -1444,7 +1526,8 @@ class Handler(BaseHTTPRequestHandler):
             cache["data"] = {k: v for k, v in out.items() if k != "_cache"}
             self._json(out)
         except Exception as e:
-            self._json({"error": f"OTE DT15: {e}"}, 500)
+            import traceback
+            self._json({"error": f"OTE DT15: {e}", "trace": traceback.format_exc()[:500]}, 500)
 
     def _ote_qh(self, qs):
         """Vraci 15-min data ze spotovaelektrina.cz get-prices-json-qh.
