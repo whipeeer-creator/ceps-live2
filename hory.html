@@ -3048,114 +3048,136 @@ async function loadHistOdchTable() {
     }
     
     // Build header
-    const curHourH = now.getHours() + 1;  // H01-H24
-    let html = '<thead><tr>';
-    html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;position:sticky;left:0;top:0;z-index:3;font-size:9px;"></th>';
-    for (let h = 1; h <= 24; h++) {
-      const isCur = h === curHourH;
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;position:sticky;top:0;z-index:2;">H${pad(h)}</th>`;
-    }
-    html += '</tr></thead><tbody>';
+    const realCurHour = now.getHours() + 1;
+    const realCurQh = Math.floor(now.getMinutes() / 15) * 15;
     
-    const minutes = [0, 15, 30, 45];
+    // Stav vyberu - default = current real time
+    if (window._histSelectedHour == null) window._histSelectedHour = realCurHour;
+    if (window._histSelectedQh == null) window._histSelectedQh = realCurQh;
     
-    // Aktualni hodina + QH pro zvyrazneni napric vsemi dny
-    const curHour = now.getHours() + 1;  // H01-H24, hour=now.getHours() -> H(hour+1)
-    const curQh = Math.floor(now.getMinutes() / 15) * 15;
-    
-    days.forEach(d => {
-      const dayLabel = d.label;
-      const dayKey = d.key;
-      minutes.forEach((min, mIdx) => {
-        html += '<tr>';
-        const isCurMin = min === curQh;
-        let cellContent, cellBg, cellColor;
-        if (mIdx === 0) {
-          cellContent = `<span style="font-weight:700;color:#fff;">${dayLabel}</span>`;
-          cellBg = '#1565c0';
-          cellColor = '#fff';
-        } else {
-          cellContent = `<span style="font-size:9px;font-weight:600;">:${pad(min)}</span>`;
-          cellBg = isCurMin ? '#1565c0' : '#fff';
-          cellColor = isCurMin ? '#fff' : '#1a1a2e';
-        }
-        html += `<td style="padding:3px 4px;background:${cellBg};border:1px solid #dde;font-size:10px;color:${cellColor};position:sticky;left:0;z-index:1;white-space:nowrap;text-align:center;font-weight:${mIdx===0?'700':'600'};">${cellContent}</td>`;
-        for (let h = 1; h <= 24; h++) {
-          const dataH = h - 1;
-          const v = byDay[dayKey]?.[dataH]?.[min];
-          const isCurCell = h === curHour && min === curQh;
-          const borderStyle = isCurCell ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
-          if (!Number.isFinite(v)) {
-            html += `<td style="padding:3px 4px;background:#ececec;${borderStyle}text-align:center;color:#aaa;font-size:10px;">—</td>`;
-            continue;
-          }
-          const txt = v === 0 ? '0' : Math.round(v).toString();
-          let bgColor, color;
-          if (v <= 0) {
-            bgColor = '#c8d8e8'; color = '#1565c0';
-          } else if (v >= top5pThreshold) {
-            bgColor = '#c0392b'; color = '#fff';  // top 5% - cervena
+    function renderHistTable() {
+      const selHour = window._histSelectedHour;
+      const selQh = window._histSelectedQh;
+      
+      let html = '<thead><tr>';
+      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;height:32px;position:sticky;left:0;top:0;z-index:3;font-size:9px;"></th>';
+      for (let h = 1; h <= 24; h++) {
+        const isCur = h === selHour;
+        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;height:32px;position:sticky;top:0;z-index:2;">H${pad(h)}</th>`;
+      }
+      html += '</tr></thead><tbody>';
+      
+      const minutes = [0, 15, 30, 45];
+      
+      days.forEach(d => {
+        const dayLabel = d.label;
+        const dayKey = d.key;
+        minutes.forEach((min, mIdx) => {
+          html += '<tr>';
+          const isCurMin = min === selQh;
+          let cellContent, cellBg, cellColor;
+          if (mIdx === 0) {
+            cellContent = `<span style="font-weight:700;color:#fff;">${dayLabel}</span>`;
+            cellBg = '#1565c0';
+            cellColor = '#fff';
           } else {
-            bgColor = '#ececec'; color = '#1a1a2e';
+            cellContent = `<span style="font-size:9px;font-weight:600;">:${pad(min)}</span>`;
+            cellBg = '#fff';
+            cellColor = '#1a1a2e';
           }
-          html += `<td style="padding:3px 4px;background:${bgColor};${borderStyle}text-align:center;color:${color};font-weight:600;font-size:10px;">${txt}</td>`;
-        }
-        html += '</tr>';
+          html += `<td style="padding:3px 4px;background:${cellBg};border:1px solid #dde;font-size:10px;color:${cellColor};position:sticky;left:0;z-index:1;white-space:nowrap;text-align:center;font-weight:${mIdx===0?'700':'600'};">${cellContent}</td>`;
+          for (let h = 1; h <= 24; h++) {
+            const dataH = h - 1;
+            const v = byDay[dayKey]?.[dataH]?.[min];
+            const isCurCell = h === selHour && min === selQh;
+            const borderStyle = isCurCell ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
+            const cursorStyle = 'cursor:pointer;';
+            if (!Number.isFinite(v)) {
+              html += `<td data-h="${h}" data-min="${min}" style="padding:3px 4px;background:#ececec;${borderStyle}${cursorStyle}text-align:center;color:#aaa;font-size:10px;">—</td>`;
+              continue;
+            }
+            const txt = v === 0 ? '0' : Math.round(v).toString();
+            let bgColor, color;
+            if (v <= 0) {
+              bgColor = '#c8d8e8'; color = '#1565c0';
+            } else if (v >= top5pThreshold) {
+              bgColor = '#c0392b'; color = '#fff';
+            } else {
+              bgColor = '#ececec'; color = '#1a1a2e';
+            }
+            html += `<td data-h="${h}" data-min="${min}" style="padding:3px 4px;background:${bgColor};${borderStyle}${cursorStyle}text-align:center;color:${color};font-weight:600;font-size:10px;">${txt}</td>`;
+          }
+          html += '</tr>';
+        });
       });
-    });
-    
-    // SOUCET RADKY - pro aktualni QH napric 30 dny
-    const pad2 = n => String(n).padStart(2,'0');
-    
-    // Radek 1: soustava+ (cena <= 0 = prebytek = sell prilezitost) - CERVENA
-    html += `<tr><td style="padding:4px 6px;background:#c0392b;color:#fff;border:1px solid #c0392b;font-size:9px;text-align:center;font-weight:700;position:sticky;left:0;bottom:24px;z-index:3;white-space:nowrap;">⊕<br><span style="font-size:8px;font-weight:400;color:#fbd5d0;">SELL</span></td>`;
-    for (let h = 1; h <= 24; h++) {
-      const dataH = h - 1;
-      let plusCount = 0, total = 0;
-      days.forEach(d => {
-        const v = byDay[d.key]?.[dataH]?.[curQh];
-        if (Number.isFinite(v)) {
-          total++;
-          if (v <= 0) plusCount++;
-        }
+      
+      // === FOOTER ROWS - fixni vyska 28px ===
+      const pad2Local = n => String(n).padStart(2,'0');
+      
+      // Radek 1: SELL (cervena)
+      html += `<tr><td style="padding:4px 6px;background:#c0392b;color:#fff;border:1px solid #c0392b;font-size:9px;text-align:center;font-weight:700;position:sticky;left:0;bottom:28px;z-index:3;white-space:nowrap;height:28px;box-sizing:border-box;">⊕<br><span style="font-size:8px;font-weight:400;color:#fbd5d0;">SELL ${pad2Local(selQh)}</span></td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        let plusCount = 0, total = 0;
+        days.forEach(d => {
+          const v = byDay[d.key]?.[dataH]?.[selQh];
+          if (Number.isFinite(v)) {
+            total++;
+            if (v <= 0) plusCount++;
+          }
+        });
+        const isCurCol = h === selHour;
+        const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #c0392b;';
+        const bg = isCurCol ? '#7e1c11' : '#c0392b';
+        const pct = total ? Math.round(plusCount/total*100) : 0;
+        const txt = `${plusCount}<span style="color:#fbd5d0;font-weight:400;">/${total}</span> <span style="font-size:8px;color:#fbd5d0;font-weight:400;">${pct}%</span>`;
+        html += `<td style="padding:2px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;position:sticky;bottom:28px;z-index:2;height:28px;box-sizing:border-box;white-space:nowrap;">${txt}</td>`;
+      }
+      html += '</tr>';
+      
+      // Radek 2: BUY (modra)
+      html += `<tr><td style="padding:4px 6px;background:#1565c0;color:#fff;border:1px solid #1565c0;font-size:9px;text-align:center;font-weight:700;position:sticky;left:0;bottom:0;z-index:3;white-space:nowrap;height:28px;box-sizing:border-box;">⊖<br><span style="font-size:8px;font-weight:400;color:#a8c5e5;">BUY ${pad2Local(selQh)}</span></td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        let minusCount = 0, total = 0;
+        days.forEach(d => {
+          const v = byDay[d.key]?.[dataH]?.[selQh];
+          if (Number.isFinite(v)) {
+            total++;
+            if (v > 0) minusCount++;
+          }
+        });
+        const isCurCol = h === selHour;
+        const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #1565c0;';
+        const bg = isCurCol ? '#0d47a1' : '#1565c0';
+        const pct = total ? Math.round(minusCount/total*100) : 0;
+        const txt = `${minusCount}<span style="color:#a8c5e5;font-weight:400;">/${total}</span> <span style="font-size:8px;color:#a8c5e5;font-weight:400;">${pct}%</span>`;
+        html += `<td style="padding:2px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;position:sticky;bottom:0;z-index:2;height:28px;box-sizing:border-box;white-space:nowrap;">${txt}</td>`;
+      }
+      html += '</tr>';
+      
+      html += '</tbody>';
+      tbl.innerHTML = html;
+      
+      // Pridej click handlery
+      tbl.querySelectorAll('td[data-h]').forEach(td => {
+        td.addEventListener('click', () => {
+          const h = parseInt(td.getAttribute('data-h'), 10);
+          const min = parseInt(td.getAttribute('data-min'), 10);
+          window._histSelectedHour = h;
+          window._histSelectedQh = min;
+          renderHistTable();
+          drawQhProbHistogram(byDay, h, min);
+        });
       });
-      const isCurCol = h === curHour;
-      const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #c0392b;';
-      const bg = isCurCol ? '#7e1c11' : '#c0392b';
-      const pct = total ? Math.round(plusCount/total*100) : 0;
-      const txt = `${plusCount}<span style="color:#fbd5d0;font-weight:400;">/${total}</span><br><span style="font-size:8px;color:#fbd5d0;font-weight:400;">${pct}%</span>`;
-      html += `<td style="padding:3px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;position:sticky;bottom:24px;z-index:2;">${txt}</td>`;
+      
+      drawQhProbHistogram(byDay, selHour, selQh);
     }
-    html += '</tr>';
     
-    // Radek 2: soustava- (cena > 0 = deficit = buy prilezitost) - MODRA
-    html += `<tr><td style="padding:4px 6px;background:#1565c0;color:#fff;border:1px solid #1565c0;font-size:9px;text-align:center;font-weight:700;position:sticky;left:0;bottom:0;z-index:3;white-space:nowrap;">⊖<br><span style="font-size:8px;font-weight:400;color:#a8c5e5;">BUY</span></td>`;
-    for (let h = 1; h <= 24; h++) {
-      const dataH = h - 1;
-      let minusCount = 0, total = 0;
-      days.forEach(d => {
-        const v = byDay[d.key]?.[dataH]?.[curQh];
-        if (Number.isFinite(v)) {
-          total++;
-          if (v > 0) minusCount++;
-        }
-      });
-      const isCurCol = h === curHour;
-      const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #1565c0;';
-      const bg = isCurCol ? '#0d47a1' : '#1565c0';
-      const pct = total ? Math.round(minusCount/total*100) : 0;
-      const txt = `${minusCount}<span style="color:#a8c5e5;font-weight:400;">/${total}</span><br><span style="font-size:8px;color:#a8c5e5;font-weight:400;">${pct}%</span>`;
-      html += `<td style="padding:3px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;position:sticky;bottom:0;z-index:2;">${txt}</td>`;
-    }
-    html += '</tr>';
+    renderHistTable();
     
-    html += '</tbody>';
-    tbl.innerHTML = html;
     window._histOdchLoaded = true;
     window._histOdchLoading = false;
-    
-    // === HISTOGRAM pravdepodobnosti pro aktualni QH ===
-    drawQhProbHistogram(byDay, curHour, curQh);
   } catch (e) {
     console.warn('hist odch:', e);
     const tbl = document.getElementById('tbl-hist-odch');
@@ -3371,6 +3393,10 @@ function drawQhProbHistogram(byDay, curHourH, curQhMin) {
     statsEl.style.alignItems = 'center';
   }
 }
+
+
+
+
 
 
 
