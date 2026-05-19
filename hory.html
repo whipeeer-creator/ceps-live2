@@ -208,9 +208,11 @@ canvas { max-width: 100%; display: block; }
     <div class="panel-hdr"><div class="panel-title">ČEPS - CENY</div></div>
     <div id="spotTablesWrap" style="overflow-x:auto;padding:8px 12px;">
       <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">CZ DT</div>
+      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT</div>
       <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">DE DT</div>
+      <div style="font-size:11px;color:#000;font-weight:700;margin:6px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · 15min QH</div>
+      <table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE DT</div>
       <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
     </div>
   </div>
@@ -2585,6 +2587,101 @@ function _rlRedraw() {
 // ============================================================
 // Tabulka cen + ostatní
 // ============================================================
+async function loadSpotQhTable(tableId) {
+  // 15min CZ DT ceny z /ote/qh
+  try {
+    const r = await fetch(`${API_URL}/ote/qh`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) return;
+    
+    // Server vraci hours_today array s 4 QH per hodina, nebo struct s qh/15min
+    let qhRows = [];
+    if (d.qh && Array.isArray(d.qh)) {
+      qhRows = d.qh;
+    } else if (d.hours_today && Array.isArray(d.hours_today)) {
+      // Pokud server vraci jen hodinove, nelze zobrazit QH
+      qhRows = d.hours_today;
+    } else if (d.last_8 && Array.isArray(d.last_8)) {
+      qhRows = [...(d.last_8 || []), ...(d.next_8 || [])];
+    }
+    if (!qhRows.length) return;
+    
+    // Mapa hour -> [4 ceny pro :00 :15 :30 :45]
+    const priceByHourMin = {};
+    qhRows.forEach(row => {
+      const h = row.hour;
+      const m = row.minute ?? 0;
+      const price = row.price_eur ?? row.priceEur ?? row.price;
+      if (!Number.isFinite(price) || h == null) return;
+      if (!priceByHourMin[h]) priceByHourMin[h] = {};
+      priceByHourMin[h][m] = price;
+    });
+    
+    const allVals = Object.values(priceByHourMin).flatMap(m => Object.values(m)).filter(v => Number.isFinite(v));
+    if (!allVals.length) return;
+    const vMin = Math.min(...allVals);
+    const vMax = Math.max(...allVals);
+    const vRange = Math.max(1, vMax - vMin);
+    
+    function cellColor(v) {
+      const ratio = (v - vMin) / vRange;
+      if (ratio < 0.33) {
+        const r = Math.round(120 - ratio * 99);
+        const g = Math.round(160 - ratio * 59);
+        const b = Math.round(210 - ratio * 18);
+        return `rgb(${r},${g},${b})`;
+      } else if (ratio > 0.66) {
+        const t = (ratio - 0.66) / 0.34;
+        const r = Math.round(180 + t * 60);
+        const g = Math.round(80 - t * 60);
+        const b = Math.round(80 - t * 60);
+        return `rgb(${r},${g},${b})`;
+      } else {
+        return '#e67e22';
+      }
+    }
+    
+    const now = new Date();
+    const curHour = now.getHours() + 1;
+    const curMin = Math.floor(now.getMinutes() / 15) * 15;
+    const curHourReal = now.getHours();
+    
+    const tbl = document.getElementById(tableId);
+    if (!tbl) return;
+    
+    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
+    for (let h = 1; h <= 24; h++) {
+      const isCur = h === curHour;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
+    }
+    html += '</tr></thead><tbody>';
+    
+    const minutes = [0, 15, 30, 45];
+    minutes.forEach(m => {
+      html += `<tr><td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;">:${String(m).padStart(2,'0')}</td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        const v = priceByHourMin[dataH]?.[m];
+        if (!Number.isFinite(v)) {
+          html += `<td style="padding:3px 6px;background:#c8d8e8;border:1px solid #dde;text-align:center;color:#888;">—</td>`;
+          continue;
+        }
+        const bg = cellColor(v);
+        const txt = Math.round(v);
+        const isCurCell = dataH === curHourReal && m === curMin;
+        const borderStyle = isCurCell ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
+        html += `<td style="padding:3px 6px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
+      }
+      html += '</tr>';
+    });
+    html += '</tbody>';
+    tbl.innerHTML = html;
+  } catch (e) {
+    console.warn('spot QH:', e);
+  }
+}
+
 async function loadSpotTable(country, tableId) {
   // Spot cena DA pro CZ/DE - dnes + šedý řádek zítra
   try {
@@ -3466,6 +3563,7 @@ async function loadAll() {
   try {
     if (typeof loadSpotTable === 'function') {
       tasks.push(loadSpotTable('CZ', 'tbl-spot-cz').catch(e=>{}));
+      tasks.push(loadSpotQhTable('tbl-spot-cz-qh').catch(e=>{}));
       tasks.push(loadSpotTable('DE', 'tbl-spot-de').catch(e=>{}));
     }
   } catch(e) {}
