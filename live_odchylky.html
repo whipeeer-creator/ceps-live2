@@ -2818,16 +2818,19 @@ async function loadHistOdchTable() {
       minutes.forEach((min, mIdx) => {
         html += '<tr>';
         const isCurMin = min === curQh;
-        // Datum sloupec - modré pozadí, bílý text (jako hlavička H01)
-        let cellContent;
+        let cellContent, cellBg, cellColor;
         if (mIdx === 0) {
+          // Prvni radek (:00): datum modre pozadi, bily text
           cellContent = `<span style="font-weight:700;color:#fff;">${dayLabel}</span>`;
+          cellBg = '#1565c0';
+          cellColor = '#fff';
         } else {
-          cellContent = `<span style="font-size:9px;color:#a8c5e5;">:${pad(min)}</span>`;
+          // Dalsi radky (:15 :30 :45): cerne na bilem
+          cellContent = `<span style="font-size:9px;font-weight:600;">:${pad(min)}</span>`;
+          cellBg = isCurMin ? '#1565c0' : '#fff';
+          cellColor = isCurMin ? '#fff' : '#1a1a2e';
         }
-        const cellBg = mIdx === 0 ? '#1565c0' : (isCurMin ? '#1565c0' : '#f4f5f9');
-        const cellColor = mIdx === 0 ? '#fff' : (isCurMin ? '#fff' : '#666');
-        html += `<td style="padding:3px 4px;background:${cellBg};border:1px solid #dde;font-size:10px;color:${cellColor};position:sticky;left:0;z-index:1;white-space:nowrap;text-align:center;font-weight:${mIdx===0?'700':'400'};">${cellContent}</td>`;
+        html += `<td style="padding:3px 4px;background:${cellBg};border:1px solid #dde;font-size:10px;color:${cellColor};position:sticky;left:0;z-index:1;white-space:nowrap;text-align:center;font-weight:${mIdx===0?'700':'600'};">${cellContent}</td>`;
         for (let h = 1; h <= 24; h++) {
           const dataH = h - 1;
           const v = byDay[dayKey]?.[dataH]?.[min];
