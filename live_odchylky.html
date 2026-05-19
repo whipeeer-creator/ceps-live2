@@ -808,7 +808,7 @@ async function loadMain() {
   const lAm = colAm ? parseFloat(lastS[colAm])||0 : 0;
   const avg = dO.rows.reduce((a,r)=>a+(parseFloat(r[colO])||0),0)/dO.rows.length;
   document.getElementById('lastTime').textContent = ft(lastO.date);
-  // KPI #1: Aktualni regulace - + pro kladne, - pro zaporne
+  // KPI #1: Aktualni regulace - + pro kladne, − pro zaporne
   const oSign = lO > 0 ? '+' : (lO < 0 ? '−' : '');
   const oAbs = Math.abs(lO).toFixed(1);
   document.getElementById('dv-O').innerHTML = `${oSign}${oAbs}<span class="kpi-u">MW</span>`;
