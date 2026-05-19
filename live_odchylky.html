@@ -411,7 +411,7 @@ function ft(ds) {
   const d = new Date(ds);
   return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
 }
-function sign(v) { return v > 0 ? '+' : ''; }
+function sign(v) { return v > 0 ? '+' : (v < 0 ? '-' : ''); }
 function vc(v)   { return v > 0.05 ? 'vp' : v < -0.05 ? 'vn' : 'v0'; }
 
 function nowCet() {
@@ -803,41 +803,40 @@ async function loadMain() {
   const lastO = dO.rows[dO.rows.length-1];
   const lastS = dS.rows[dS.rows.length-1];
   const lO  = parseFloat(lastO[colO])||0;
-  window._lastRegulaceO = lO;  // pro inverze v jiných funkcích
+  window._lastRegulaceO = lO;
   const lAp = colAp ? parseFloat(lastS[colAp])||0 : 0;
   const lAm = colAm ? parseFloat(lastS[colAm])||0 : 0;
   const avg = dO.rows.reduce((a,r)=>a+(parseFloat(r[colO])||0),0)/dO.rows.length;
   document.getElementById('lastTime').textContent = ft(lastO.date);
-  // KPI #1: Aktualni regulace - + pro kladne hodnoty Z DAT (jak graf ukazuje), - pro zaporne
-  // ALE Tom chce opacne znamenko nez data - tj. ozrcadleno
-  const oSign = lO > 0 ? '−' : (lO < 0 ? '+' : '');
-  const oAbs = Math.abs(lO).toFixed(1);
-  document.getElementById('dv-O').innerHTML = `${oSign}${oAbs}<span class="kpi-u">MW</span>`;
-  document.getElementById('ds-O').textContent = `prům. dne: ${sign(avg)}${avg.toFixed(1)} MW · upd ${nowCet()}`;
-  const cardO = document.getElementById('crd-O');
-  if (cardO) cardO.className = 'kpi' + (lO < -100 ? ' pos' : lO > 100 ? ' neg' : ' mid');
   
-  // KPI #5: Systemova soustava - OPACNE znamenko nez KPI #1
+  // CEPS API vraci opacne znamenko nez graf - INVERTUJEME (jako hory v41)
+  const lO_disp = -lO;
+  const avg_disp = -avg;
+  // KPI #1 Aktualni regulace - INVERZE
+  setKPI('O', lO_disp, 'MW', `prům. dne: ${sign(avg_disp)}${avg_disp.toFixed(1)} MW`, dO.fetched_at,
+    {greenBelow: -100, redAbove: 100});
+  
+  // KPI #5 Systemova soustava - INVERZE k KPI #1 (tj. = lO)
   setTimeout(() => {
     const dvSO = document.getElementById('dv-SO');
     if (dvSO) {
-      // KPI #1 je negace lO, takze KPI #5 = lO (oposite of KPI #1)
-      const soSign = lO > 0 ? '+' : (lO < 0 ? '−' : '');
-      const soAbs = Math.abs(lO).toFixed(1);
-      dvSO.innerHTML = `${soSign}${soAbs}<span class="kpi-u">MW</span>`;
+      const soColor = lO < 0 ? '#c0392b' : (lO > 0 ? '#27ae60' : '#666');
+      const soSign = lO > 0 ? '+' : '';
+      dvSO.innerHTML = `<span style="color:${soColor};font-weight:700;">${soSign}${lO.toFixed(1)}</span><span class="kpi-u">MW</span>`;
     }
     const dsSO = document.getElementById('ds-SO');
     if (dsSO) {
-      // lO > 0 (data kladne = prebytek) → soustava+ = SELL
+      // lO > 0 (data kladne, KPI #5 je +) = soustava+ = SELL
       const dirText = lO > 0 ? '🔴 Sell · soustava+ (přebytek)' : lO < 0 ? '🟢 Buy · soustava− (deficit)' : '—';
       dsSO.innerHTML = dirText;
     }
   }, 0);
   
-  // aFRR aktivni - <30 zelena (klid), >100 cervena (stres), mezi = oranzova
-  // aFRR aktivni - <30 zelena (klid), >100 cervena (stres), mezi = oranzova
-  setKPI('S', lAp||lAm, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
-    {greenBelow: 30, redAbove: 100});
+  // KPI #4 aFRR aktivni - INVERZE (aFRR+ = deficit = mínus)
+  const aFrrAbs = lAp || lAm;
+  const aFrrSigned = lAp > 0 ? -lAp : lAm;  // aFRR+ negativně, aFRR- pozitivně
+  setKPI('S', aFrrSigned, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
+    {greenBelow: -30, redAbove: 30});
 
   drawTopChart(document.getElementById('topCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
   drawSoustavaChart(document.getElementById('soCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
