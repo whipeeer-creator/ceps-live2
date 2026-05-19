@@ -242,7 +242,7 @@ canvas { max-width: 100%; display: block; }
         <span class="hist-arrow">▸</span> Historické ceny odchylek (aktuální měsíc · EUR/MWh)
       </div>
       <div id="tbl-hist-odch-wrap" style="display:none;margin-top:6px;">
-        <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;"></table>
+        <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
         <div style="margin-top:14px;padding:8px 0;border-top:1px solid #dde;">
           <div style="font-size:11px;color:#1a1a2e;font-weight:600;margin-bottom:4px;font-family:'JetBrains Mono',monospace;">
             Distribuce ceny pro aktuální QH <span id="histQhLabel" style="color:#1565c0;">—</span> (historicky)
@@ -250,7 +250,7 @@ canvas { max-width: 100%; display: block; }
           <div style="font-size:10px;color:#666;margin-bottom:6px;">
             Histogram cen odchylky v tomto časovém intervalu napříč všemi dny měsíce
           </div>
-          <canvas id="histProbCanvas" height="200" style="width:100%;height:200px;display:block;background:#dce8f5;border:1px solid #dde;border-radius:4px;"></canvas>
+          <canvas id="histProbCanvas" height="260" style="width:100%;height:260px;display:block;background:#fff;border:1px solid #e1e5ec;border-radius:8px;"></canvas>
           <div id="histProbStats" style="font-size:10px;color:#555;margin-top:6px;font-family:'JetBrains Mono',monospace;display:flex;gap:14px;flex-wrap:wrap;"></div>
         </div>
       </div>
@@ -2730,11 +2730,10 @@ async function loadHistOdchTable() {
     
     const KURZ = 24.5;
     
-    // Struktura: byDay[day][hour][minute] = price EUR
+    // Struktura: byDay[day][hour][minute] = price EUR (vcetne 0 - nezuctovano)
     const byDay = {};
     allRows.forEach(({day, h, m, price}) => {
-      if (price === 0) return;
-      const priceEur = price / KURZ;
+      const priceEur = price / KURZ;  // 0 zustane 0
       if (!byDay[day]) byDay[day] = {};
       if (!byDay[day][h]) byDay[day][h] = {};
       byDay[day][h][m] = priceEur;
@@ -2774,11 +2773,10 @@ async function loadHistOdchTable() {
     // Build header
     const curHourH = now.getHours() + 1;  // H01-H24
     let html = '<thead><tr>';
-    html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:60px !important;position:sticky;left:0;z-index:2;">Den</th>';
-    html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:36px !important;position:sticky;left:60px;z-index:2;">QH</th>';
+    html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;position:sticky;left:0;z-index:2;font-size:9px;"></th>';
     for (let h = 1; h <= 24; h++) {
       const isCur = h === curHourH;
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:46px !important;">H${pad(h)}</th>`;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${pad(h)}</th>`;
     }
     html += '</tr></thead><tbody>';
     
@@ -2792,13 +2790,14 @@ async function loadHistOdchTable() {
       const dayLabel = `${day}.${mm}.`;
       minutes.forEach((min, mIdx) => {
         html += '<tr>';
-        if (mIdx === 0) {
-          html += `<td rowspan="4" style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;font-weight:700;text-align:center;position:sticky;left:0;z-index:1;vertical-align:middle;">${dayLabel}</td>`;
-        }
         const isCurMin = min === curQh;
         const minBg = isCurMin ? '#1565c0' : '#f4f5f9';
         const minColor = isCurMin ? '#fff' : '#666';
-        html += `<td style="padding:3px 6px;background:${minBg};border:1px solid #dde;font-size:10px;color:${minColor};position:sticky;left:60px;z-index:1;font-weight:${isCurMin?'700':'400'};">:${pad(min)}</td>`;
+        // Kombinovaný sloupec - první řádek dne má datum+QH, ostatní jen QH
+        const cellContent = mIdx === 0
+          ? `<span style="font-weight:700;color:#1a1a2e;">${dayLabel}</span> <span style="font-size:9px;color:${minColor};">:${pad(min)}</span>`
+          : `<span style="font-size:9px;color:${minColor};">:${pad(min)}</span>`;
+        html += `<td style="padding:3px 4px;background:${minBg};border:1px solid #dde;font-size:10px;color:${minColor};position:sticky;left:0;z-index:1;white-space:nowrap;text-align:center;">${cellContent}</td>`;
         for (let h = 1; h <= 24; h++) {
           const dataH = h - 1;
           const v = byDay[day]?.[dataH]?.[min];
@@ -2808,8 +2807,9 @@ async function loadHistOdchTable() {
             html += `<td style="padding:3px 4px;background:#ececec;${borderStyle}text-align:center;color:#aaa;font-size:10px;">—</td>`;
             continue;
           }
-          const txt = Math.round(v);
-          html += `<td style="padding:3px 4px;background:#ececec;${borderStyle}text-align:center;color:#1a1a2e;font-weight:600;font-size:10px;">${txt}</td>`;
+          const txt = v === 0 ? '0' : Math.round(v).toString();
+          const color = v === 0 ? '#999' : '#1a1a2e';
+          html += `<td style="padding:3px 4px;background:#ececec;${borderStyle}text-align:center;color:${color};font-weight:600;font-size:10px;">${txt}</td>`;
         }
         html += '</tr>';
       });
@@ -2835,13 +2835,11 @@ function drawQhProbHistogram(byDay, curHourH, curQhMin) {
   const labelEl = document.getElementById('histQhLabel');
   if (!canvas) return;
   
-  // curHourH je H01-H24 format, dataH = H-1
   const dataH = curHourH - 1;
   const pad = n => String(n).padStart(2,'0');
   const qhLabel = `H${pad(curHourH)} :${pad(curQhMin)}`;
   if (labelEl) labelEl.textContent = qhLabel;
   
-  // Sber vsech historickych cen pro tuto QH
   const vals = [];
   Object.values(byDay).forEach(hMap => {
     const v = hMap[dataH]?.[curQhMin];
@@ -2855,14 +2853,16 @@ function drawQhProbHistogram(byDay, curHourH, curQhMin) {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
   
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+  
   if (!vals.length) {
-    ctx.fillStyle = '#888'; ctx.font = '12px Inter, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = '#888'; ctx.font = '13px Inter, sans-serif'; ctx.textAlign = 'center';
     ctx.fillText('Žádná data pro tuto QH', W/2, H/2);
     if (statsEl) statsEl.innerHTML = '';
     return;
   }
   
-  // Stats
   const sorted = [...vals].sort((a,b) => a-b);
   const n = sorted.length;
   const mean = sorted.reduce((a,b) => a+b, 0) / n;
@@ -2872,10 +2872,11 @@ function drawQhProbHistogram(byDay, curHourH, curQhMin) {
   const vMin = sorted[0];
   const vMax = sorted[n-1];
   
-  // Bins - šířka 20 EUR, range podle dat
-  const binWidth = 20;
+  const iqr = p75 - p25;
+  const optBin = iqr > 0 ? Math.max(10, Math.round((2*iqr/Math.cbrt(n))/10)*10) : 20;
+  const binWidth = Math.min(50, Math.max(10, optBin));
   const rangeMin = Math.floor(vMin / binWidth) * binWidth;
-  const rangeMax = Math.ceil(vMax / binWidth) * binWidth;
+  const rangeMax = (Math.ceil(vMax / binWidth) * binWidth) || (rangeMin + binWidth);
   const numBins = Math.max(1, Math.round((rangeMax - rangeMin) / binWidth));
   const bins = new Array(numBins).fill(0);
   vals.forEach(v => {
@@ -2884,82 +2885,158 @@ function drawQhProbHistogram(byDay, curHourH, curQhMin) {
   });
   const binMaxCount = Math.max(...bins, 1);
   
-  // Draw
-  const PAD = { top: 12, right: 12, bottom: 30, left: 38 };
+  const PAD = { top: 28, right: 16, bottom: 38, left: 52 };
   const cW = W - PAD.left - PAD.right;
   const cH = H - PAD.top - PAD.bottom;
   
-  // Pozadi
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(PAD.left, PAD.top, cW, cH);
-  
-  // Grid
-  ctx.strokeStyle = '#dde3ec'; ctx.lineWidth = 0.5;
-  for (let i = 0; i <= 4; i++) {
-    const y = PAD.top + (cH/4) * i;
-    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
+  ctx.strokeStyle = '#eef1f6'; ctx.lineWidth = 1;
+  for (let i = 0; i <= 5; i++) {
+    const y = PAD.top + (cH/5)*i;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left+cW, y); ctx.stroke();
   }
   
-  // Y labels - pravdepodobnost (%)
-  ctx.fillStyle = '#666'; ctx.font = '9px JetBrains Mono, monospace';
+  ctx.strokeStyle = '#cbd2dc'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(PAD.left, PAD.top);
+  ctx.lineTo(PAD.left, PAD.top + cH);
+  ctx.lineTo(PAD.left + cW, PAD.top + cH);
+  ctx.stroke();
+  
+  ctx.fillStyle = '#5a6470'; 
+  ctx.font = '500 10px Inter, system-ui, sans-serif';
   ctx.textAlign = 'right';
-  for (let i = 0; i <= 4; i++) {
-    const y = PAD.top + (cH/4) * i;
-    const pct = Math.round(((4-i)/4) * 100 * binMaxCount / n);
-    ctx.fillText(pct + '%', PAD.left - 4, y + 3);
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i <= 5; i++) {
+    const y = PAD.top + (cH/5)*i;
+    const pct = ((5-i)/5) * 100 * binMaxCount / n;
+    ctx.fillText(pct.toFixed(0) + '%', PAD.left - 8, y);
   }
   
-  // Bars
+  ctx.save();
+  ctx.translate(16, PAD.top + cH/2);
+  ctx.rotate(-Math.PI/2);
+  ctx.textAlign = 'center';
+  ctx.fillStyle = '#8590a0';
+  ctx.font = '500 9px Inter, system-ui, sans-serif';
+  ctx.fillText('pravděpodobnost', 0, 0);
+  ctx.restore();
+  
   const barWidth = cW / numBins;
   bins.forEach((count, i) => {
     if (count === 0) return;
     const x = PAD.left + i * barWidth;
     const h = (count / binMaxCount) * cH;
     const binCenter = rangeMin + (i + 0.5) * binWidth;
-    // Barva podle ceny: <0 modra, >0 cervena
-    const color = binCenter < 0 ? '#1565c0' : binCenter < 50 ? '#5b8fc9' : binCenter < 150 ? '#e67e22' : '#c0392b';
-    ctx.fillStyle = color;
-    ctx.fillRect(x + 1, PAD.top + cH - h, barWidth - 2, h);
-    // Count nad barem
-    if (h > 14) {
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 9px JetBrains Mono, monospace';
+    
+    let c1, c2;
+    if (binCenter < 0) { c1='#3a8edf'; c2='#1565c0'; }
+    else if (binCenter < 50) { c1='#7fb8d4'; c2='#4a90b8'; }
+    else if (binCenter < 100) { c1='#f5b66c'; c2='#e89542'; }
+    else if (binCenter < 150) { c1='#ef8a4d'; c2='#d65f1e'; }
+    else { c1='#e74c3c'; c2='#a82817'; }
+    
+    const grad = ctx.createLinearGradient(0, PAD.top + cH - h, 0, PAD.top + cH);
+    grad.addColorStop(0, c1);
+    grad.addColorStop(1, c2);
+    ctx.fillStyle = grad;
+    
+    const r = Math.min(4, h/2);
+    const bx = x + 2, by = PAD.top + cH - h, bw = barWidth - 4, bh = h;
+    ctx.beginPath();
+    ctx.moveTo(bx, by + bh);
+    ctx.lineTo(bx, by + r);
+    ctx.quadraticCurveTo(bx, by, bx + r, by);
+    ctx.lineTo(bx + bw - r, by);
+    ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+    ctx.lineTo(bx + bw, by + bh);
+    ctx.closePath();
+    ctx.fill();
+    
+    if (h > 22) {
+      ctx.fillStyle = '#fff'; 
+      ctx.font = '600 10px Inter, system-ui, sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(count, x + barWidth/2, PAD.top + cH - h + 11);
+      ctx.textBaseline = 'middle';
+      ctx.fillText(count, x + barWidth/2, by + 12);
+    } else if (count > 0) {
+      ctx.fillStyle = '#5a6470'; 
+      ctx.font = '600 9px Inter, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(count, x + barWidth/2, by - 8);
     }
   });
   
-  // X labels - cena
-  ctx.fillStyle = '#666'; ctx.font = '9px JetBrains Mono, monospace'; ctx.textAlign = 'center';
+  ctx.fillStyle = '#5a6470'; 
+  ctx.font = '500 10px Inter, system-ui, sans-serif'; 
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
   const xStep = Math.max(1, Math.ceil(numBins / 8));
   for (let i = 0; i <= numBins; i += xStep) {
     const x = PAD.left + i * barWidth;
     const v = rangeMin + i * binWidth;
-    ctx.fillText(Math.round(v), x, PAD.top + cH + 14);
+    ctx.fillText(Math.round(v), x, PAD.top + cH + 6);
   }
-  ctx.fillText('EUR/MWh', PAD.left + cW/2, PAD.top + cH + 26);
   
-  // Median line
-  const medX = PAD.left + ((median - rangeMin) / (rangeMax - rangeMin)) * cW;
-  ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2;
-  ctx.setLineDash([4, 3]);
-  ctx.beginPath(); ctx.moveTo(medX, PAD.top); ctx.lineTo(medX, PAD.top + cH); ctx.stroke();
-  ctx.setLineDash([]);
-  ctx.fillStyle = '#1a1a2e'; ctx.font = 'bold 10px JetBrains Mono, monospace'; ctx.textAlign = 'center';
-  ctx.fillText('medián ' + Math.round(median), medX, PAD.top + 10);
+  ctx.fillStyle = '#8590a0';
+  ctx.font = '500 9px Inter, system-ui, sans-serif';
+  ctx.fillText('cena EUR/MWh', PAD.left + cW/2, PAD.top + cH + 24);
   
-  // Stats
+  // Median line s pill
+  if (median >= rangeMin && median <= rangeMax) {
+    const mx = PAD.left + ((median - rangeMin) / (rangeMax - rangeMin)) * cW;
+    ctx.strokeStyle = '#1a1a2e'; 
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.moveTo(mx, PAD.top);
+    ctx.lineTo(mx, PAD.top + cH);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    
+    const txt = 'medián ' + Math.round(median);
+    ctx.font = '600 10px Inter, system-ui, sans-serif';
+    const tw = ctx.measureText(txt).width;
+    const pillW = tw + 14, pillH = 18;
+    const px = Math.min(PAD.left + cW - pillW/2 - 4, Math.max(PAD.left + pillW/2 + 4, mx));
+    const py = PAD.top - 14;
+    ctx.fillStyle = '#1a1a2e';
+    ctx.beginPath();
+    if (ctx.roundRect) {
+      ctx.roundRect(px - pillW/2, py - pillH/2, pillW, pillH, 9);
+    } else {
+      ctx.rect(px - pillW/2, py - pillH/2, pillW, pillH);
+    }
+    ctx.fill();
+    ctx.fillStyle = '#fff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(txt, px, py);
+  }
+  
   if (statsEl) {
+    const statBox = (label, val, color) => 
+      `<span style="display:inline-flex;flex-direction:column;align-items:center;padding:4px 10px;background:#f4f6fa;border-radius:6px;min-width:54px;">
+        <span style="font-size:8px;color:#8590a0;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">${label}</span>
+        <span style="font-size:13px;color:${color||'#1a1a2e'};font-weight:700;line-height:1.1;">${val}€</span>
+      </span>`;
     statsEl.innerHTML = `
-      <span><b>n=</b>${n} dní</span>
-      <span><b>min</b> ${Math.round(vMin)}€</span>
-      <span><b>P25</b> ${Math.round(p25)}€</span>
-      <span style="color:#1a1a2e;font-weight:700;"><b>medián</b> ${Math.round(median)}€</span>
-      <span><b>průměr</b> ${Math.round(mean)}€</span>
-      <span><b>P75</b> ${Math.round(p75)}€</span>
-      <span><b>max</b> ${Math.round(vMax)}€</span>
+      <span style="display:inline-flex;flex-direction:column;align-items:center;padding:4px 10px;background:#eef2f8;border-radius:6px;min-width:48px;">
+        <span style="font-size:8px;color:#1565c0;text-transform:uppercase;letter-spacing:0.5px;font-weight:600;">n</span>
+        <span style="font-size:13px;color:#1565c0;font-weight:700;line-height:1.1;">${n}</span>
+      </span>
+      ${statBox('min', Math.round(vMin), '#1565c0')}
+      ${statBox('P25', Math.round(p25))}
+      ${statBox('medián', Math.round(median), '#1a1a2e')}
+      ${statBox('průměr', Math.round(mean))}
+      ${statBox('P75', Math.round(p75))}
+      ${statBox('max', Math.round(vMax), '#c0392b')}
     `;
+    statsEl.style.gap = '6px';
+    statsEl.style.alignItems = 'center';
   }
 }
+
 
 async function loadCenaTable() {
   try {
