@@ -808,26 +808,28 @@ async function loadMain() {
   const lAm = colAm ? parseFloat(lastS[colAm])||0 : 0;
   const avg = dO.rows.reduce((a,r)=>a+(parseFloat(r[colO])||0),0)/dO.rows.length;
   document.getElementById('lastTime').textContent = ft(lastO.date);
-  // KPI #1: Aktualni regulace - + pro kladne, − pro zaporne
-  const oSign = lO > 0 ? '+' : (lO < 0 ? '−' : '');
+  // KPI #1: Aktualni regulace - + pro kladne hodnoty Z DAT (jak graf ukazuje), - pro zaporne
+  // ALE Tom chce opacne znamenko nez data - tj. ozrcadleno
+  const oSign = lO > 0 ? '−' : (lO < 0 ? '+' : '');
   const oAbs = Math.abs(lO).toFixed(1);
   document.getElementById('dv-O').innerHTML = `${oSign}${oAbs}<span class="kpi-u">MW</span>`;
   document.getElementById('ds-O').textContent = `prům. dne: ${sign(avg)}${avg.toFixed(1)} MW · upd ${nowCet()}`;
   const cardO = document.getElementById('crd-O');
   if (cardO) cardO.className = 'kpi' + (lO < -100 ? ' pos' : lO > 100 ? ' neg' : ' mid');
   
-  // KPI #5: Systemova soustava - OPACNE ZNAMENKO nez KPI #1, stejna hodnota
+  // KPI #5: Systemova soustava - OPACNE znamenko nez KPI #1
   setTimeout(() => {
     const dvSO = document.getElementById('dv-SO');
     if (dvSO) {
-      // Pokud lO > 0 → SO ukaze '-X', pokud lO < 0 → SO ukaze '+X'
-      const soSign = lO > 0 ? '−' : (lO < 0 ? '+' : '');
+      // KPI #1 je negace lO, takze KPI #5 = lO (oposite of KPI #1)
+      const soSign = lO > 0 ? '+' : (lO < 0 ? '−' : '');
       const soAbs = Math.abs(lO).toFixed(1);
       dvSO.innerHTML = `${soSign}${soAbs}<span class="kpi-u">MW</span>`;
     }
     const dsSO = document.getElementById('ds-SO');
     if (dsSO) {
-      const dirText = lO > 0 ? '🟢 Buy · soustava− (deficit)' : lO < 0 ? '🔴 Sell · soustava+ (přebytek)' : '—';
+      // lO > 0 (data kladne = prebytek) → soustava+ = SELL
+      const dirText = lO > 0 ? '🔴 Sell · soustava+ (přebytek)' : lO < 0 ? '🟢 Buy · soustava− (deficit)' : '—';
       dsSO.innerHTML = dirText;
     }
   }, 0);
