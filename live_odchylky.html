@@ -224,7 +224,7 @@ canvas { max-width: 100%; display: block; }
     <div class="panel-hdr"><div class="panel-title">Ceny — odchylka & spot (CZ/DE)</div></div>
     <div style="overflow-x:auto;padding:8px 12px;">
       <div style="font-size:10px;color:#666;margin-bottom:3px;font-family:'JetBrains Mono',monospace;">Odhadovaná cena odchylky · EUR/MWh</div>
-      <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+      <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
       <div onclick="
         var w=document.getElementById('tbl-hist-odch-wrap');
         var arrow=this.querySelector('.hist-arrow');
@@ -249,7 +249,7 @@ canvas { max-width: 100%; display: block; }
           <span><span style="display:inline-block;width:14px;height:10px;background:#c0392b;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><b>top 5%</b> nejdražší</span>
         </div>
         <div style="max-height:600px;overflow:auto;border:1px solid #dde;border-radius:4px;">
-          <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+          <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
         </div>
         <div style="font-size:9px;color:#666;margin-top:6px;font-family:'JetBrains Mono',monospace;line-height:1.5;">
           <span style="color:#c0392b;font-weight:700;">⊕ SELL</span> = jak často byla soustava+ (cena ≤ 0, přebytek) v této QH za posledních 30 dní<br>
