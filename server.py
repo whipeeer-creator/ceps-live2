@@ -822,13 +822,45 @@ class Handler(BaseHTTPRequestHandler):
             params.update({"agregation": agr, "function": fn})
             if para1: params["para1"] = para1
 
+        # === CACHE pro ochranu pred banem (CEPS API rate limit) ===
+        # Live data (last 4h range) -> 30s cache
+        # Historicka data (dany den fixne) -> 5min cache
+        cache_key = f"{method}|{df}|{dt_}|{agr}|{fn}|{ver}|{para1}"
+        if not hasattr(self.__class__, '_api_cache'):
+            self.__class__._api_cache = {}
+        cache = self.__class__._api_cache
+        
+        # Pro request s end-date danes (live) cache 30s
+        # Pro historicka data cache 5 min
+        try:
+            from datetime import datetime as _dt
+            is_today = dt_.startswith(_dt.now().strftime("%Y-%m-%d"))
+        except Exception:
+            is_today = False
+        ttl = 30 if is_today else 300
+        
+        now_ts = time.time()
+        if cache_key in cache:
+            ts, cached_data = cache[cache_key]
+            if now_ts - ts < ttl:
+                print(f"  -> {method}: CACHED ({int(now_ts - ts)}s old)", flush=True)
+                self._json(cached_data); return
+        
         try:
             xml_text, status = call_ceps(method, params)
         except Exception as e:
             print(f"  -> {method} REQUEST FAIL: {e}", flush=True)
+            # Pri chybe vrat stary cache pokud existuje
+            if cache_key in cache:
+                print(f"  -> {method}: ČEPS fail, vracim STALE cache", flush=True)
+                self._json(cache[cache_key][1]); return
             self._json({"error": f"CEPS request failed: {e}"}, 502); return
 
         if status != 200:
+            # CEPS 500 (rate limit) -> vrat stary cache pokud existuje
+            if cache_key in cache:
+                print(f"  -> {method}: ČEPS {status}, vracim STALE cache", flush=True)
+                self._json(cache[cache_key][1]); return
             try:
                 root = ET.fromstring(xml_text)
                 fs = root.find(".//{http://schemas.xmlsoap.org/soap/envelope/}faultstring")
@@ -838,8 +870,14 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": f"CEPS {status}: {msg}"}, 502); return
 
         data = parse_ceps(xml_text)
-        # Pridame fetched_at = cas kdy server zavolal CEPS API
         data["fetched_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # Ulozit do cache
+        cache[cache_key] = (now_ts, data)
+        # Vycisti stary cache (>1h)
+        if len(cache) > 200:
+            stale = [k for k,(t,_) in cache.items() if now_ts - t > 3600]
+            for k in stale: del cache[k]
+        
         print(f"  -> {method}: {len(data['rows'])} radku, cols={data['columns']}", flush=True)
         self._json(data)
 
