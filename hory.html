@@ -231,7 +231,7 @@ canvas { max-width: 100%; display: block; }
           <span><span style="display:inline-block;width:14px;height:10px;background:#ececec;border:1px solid #ccc;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>cena > 0 (soustava−)</span>
           <span><span style="display:inline-block;width:14px;height:10px;background:#c0392b;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><b>top 5%</b> nejdražší</span>
         </div>
-        <div style="max-height:600px;overflow:auto;">
+        <div>
           <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
         </div>
         <div style="font-size:9px;color:#666;margin-top:6px;font-family:'JetBrains Mono',monospace;line-height:1.5;">
@@ -3063,10 +3063,10 @@ async function loadHistOdchTable() {
       const selQh = window._histSelectedQh;
       
       let html = '<thead><tr>';
-      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;height:32px;position:sticky;left:0;top:0;z-index:3;font-size:9px;"></th>';
+      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;font-size:9px;"></th>';
       for (let h = 1; h <= 24; h++) {
         const isCur = h === selHour;
-        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;height:32px;position:sticky;top:0;z-index:2;">H${pad(h)}</th>`;
+        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${pad(h)}</th>`;
       }
       html += '</tr></thead><tbody>';
       
@@ -3088,7 +3088,7 @@ async function loadHistOdchTable() {
             cellBg = '#fff';
             cellColor = '#1a1a2e';
           }
-          html += `<td style="padding:3px 4px;background:${cellBg};border:1px solid #dde;font-size:10px;color:${cellColor};position:sticky;left:0;z-index:1;white-space:nowrap;text-align:center;font-weight:${mIdx===0?'700':'600'};">${cellContent}</td>`;
+          html += `<td style="padding:3px 4px;background:${cellBg};border:1px solid #dde;font-size:10px;color:${cellColor};white-space:nowrap;text-align:center;font-weight:${mIdx===0?'700':'600'};">${cellContent}</td>`;
           for (let h = 1; h <= 24; h++) {
             const dataH = h - 1;
             const v = byDay[dayKey]?.[dataH]?.[min];
@@ -3118,7 +3118,7 @@ async function loadHistOdchTable() {
       const pad2Local = n => String(n).padStart(2,'0');
       
       // Radek 1: SELL (cervena)
-      html += `<tr><td style="padding:4px 6px;background:#c0392b;color:#fff;border:1px solid #c0392b;font-size:9px;text-align:center;font-weight:700;position:sticky;left:0;bottom:28px;z-index:3;white-space:nowrap;height:28px;box-sizing:border-box;">⊕<br><span style="font-size:8px;font-weight:400;color:#fbd5d0;">SELL ${pad2Local(selQh)}</span></td>`;
+      html += `<tr><td style="padding:4px 6px;background:#c0392b;color:#fff;border:1px solid #c0392b;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:28px;box-sizing:border-box;">⊕<br><span style="font-size:8px;font-weight:400;color:#fbd5d0;">SELL ${pad2Local(selQh)}</span></td>`;
       for (let h = 1; h <= 24; h++) {
         const dataH = h - 1;
         let plusCount = 0, total = 0;
@@ -3134,12 +3134,12 @@ async function loadHistOdchTable() {
         const bg = isCurCol ? '#7e1c11' : '#c0392b';
         const pct = total ? Math.round(plusCount/total*100) : 0;
         const txt = `${plusCount}<span style="color:#fbd5d0;font-weight:400;">/${total}</span> <span style="font-size:8px;color:#fbd5d0;font-weight:400;">${pct}%</span>`;
-        html += `<td style="padding:2px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;position:sticky;bottom:28px;z-index:2;height:28px;box-sizing:border-box;white-space:nowrap;">${txt}</td>`;
+        html += `<td style="padding:2px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;height:28px;box-sizing:border-box;white-space:nowrap;">${txt}</td>`;
       }
       html += '</tr>';
       
       // Radek 2: BUY (modra)
-      html += `<tr><td style="padding:4px 6px;background:#1565c0;color:#fff;border:1px solid #1565c0;font-size:9px;text-align:center;font-weight:700;position:sticky;left:0;bottom:0;z-index:3;white-space:nowrap;height:28px;box-sizing:border-box;">⊖<br><span style="font-size:8px;font-weight:400;color:#a8c5e5;">BUY ${pad2Local(selQh)}</span></td>`;
+      html += `<tr><td style="padding:4px 6px;background:#1565c0;color:#fff;border:1px solid #1565c0;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:28px;box-sizing:border-box;">⊖<br><span style="font-size:8px;font-weight:400;color:#a8c5e5;">BUY ${pad2Local(selQh)}</span></td>`;
       for (let h = 1; h <= 24; h++) {
         const dataH = h - 1;
         let minusCount = 0, total = 0;
@@ -3155,7 +3155,7 @@ async function loadHistOdchTable() {
         const bg = isCurCol ? '#0d47a1' : '#1565c0';
         const pct = total ? Math.round(minusCount/total*100) : 0;
         const txt = `${minusCount}<span style="color:#a8c5e5;font-weight:400;">/${total}</span> <span style="font-size:8px;color:#a8c5e5;font-weight:400;">${pct}%</span>`;
-        html += `<td style="padding:2px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;position:sticky;bottom:0;z-index:2;height:28px;box-sizing:border-box;white-space:nowrap;">${txt}</td>`;
+        html += `<td style="padding:2px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;height:28px;box-sizing:border-box;white-space:nowrap;">${txt}</td>`;
       }
       html += '</tr>';
       
@@ -3396,6 +3396,8 @@ function drawQhProbHistogram(byDay, curHourH, curQhMin) {
     statsEl.style.alignItems = 'center';
   }
 }
+
+
 
 
 
