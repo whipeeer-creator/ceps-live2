@@ -162,6 +162,11 @@ header { display: flex; justify-content: space-between; align-items: center; mar
     <div class="card-v" id="bkAvgTrade">—<span class="u">EUR</span></div>
     <div class="card-s" id="bkAvgTradeDetail">historicky +24 EUR (2025-2026)</div>
   </div>
+  <div class="card">
+    <div class="card-l">Max Drawdown</div>
+    <div class="card-v" id="bkDD">—<span class="u">EUR</span></div>
+    <div class="card-s" id="bkDDDetail">—</div>
+  </div>
 </div>
 
 <h2>🕐 Hodinový NET profit dnes (EUR)</h2>
@@ -707,8 +712,9 @@ function renderEmaTable(rows, ema) {
     const isLag = (i === sigIdx);
     const isUsed = usedSet.has(i);
     const cls = isLag ? 'signal-now' : '';
-    const weight = Math.pow(1 - ALPHA, n - 1 - i);
-    const weightPct = (weight * 100).toFixed(1);
+    // Vaha = 0 pokud skipnuto, jinak relativni vaha v SS3
+    const weight = isUsed ? Math.pow(1 - ALPHA, n - 1 - i) : 0;
+    const weightPct = isUsed ? (weight * 100).toFixed(1) : '0.0';
     const eur = r.odch;
     const barColor = eur >= 0 ? 'bar-pos' : 'bar-neg';
     const maxAbs = Math.max(...rows.slice(startIdx).map(x => Math.abs(x.odch)));
@@ -726,11 +732,12 @@ function renderEmaTable(rows, ema) {
     }
     
     const rowOpacity = isUsed ? '1' : '0.5';
+    const weightStyle = isUsed ? '' : 'color:#c0392b;';
     html += `<tr class="${cls}" style="opacity:${rowOpacity};">
       <td>${r.interval}${statusBadge}</td>
       <td class="${eur >= 0 ? 'green' : 'red'}">${eur >= 0 ? '+' : ''}${eur.toFixed(1)}</td>
       <td class="${ema[i] >= 0 ? 'green' : 'red'}">${ema[i] >= 0 ? '+' : ''}${ema[i].toFixed(1)}</td>
-      <td>${weightPct}%</td>
+      <td style="${weightStyle}">${weightPct}%</td>
       <td><div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div></td>
     </tr>`;
   }
@@ -752,7 +759,10 @@ function renderBacktest(rows, ema) {
   if (n < LAG + 1) return;
   
   let netProfit = 0, wins = 0, losses = 0, trades = 0, skipNoVdt = 0;
-  let totalMwh = 0;  // pro tracking celkového objemu
+  let totalMwh = 0;
+  let peakEquity = 0;
+  let maxDD = 0;
+  let maxDDPct = 0;
   const hourly = {};
   const tradeList = [];
   
@@ -808,6 +818,14 @@ function renderBacktest(rows, ema) {
       if (net > 0) wins++;
       else if (net < 0) losses++;
       
+      // Track equity curve + DD
+      if (netProfit > peakEquity) peakEquity = netProfit;
+      const dd = netProfit - peakEquity;  // záporné = drawdown
+      if (dd < maxDD) {
+        maxDD = dd;
+        maxDDPct = peakEquity > 0 ? (dd / peakEquity * 100) : 0;
+      }
+      
       const h = parseInt(rows[i].interval.split(':')[0]);
       if (!hourly[h]) hourly[h] = { pnl: 0, n: 0, w: 0 };
       hourly[h].pnl += net;
@@ -851,6 +869,17 @@ function renderBacktest(rows, ema) {
     avgDetail.textContent = BT_MODE === 'pyr' 
       ? `EUR/trade · ${(netProfit/totalMwh||0).toFixed(1)} EUR/MWh`
       : `historicky +24 EUR (2025-2026)`;
+  }
+  
+  // DD render
+  const ddEl = document.getElementById('bkDD');
+  const ddDetailEl = document.getElementById('bkDDDetail');
+  if (ddEl) {
+    ddEl.innerHTML = `<span class="red">${maxDD.toFixed(0)}</span><span class="u">EUR</span>`;
+  }
+  if (ddDetailEl) {
+    const pctTxt = maxDDPct < 0 ? `${maxDDPct.toFixed(1)}% z peak` : '—';
+    ddDetailEl.textContent = `peak ${peakEquity.toFixed(0)} EUR · ${pctTxt}`;
   }
   
   // Hourly - ZAHRNUJ VŠECHNY hodiny dne (i bez tradů)
