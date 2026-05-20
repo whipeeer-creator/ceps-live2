@@ -528,7 +528,10 @@ function setDot(state, txt) {
 async function apiFetch(method, extra={}) {
   const now = new Date();
   const pad = n => String(n).padStart(2,'0');
-  const t4 = new Date(now.getTime() - 4*60*60*1000);
+  let t4 = new Date(now.getTime() - 4*60*60*1000);
+  // Pokud t4 spada do predchoziho dne, oriznout na zacatek dneska (CEPS API nesnasi range pres pulnoc)
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+  if (t4 < todayStart) t4 = todayStart;
   const df = `${t4.getFullYear()}-${pad(t4.getMonth()+1)}-${pad(t4.getDate())}T${pad(t4.getHours())}:${pad(t4.getMinutes())}:00`;
   const dt = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
   const p = new URLSearchParams({ method, dateFrom:df, dateTo:dt, agregation:'MI', function:'AVG', ...extra });
@@ -3628,26 +3631,12 @@ async function loadAll() {
     loadRegelleistungAfrr(false);
 
     await Promise.allSettled(tasks);
-    
-    // Check kolik tasks selhalo
-    const results = await Promise.allSettled(tasks);
-    const failed = results.filter(r => r.status === 'rejected');
-    if (failed.length > 0) {
-      console.error('Failed tasks:', failed.map(f => f.reason?.message || f.reason));
-      const el = document.getElementById('err');
-      el.innerHTML = `⚠ ${failed.length}/${tasks.length} requestů selhalo. API: <code>${API_URL}</code>. První chyba: <code>${failed[0].reason?.message || failed[0].reason}</code>. Otevři F12 Console.`;
-      el.style.display = 'block';
-      setDot('err', 'Chyby');
-    } else {
-      setDot('ok', 'Live · '+new Date().toLocaleTimeString('cs'));
-      document.getElementById('err').style.display = 'none';
-    }
+    setDot('ok', 'Live · '+new Date().toLocaleTimeString('cs'));
   } catch(e) {
     setDot('err', 'Chyba');
     const el=document.getElementById('err');
-    el.innerHTML=`Nelze připojit <code>${API_URL}</code> — <code>${e.message || e}</code>`;
+    el.innerHTML=`Nelze připojit <code>${API_URL}</code> — spusť <code>python server.py</code>`;
     el.style.display='block';
-    console.error('loadAll error:', e);
   }
 }
 
