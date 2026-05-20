@@ -3628,12 +3628,26 @@ async function loadAll() {
     loadRegelleistungAfrr(false);
 
     await Promise.allSettled(tasks);
-    setDot('ok', 'Live · '+new Date().toLocaleTimeString('cs'));
+    
+    // Check kolik tasks selhalo
+    const results = await Promise.allSettled(tasks);
+    const failed = results.filter(r => r.status === 'rejected');
+    if (failed.length > 0) {
+      console.error('Failed tasks:', failed.map(f => f.reason?.message || f.reason));
+      const el = document.getElementById('err');
+      el.innerHTML = `⚠ ${failed.length}/${tasks.length} requestů selhalo. API: <code>${API_URL}</code>. První chyba: <code>${failed[0].reason?.message || failed[0].reason}</code>. Otevři F12 Console.`;
+      el.style.display = 'block';
+      setDot('err', 'Chyby');
+    } else {
+      setDot('ok', 'Live · '+new Date().toLocaleTimeString('cs'));
+      document.getElementById('err').style.display = 'none';
+    }
   } catch(e) {
     setDot('err', 'Chyba');
     const el=document.getElementById('err');
-    el.innerHTML=`Nelze připojit <code>${API_URL}</code> — spusť <code>python server.py</code>`;
+    el.innerHTML=`Nelze připojit <code>${API_URL}</code> — <code>${e.message || e}</code>`;
     el.style.display='block';
+    console.error('loadAll error:', e);
   }
 }
 
