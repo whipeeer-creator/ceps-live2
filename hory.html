@@ -251,7 +251,7 @@ canvas { max-width: 100%; display: block; }
       </div>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT</div>
       <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
-      <div onclick="var w=document.getElementById('tbl-spot-cz-qh-wrap');var open=w.style.display==='none';w.style.display=open?'block':'none';this.querySelector('.qh-arrow').textContent=open?'▾':'▸';if(open&&typeof loadSpotQhTable==='function')loadSpotQhTable('tbl-spot-cz-qh');" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:6px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:4px 8px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="qh-arrow">▸</span> 🇨🇿 CZ DT · 15min QH (rozkliknout)</div>
+      <div onclick="toggleSpotQh(this)" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:6px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:4px 8px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="qh-arrow">▸</span> 🇨🇿 CZ DT · 15min QH (rozkliknout)</div>
       <div id="tbl-spot-cz-qh-wrap" style="display:none;">
         <table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
       </div>
@@ -2630,10 +2630,23 @@ function _rlRedraw() {
 // ============================================================
 // Tabulka cen + ostatní
 // ============================================================
+function toggleSpotQh(btn) {
+  try {
+    var w = document.getElementById('tbl-spot-cz-qh-wrap');
+    if (!w) return;
+    var isOpen = w.style.display !== 'none';
+    w.style.display = isOpen ? 'none' : 'block';
+    var arrow = btn.querySelector('.qh-arrow');
+    if (arrow) arrow.textContent = isOpen ? '▸' : '▾';
+    if (!isOpen && typeof loadSpotQhTable === 'function') {
+      loadSpotQhTable('tbl-spot-cz-qh');
+    }
+  } catch(e) { console.error('toggleSpotQh:', e); }
+}
+
 async function loadSpotQhTable(tableId) {
   // 15min CZ DT ceny z OTE-CR.cz - dnes + zitra (sedy)
-  try {
-    const [rToday, rTom] = await Promise.all([
+  try {    const [rToday, rTom] = await Promise.all([
       fetch(`${API_URL}/ote/dt15?day=0`, { cache: 'no-store' }),
       fetch(`${API_URL}/ote/dt15?day=1`, { cache: 'no-store' }).catch(() => null)
     ]);
