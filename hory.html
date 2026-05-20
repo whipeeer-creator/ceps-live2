@@ -3866,43 +3866,74 @@ async function loadAll() {
   if (!API_URL) return;
   setDot('idle', 'Načítám…');
   document.getElementById('err').style.display = 'none';
+  
+  // === DEBUG PANEL ===
+  let debugEl = document.getElementById('debugPanel');
+  if (!debugEl) {
+    debugEl = document.createElement('div');
+    debugEl.id = 'debugPanel';
+    debugEl.style.cssText = 'position:fixed;top:60px;right:10px;width:380px;max-height:600px;overflow:auto;background:#1a1a2e;color:#fff;padding:10px;border-radius:8px;font-family:monospace;font-size:11px;z-index:9999;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+    document.body.appendChild(debugEl);
+  }
+  const debugLog = [];
+  const debugStart = Date.now();
+  function dbg(name, status, detail) {
+    const t = ((Date.now() - debugStart) / 1000).toFixed(1);
+    const color = status === 'OK' ? '#4ade80' : status === 'ERR' ? '#f87171' : '#fbbf24';
+    debugLog.push(`<div style="border-bottom:1px solid #333;padding:3px 0;"><span style="color:${color};font-weight:700;">[${t}s] ${status}</span> <b>${name}</b> ${detail ? '<br><span style="color:#8590a0;font-size:10px;">'+detail+'</span>' : ''}</div>`);
+    debugEl.innerHTML = `<div style="font-weight:700;margin-bottom:6px;color:#a8c5e5;">🔍 HORY DEBUG · API: ${API_URL}</div>` + debugLog.join('');
+  }
+  function wrap(name, promise) {
+    dbg(name, 'START', '');
+    return promise.then(r => { dbg(name, 'OK', ''); return r; })
+      .catch(e => { dbg(name, 'ERR', e.message || String(e)); throw e; });
+  }
+  
   try {
-    const tasks = [loadMain(), loadFreq(), loadCena(), loadOteSpot(), loadQh()];
+    const tasks = [
+      wrap('loadMain', loadMain()),
+      wrap('loadFreq', loadFreq()),
+      wrap('loadCena', loadCena()),
+      wrap('loadOteSpot', loadOteSpot()),
+      wrap('loadQh', loadQh())
+    ];
 
     const now = Date.now();
-    // Pocasi a vitr DE - throttle 1 hodina (cache 3h na backendu)
     if (now - _lastWeatherLoad > WEATHER_THROTTLE_MS) {
       _lastWeatherLoad = now;
-      tasks.push(loadWeather());
-      tasks.push(loadWindDe());
+      tasks.push(wrap('loadWeather', loadWeather()));
+      tasks.push(wrap('loadWindDe', loadWindDe()));
     }
     if (now - _lastCenaTableLoad > CENA_TABLE_THROTTLE_MS) {
       _lastCenaTableLoad = now;
-      tasks.push(loadCenaTable());
-      tasks.push(loadCenaRE());  // Cena RE - minutova granularita, throttle 60s
-      tasks.push(loadSpotTable('CZ', 'tbl-spot-cz'));
-      tasks.push(loadSpotTable('DE', 'tbl-spot-de'));
+      tasks.push(wrap('loadCenaTable', loadCenaTable()));
+      tasks.push(wrap('loadCenaRE', loadCenaRE()));
+      tasks.push(wrap('loadSpotTable CZ', loadSpotTable('CZ', 'tbl-spot-cz')));
+      tasks.push(wrap('loadSpotTable DE', loadSpotTable('DE', 'tbl-spot-de')));
     }
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
-      tasks.push(loadGenerationRES());
+      tasks.push(wrap('loadGenerationRES', loadGenerationRES()));
     }
-    // VDT KPI karta - throttle 5min (data se mění s ~1h zpožděním)
     if (now - _lastVdtKpiLoad > VDT_KPI_THROTTLE_MS) {
       _lastVdtKpiLoad = now;
-      tasks.push(loadVdtKpi());
+      tasks.push(wrap('loadVdtKpi', loadVdtKpi()));
     }
-    // Regelleistung NENI v await chain - bezi nezavisle na zbytku dashboardu.
-    // Vlastni loading state, vlastni 15min throttling, neblokuje setDot('ok').
     loadRegelleistungAfrr(false);
 
-    await Promise.allSettled(tasks);
-    setDot('ok', 'Live · '+new Date().toLocaleTimeString('cs'));
+    const results = await Promise.allSettled(tasks);
+    const failed = results.filter(r => r.status === 'rejected').length;
+    const ok = results.filter(r => r.status === 'fulfilled').length;
+    dbg('SUMMARY', failed > 0 ? 'ERR' : 'OK', `${ok}/${results.length} OK, ${failed} fails`);
+    setDot(failed > 0 ? 'err' : 'ok', failed > 0 ? `${failed} chyb` : 'Live · '+new Date().toLocaleTimeString('cs'));
   } catch(e) {
+    dbg('loadAll', 'ERR', e.message || String(e));
     setDot('err', 'Chyba');
     const el=document.getElementById('err');
-    el.innerHTML=`Nelze připojit <code>${API_URL}</code> — spusť <code>python server.py</code>`;
+    el.innerHTML=`Nelze připojit <code>${API_URL}</code> — <code>${e.message}</code>`;
     el.style.display='block';
+  }
+}
   }
 }
 
