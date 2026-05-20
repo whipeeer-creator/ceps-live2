@@ -110,7 +110,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 <div class="row" style="grid-template-columns: 1fr;">
   <div class="card" style="padding: 0;">
     <div style="padding:8px 12px;border-bottom:1px solid #eef0f7;display:flex;justify-content:space-between;align-items:center;">
-      <span style="font-size:11px;color:#666;font-weight:600;">Posledních 8 QH použitých v SS3 výpočtu</span>
+      <span style="font-size:11px;color:#666;font-weight:600;">Posledních 8 QH (z toho použito pro SS3 výpočet):</span>
       <span id="emaTableSummary"></span>
     </div>
     <table>
@@ -130,15 +130,25 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   </div>
 </div>
 
-<h2>📊 Dnešní backtest @ 1 MWh (NET spread Odch−VDT)</h2>
+<h2 id="backtestH2">📊 Backtest <span id="backtestTitleMode">@ 1 MWh (NET spread Odch−VDT)</span></h2>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+  <div style="display:flex;gap:0;background:#eef0f7;border-radius:8px;padding:3px;">
+    <button id="btn-mode-flat" onclick="setBtMode('flat')" style="padding:6px 14px;border:none;background:#1565c0;color:#fff;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">1 MWh flat</button>
+    <button id="btn-mode-pyr" onclick="setBtMode('pyr')" style="padding:6px 14px;border:none;background:transparent;color:#1a1a2e;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Pyramid 1-10 MWh + hedge −30€</button>
+  </div>
+  <div style="display:flex;gap:0;background:#eef0f7;border-radius:8px;padding:3px;margin-left:auto;">
+    <button id="btn-period-today" onclick="setBtPeriod('today')" style="padding:6px 14px;border:none;background:#1565c0;color:#fff;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Dnes</button>
+    <button id="btn-period-30d" onclick="setBtPeriod('30d')" style="padding:6px 14px;border:none;background:transparent;color:#1a1a2e;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Last 30 dní</button>
+  </div>
+</div>
 <div class="row">
   <div class="card">
-    <div class="card-l">NET Profit dnes (LAG4)</div>
+    <div class="card-l" id="bkProfitLabel">NET Profit dnes (LAG4)</div>
     <div class="card-v big" id="bkProfit">—<span class="u">EUR</span></div>
     <div class="card-s" id="bkProfitKc">—</div>
   </div>
   <div class="card">
-    <div class="card-l">Trades dnes</div>
+    <div class="card-l">Trades</div>
     <div class="card-v" id="bkTrades">—</div>
     <div class="card-s" id="bkTradesDetail">—</div>
   </div>
@@ -150,7 +160,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   <div class="card">
     <div class="card-l">Avg trade</div>
     <div class="card-v" id="bkAvgTrade">—<span class="u">EUR</span></div>
-    <div class="card-s">historicky +24 EUR (2025-2026)</div>
+    <div class="card-s" id="bkAvgTradeDetail">historicky +24 EUR (2025-2026)</div>
   </div>
 </div>
 
@@ -267,6 +277,132 @@ const SS_C1 = 1 - SS_C2 - SS_C3;
 // Backward compat - některé staré reference
 const ALPHA = 2/9;
 let API_URL = window.location.origin;
+
+// === BACKTEST MODE + PERIOD ===
+let BT_MODE = 'flat';     // 'flat' (1 MWh) | 'pyr' (1-10 MWh + hedge -30)
+let BT_PERIOD = 'today';  // 'today' | '30d'
+let _btRowsCache = null;  // cache pro dnešní rows
+let _btRows30dCache = null;  // cache pro 30-day rows
+let _bt30dEma = null;     // ema pro 30-day
+
+function setBtMode(mode) {
+  BT_MODE = mode;
+  document.getElementById('btn-mode-flat').style.background = mode === 'flat' ? '#1565c0' : 'transparent';
+  document.getElementById('btn-mode-flat').style.color = mode === 'flat' ? '#fff' : '#1a1a2e';
+  document.getElementById('btn-mode-pyr').style.background = mode === 'pyr' ? '#1565c0' : 'transparent';
+  document.getElementById('btn-mode-pyr').style.color = mode === 'pyr' ? '#fff' : '#1a1a2e';
+  document.getElementById('backtestTitleMode').textContent = mode === 'flat' 
+    ? '@ 1 MWh (NET spread Odch−VDT)'
+    : '@ Pyramid 1-10 MWh + hedge stop −30€';
+  refreshBacktest();
+}
+
+function setBtPeriod(period) {
+  BT_PERIOD = period;
+  document.getElementById('btn-period-today').style.background = period === 'today' ? '#1565c0' : 'transparent';
+  document.getElementById('btn-period-today').style.color = period === 'today' ? '#fff' : '#1a1a2e';
+  document.getElementById('btn-period-30d').style.background = period === '30d' ? '#1565c0' : 'transparent';
+  document.getElementById('btn-period-30d').style.color = period === '30d' ? '#fff' : '#1a1a2e';
+  document.getElementById('bkProfitLabel').textContent = period === 'today' ? 'NET Profit dnes (LAG4)' : 'NET Profit 30 dní (LAG4)';
+  
+  if (period === '30d' && !_btRows30dCache) {
+    load30DayBacktest();
+  } else {
+    refreshBacktest();
+  }
+}
+
+function refreshBacktest() {
+  if (BT_PERIOD === 'today') {
+    if (_btRowsCache && window._lastEma) {
+      renderBacktest(_btRowsCache, window._lastEma);
+    }
+  } else {
+    if (_btRows30dCache && _bt30dEma) {
+      renderBacktest(_btRows30dCache, _bt30dEma);
+    }
+  }
+}
+
+async function load30DayBacktest() {
+  document.getElementById('bkProfit').innerHTML = '<span style="color:#999;font-size:14px;">načítám 30 dní…</span>';
+  
+  const KURZ = 24.5;
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  
+  const dayPromises = [];
+  const daysToFetch = [];
+  for (let i = 30; i >= 1; i--) {
+    const d = new Date(now.getTime() - i*86400000);
+    const yyyy = d.getFullYear(), mm = d.getMonth()+1, dd = d.getDate();
+    const dStr = `${yyyy}-${pad(mm)}-${pad(dd)}`;
+    daysToFetch.push(dStr);
+    dayPromises.push(
+      Promise.all([
+        fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${dStr}T00:00:00&dateTo=${dStr}T23:59:59`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${API_URL}/ote/vdt?date=${dStr}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+      ])
+    );
+  }
+  
+  const dayResults = await Promise.all(dayPromises);
+  
+  const allRows = [];
+  for (let idx = 0; idx < daysToFetch.length; idx++) {
+    const day = daysToFetch[idx];
+    const [dOdch, dVdt] = dayResults[idx];
+    if (!dOdch || !dOdch.rows) continue;
+    
+    // Build VDT map
+    const vdtMap = {};
+    const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt?.data || []);
+    for (const v of vdtList) {
+      const ts = v.timestamp || v.ts || '';
+      const m = ts.match(/T(\d{2}):(\d{2})/);
+      if (!m) continue;
+      const hh = m[1], mm = parseInt(m[2]);
+      let endMM = mm + 15, endHH = parseInt(hh);
+      if (endMM >= 60) { endMM = 0; endHH++; }
+      const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+      const priceEur = parseFloat(v.last);
+      if (!isNaN(priceEur)) vdtMap[interval] = priceEur;
+    }
+    
+    for (const row of dOdch.rows) {
+      const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+      const interval = row['Interval'] || '';
+      if (!interval) continue;
+      allRows.push({
+        interval, date: day, kc: price_kc,
+        odch: price_kc / KURZ,
+        vdt: vdtMap[interval] !== undefined ? vdtMap[interval] : null,
+        isToday: true  // pro backtest treba mit "isToday" true at se zaradi
+      });
+    }
+  }
+  
+  // Spocitej SS3 pro 30-day data
+  const prices = allRows.map(r => r.odch);
+  const ema30 = [];
+  const validPrices30 = [];
+  for (let i = 0; i < prices.length; i++) {
+    validPrices30.push(prices[i]);
+    if (validPrices30.length === 1) ema30.push(prices[i]);
+    else if (validPrices30.length === 2) ema30.push(prices[i]);
+    else {
+      const prev1 = ema30[ema30.length-1];
+      const prev2 = ema30[ema30.length-2];
+      const ss = SS_C1 * (prices[i] + prices[i-1]) / 2 + SS_C2 * prev1 + SS_C3 * prev2;
+      ema30.push(ss);
+    }
+  }
+  
+  _btRows30dCache = allRows;
+  _bt30dEma = ema30;
+  console.log(`[30d backtest] Loaded ${allRows.length} QH, days with data: ${new Set(allRows.map(r => r.date)).size}`);
+  refreshBacktest();
+}
 
 async function loadAll() {
   try {
@@ -412,6 +548,10 @@ async function loadAll() {
     renderCurrentSignal(rows, ema);
     renderEmaTable(rows, ema);
     renderBacktest(rows, ema);
+    
+    // Cache pro toggle
+    _btRowsCache = rows;
+    window._lastEma = ema;
     
   } catch(e) {
     console.error(e);
@@ -612,6 +752,7 @@ function renderBacktest(rows, ema) {
   if (n < LAG + 1) return;
   
   let netProfit = 0, wins = 0, losses = 0, trades = 0, skipNoVdt = 0;
+  let totalMwh = 0;  // pro tracking celkového objemu
   const hourly = {};
   const tradeList = [];
   
@@ -622,30 +763,47 @@ function renderBacktest(rows, ema) {
     const vdt = rows[i].vdt;
     const kc = rows[i].kc;
     
-    // Skip včerejší QH v dnešním backtestu (jen pro SS3 warm-up)
-    if (!rows[i].isToday) continue;
+    // Pro DNES: skip vcerejsi QH (jen warmup)
+    // Pro 30d: ber vsechno (isToday je vsude true v 30d datech)
+    if (BT_PERIOD === 'today' && !rows[i].isToday) continue;
     
-    // Klasifikace QH
     let skipReason = null;
     let direction = 0;
     let net = 0;
+    let mwh = 1;  // default 1 MWh
     
-    // Check jestli je to "recent" QH (skončila < 30 min nazpátek)
     const tmBT = rows[i].interval.match(/^(\d{1,2}):(\d{2})/);
     const qhEndMinBT = tmBT ? (parseInt(tmBT[1])*60 + parseInt(tmBT[2]) + 15) : 0;
-    const isRecent = (nowMinBT - qhEndMinBT) < 30 && (nowMinBT - qhEndMinBT) >= 0;
+    const isRecent = BT_PERIOD === 'today' && (nowMinBT - qhEndMinBT) < 30 && (nowMinBT - qhEndMinBT) >= 0;
     
     if (vdt === null || vdt === undefined) {
       skipReason = '⏸ chybí VDT';
       skipNoVdt++;
     } else if (kc === 0 && isRecent) {
-      // 0 v recent QH = pravděpodobně nezúčtováno → skip
       skipReason = '⏸ Odch=0 (recent)';
     } else {
-      // Trade (i s Odch=0 pokud je QH starší než 30 min = legit 0)
       direction = sig > 0 ? +1 : -1;
-      net = direction * (actual - vdt);
+      const rawSpread = actual - vdt;
+      
+      if (BT_MODE === 'pyr') {
+        // POZICE SIZING podle síly signálu
+        const absSig = Math.abs(sig);
+        if (absSig < 30) mwh = 1;
+        else if (absSig < 100) mwh = 3;
+        else if (absSig < 200) mwh = 7;
+        else mwh = 10;
+        
+        // HEDGE STOP -30€/MWh
+        const netPerMwh = direction * rawSpread;
+        const effectivePerMwh = Math.max(netPerMwh, -30);  // ztráta max -30 EUR/MWh
+        net = effectivePerMwh * mwh;
+      } else {
+        // FLAT 1 MWh, no hedge
+        net = direction * rawSpread;
+      }
+      
       netProfit += net;
+      totalMwh += mwh;
       trades++;
       if (net > 0) wins++;
       else if (net < 0) losses++;
@@ -657,10 +815,10 @@ function renderBacktest(rows, ema) {
       if (net > 0) hourly[h].w++;
     }
     
-    // Vložit DO TABULKY i skipnutá QH
     tradeList.push({
       interval: rows[i].interval,
-      sig, direction, vdt, actual, net,
+      date: rows[i].date,
+      sig, direction, vdt, actual, net, mwh,
       cumProfit: netProfit,
       skipReason
     });
@@ -672,12 +830,14 @@ function renderBacktest(rows, ema) {
   
   document.getElementById('bkProfit').innerHTML = 
     `<span class="${netProfit >= 0 ? 'green' : 'red'}">${netProfit >= 0 ? '+' : ''}${netProfit.toFixed(0)}</span><span class="u">EUR</span>`;
-  document.getElementById('bkProfitKc').textContent = 
-    (skipNoVdt > 0 ? `${skipNoVdt} skip (chybí VDT)` : `@ 1 MWh · NET spread`);
+  
+  const periodTxt = BT_PERIOD === 'today' ? 'dnes' : `30 dní`;
+  const modeTxt = BT_MODE === 'flat' ? '@ 1 MWh' : `Ø ${(totalMwh/trades||0).toFixed(1)} MWh/trade · hedge −30€`;
+  document.getElementById('bkProfitKc').textContent = `${periodTxt} · ${modeTxt}` + (skipNoVdt > 0 ? ` · ${skipNoVdt} skip VDT` : '');
   
   document.getElementById('bkTrades').textContent = trades;
   document.getElementById('bkTradesDetail').textContent = 
-    `${n-LAG} hodnocených QH · bez filtru`;
+    BT_MODE === 'pyr' ? `Σ ${totalMwh.toFixed(0)} MWh · ${periodTxt}` : `${trades} × 1 MWh · ${periodTxt}`;
   
   document.getElementById('bkWinrate').innerHTML = 
     `<span class="${wr >= 50 ? 'green' : 'red'}">${wr.toFixed(0)}</span><span class="u">%</span>`;
@@ -686,6 +846,12 @@ function renderBacktest(rows, ema) {
   
   document.getElementById('bkAvgTrade').innerHTML = 
     `<span class="${avg >= 0 ? 'green' : 'red'}">${avg >= 0 ? '+' : ''}${avg.toFixed(1)}</span><span class="u">EUR</span>`;
+  const avgDetail = document.getElementById('bkAvgTradeDetail');
+  if (avgDetail) {
+    avgDetail.textContent = BT_MODE === 'pyr' 
+      ? `EUR/trade · ${(netProfit/totalMwh||0).toFixed(1)} EUR/MWh`
+      : `historicky +24 EUR (2025-2026)`;
+  }
   
   // Hourly - ZAHRNUJ VŠECHNY hodiny dne (i bez tradů)
   // Najdi range hodin v rows[]
