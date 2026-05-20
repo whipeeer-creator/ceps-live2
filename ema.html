@@ -109,6 +109,10 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 <h2>📐 Výpočet SS3 - posledních 8 publikovaných cen odchylky</h2>
 <div class="row" style="grid-template-columns: 1fr;">
   <div class="card" style="padding: 0;">
+    <div style="padding:8px 12px;border-bottom:1px solid #eef0f7;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:11px;color:#666;font-weight:600;">Posledních 8 QH použitých v SS3 výpočtu</span>
+      <span id="emaTableSummary"></span>
+    </div>
     <table>
       <thead>
         <tr>
@@ -541,13 +545,27 @@ function renderEmaTable(rows, ema) {
   if (n < 8) return;
   const tbody = document.getElementById('emaTable');
   const startIdx = Math.max(0, n - 8);
-  // EMA8 pro tradable QH (T+40 budoucnost) se počítá z VŠECH publikovaných dat
-  // Poslední řádek tabulky = poslední data použitá pro EMA8 výpočet
-  const sigIdx = n - 1;  // poslední publikovaná QH
+  const sigIdx = n - 1;
+  
+  // Zjisti ktere radky byly REALNE pouzity v SS3 (skip recent 0)
+  const nowMinE = new Date().getHours() * 60 + new Date().getMinutes();
+  const usedSet = new Set();
+  for (let i = 0; i < rows.length; i++) {
+    const tm = rows[i].interval.match(/^(\d{1,2}):(\d{2})/);
+    const qhEnd = tm ? (parseInt(tm[1])*60 + parseInt(tm[2]) + 15) : 0;
+    const isRecent = (nowMinE - qhEnd) < 30 && (nowMinE - qhEnd) >= 0;
+    if (rows[i].odch === 0 && isRecent) {
+      // 0 v RECENT QH se NEPOUZILA
+      continue;
+    }
+    usedSet.add(i);
+  }
+  
   let html = '';
   for (let i = startIdx; i < n; i++) {
     const r = rows[i];
     const isLag = (i === sigIdx);
+    const isUsed = usedSet.has(i);
     const cls = isLag ? 'signal-now' : '';
     const weight = Math.pow(1 - ALPHA, n - 1 - i);
     const weightPct = (weight * 100).toFixed(1);
@@ -555,14 +573,37 @@ function renderEmaTable(rows, ema) {
     const barColor = eur >= 0 ? 'bar-pos' : 'bar-neg';
     const maxAbs = Math.max(...rows.slice(startIdx).map(x => Math.abs(x.odch)));
     const barW = maxAbs > 0 ? Math.min(100, Math.abs(eur)/maxAbs*100) : 0;
-    html += `<tr class="${cls}">
-      <td>${r.interval}${isLag ? ' <span style="color:#1565c0;font-size:9px;">← poslední data SS3</span>' : ''}</td>
+    
+    // Status badge - vlevo u intervalu
+    let statusBadge;
+    if (!isUsed) {
+      statusBadge = '<span style="background:#ffe7d4;color:#c0392b;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;margin-left:4px;">SKIP·0 nezúčt.</span>';
+    } else {
+      statusBadge = '<span style="background:#d4f5e0;color:#155724;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;margin-left:4px;">✓ SS3</span>';
+    }
+    if (isLag) {
+      statusBadge += ' <span style="color:#1565c0;font-size:9px;font-weight:700;">← poslední</span>';
+    }
+    
+    const rowOpacity = isUsed ? '1' : '0.5';
+    html += `<tr class="${cls}" style="opacity:${rowOpacity};">
+      <td>${r.interval}${statusBadge}</td>
       <td class="${eur >= 0 ? 'green' : 'red'}">${eur >= 0 ? '+' : ''}${eur.toFixed(1)}</td>
       <td class="${ema[i] >= 0 ? 'green' : 'red'}">${ema[i] >= 0 ? '+' : ''}${ema[i].toFixed(1)}</td>
       <td>${weightPct}%</td>
       <td><div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div></td>
     </tr>`;
   }
+  
+  // Header summary nad tabulkou - kolik bylo SKIP
+  const skippedInWindow = 8 - usedSet.size > 0 ? Array.from({length: 8}).filter((_, idx) => !usedSet.has(startIdx + idx)).length : 0;
+  const usedInWindow = 8 - skippedInWindow;
+  const summary = document.getElementById('emaTableSummary');
+  if (summary) {
+    summary.innerHTML = `<span style="background:#d4f5e0;color:#155724;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;">✓ ${usedInWindow}× použito</span>` +
+      (skippedInWindow > 0 ? ` <span style="background:#ffe7d4;color:#c0392b;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;">⊘ ${skippedInWindow}× skip (recent 0)</span>` : '');
+  }
+  
   tbody.innerHTML = html;
 }
 
