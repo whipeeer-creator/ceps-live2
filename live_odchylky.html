@@ -2870,7 +2870,7 @@ async function loadHistOdchTable() {
       const pad2Local = n => String(n).padStart(2,'0');
       
       // Radek 1: SELL (cervena)
-      html += `<tr><td style="padding:4px 6px;background:#c0392b;color:#fff;border:1px solid #c0392b;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:28px;box-sizing:border-box;">⊕<br><span style="font-size:8px;font-weight:400;color:#fbd5d0;">SELL ${pad2Local(selQh)}</span></td>`;
+      html += `<tr><td style="padding:2px 4px;background:#c0392b;color:#fff;border:1px solid #c0392b;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:32px;box-sizing:border-box;overflow:hidden;"><div style="line-height:1.1;">⊕ SELL</div><div style="font-size:8px;font-weight:400;color:#fbd5d0;line-height:1.1;">:${pad2Local(selQh)}</div></td>`;
       for (let h = 1; h <= 24; h++) {
         const dataH = h - 1;
         let plusCount = 0, total = 0;
@@ -2885,13 +2885,13 @@ async function loadHistOdchTable() {
         const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #c0392b;';
         const bg = isCurCol ? '#7e1c11' : '#c0392b';
         const pct = total ? Math.round(plusCount/total*100) : 0;
-        const txt = `${plusCount}<span style="color:#fbd5d0;font-weight:400;">/${total}</span> <span style="font-size:8px;color:#fbd5d0;font-weight:400;">${pct}%</span>`;
-        html += `<td style="padding:2px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;height:28px;box-sizing:border-box;white-space:nowrap;">${txt}</td>`;
+        const txt = `<div style="line-height:1.1;">${plusCount}<span style="color:#fbd5d0;font-weight:400;">/${total}</span></div><div style="font-size:8px;color:#fbd5d0;font-weight:400;line-height:1.1;">${pct}%</div>`;
+        html += `<td style="padding:2px 2px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;height:32px;box-sizing:border-box;white-space:nowrap;overflow:hidden;">${txt}</td>`;
       }
       html += '</tr>';
       
       // Radek 2: BUY (modra)
-      html += `<tr><td style="padding:4px 6px;background:#1565c0;color:#fff;border:1px solid #1565c0;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:28px;box-sizing:border-box;">⊖<br><span style="font-size:8px;font-weight:400;color:#a8c5e5;">BUY ${pad2Local(selQh)}</span></td>`;
+      html += `<tr><td style="padding:2px 4px;background:#1565c0;color:#fff;border:1px solid #1565c0;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:32px;box-sizing:border-box;overflow:hidden;"><div style="line-height:1.1;">⊖ BUY</div><div style="font-size:8px;font-weight:400;color:#a8c5e5;line-height:1.1;">:${pad2Local(selQh)}</div></td>`;
       for (let h = 1; h <= 24; h++) {
         const dataH = h - 1;
         let minusCount = 0, total = 0;
@@ -2906,8 +2906,8 @@ async function loadHistOdchTable() {
         const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #1565c0;';
         const bg = isCurCol ? '#0d47a1' : '#1565c0';
         const pct = total ? Math.round(minusCount/total*100) : 0;
-        const txt = `${minusCount}<span style="color:#a8c5e5;font-weight:400;">/${total}</span> <span style="font-size:8px;color:#a8c5e5;font-weight:400;">${pct}%</span>`;
-        html += `<td style="padding:2px 4px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;height:28px;box-sizing:border-box;white-space:nowrap;">${txt}</td>`;
+        const txt = `<div style="line-height:1.1;">${minusCount}<span style="color:#a8c5e5;font-weight:400;">/${total}</span></div><div style="font-size:8px;color:#a8c5e5;font-weight:400;line-height:1.1;">${pct}%</div>`;
+        html += `<td style="padding:2px 2px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;height:32px;box-sizing:border-box;white-space:nowrap;overflow:hidden;">${txt}</td>`;
       }
       html += '</tr>';
       
