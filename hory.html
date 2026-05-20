@@ -250,13 +250,13 @@ canvas { max-width: 100%; display: block; }
         </div>
       </div>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT</div>
-      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div onclick="document.getElementById('tbl-spot-cz-qh-wrap').style.display=document.getElementById('tbl-spot-cz-qh-wrap').style.display==='none'?'block':'none';this.querySelector('.qh-arrow').textContent=document.getElementById('tbl-spot-cz-qh-wrap').style.display==='none'?'▸':'▾';" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:6px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:4px 8px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="qh-arrow">▸</span> 🇨🇿 CZ DT · 15min QH (rozkliknout)</div>
+      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
+      <div onclick="var w=document.getElementById('tbl-spot-cz-qh-wrap');var open=w.style.display==='none';w.style.display=open?'block':'none';this.querySelector('.qh-arrow').textContent=open?'▾':'▸';if(open&&typeof loadSpotQhTable==='function')loadSpotQhTable('tbl-spot-cz-qh');" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:6px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:4px 8px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="qh-arrow">▸</span> 🇨🇿 CZ DT · 15min QH (rozkliknout)</div>
       <div id="tbl-spot-cz-qh-wrap" style="display:none;">
-        <table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+        <table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
       </div>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE DT</div>
-      <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+      <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
     </div>
   </div>
 
@@ -2705,10 +2705,10 @@ async function loadSpotQhTable(tableId) {
     const tbl = document.getElementById(tableId);
     if (!tbl) return;
     
-    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
+    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;"></th>';
     for (let h = 1; h <= 24; h++) {
       const isCur = h === curHour;
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;">H${String(h).padStart(2,'0')}</th>`;
     }
     html += '</tr></thead><tbody>';
     
@@ -2849,13 +2849,13 @@ async function loadSpotTable(country, tableId) {
     const priceByHourTom = {};
     rowsTom.forEach(row => { priceByHourTom[row.hour] = row.price_eur; });
     
-    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
+    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;"></th>';
     for (let h = 1; h <= 24; h++) {
       const isCur = h === curHour;
       const fromHr = String(h-1).padStart(2,'0');
       const toHr = String(h).padStart(2,'0');
       const labelColor = isCur ? '#fff' : '#666';
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
     }
     html += '</tr></thead><tbody>';
     
@@ -3060,10 +3060,10 @@ async function loadHistOdchTable() {
       const selQh = window._histSelectedQh;
       
       let html = '<thead><tr>';
-      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;height:32px;position:sticky;left:0;top:0;z-index:3;font-size:9px;"></th>';
+      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;height:32px;position:sticky;left:0;top:0;z-index:3;font-size:9px;"></th>';
       for (let h = 1; h <= 24; h++) {
         const isCur = h === selHour;
-        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;height:32px;position:sticky;top:0;z-index:2;">H${pad(h)}</th>`;
+        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;height:32px;position:sticky;top:0;z-index:2;">H${pad(h)}</th>`;
       }
       html += '</tr></thead><tbody>';
       
@@ -3453,10 +3453,10 @@ async function loadCenaTable() {
 
     const tbl = document.getElementById('tbl-cena');
     const curHour = now.getHours() + 1;  // 0-23 -> H01-H24
-    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
+    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;"></th>';
     hours.forEach(h => {
       const isCur = h === curHour;
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;">H${String(h).padStart(2,'0')}</th>`;
     });
     html += '</tr></thead><tbody>';
 
@@ -4006,13 +4006,13 @@ async function loadSpotTable(country, tableId) {
     const priceByHourTom = {};
     rowsTom.forEach(row => { priceByHourTom[row.hour] = row.price_eur; });
     
-    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
+    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;"></th>';
     for (let h = 1; h <= 24; h++) {
       const isCur = h === curHour;
       const fromHr = String(h-1).padStart(2,'0');
       const toHr = String(h).padStart(2,'0');
       const labelColor = isCur ? '#fff' : '#666';
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
     }
     html += '</tr></thead><tbody>';
     
