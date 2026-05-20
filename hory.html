@@ -207,7 +207,7 @@ canvas { max-width: 100%; display: block; }
   <div class="chart-panel">
     <div class="panel-hdr"><div class="panel-title">ČEPS - CENY</div></div>
     <div id="spotTablesWrap" style="overflow-x:auto;padding:8px 12px;">
-      <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table>
+      <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
       <div onclick="
         var w=document.getElementById('tbl-hist-odch-wrap');
         var arrow=this.querySelector('.hist-arrow');
@@ -232,7 +232,7 @@ canvas { max-width: 100%; display: block; }
           <span><span style="display:inline-block;width:14px;height:10px;background:#c0392b;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><b>top 5%</b> nejdražší</span>
         </div>
         <div style="max-height:600px;overflow:auto;">
-          <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table>
+          <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
         </div>
         <div style="font-size:9px;color:#666;margin-top:6px;font-family:'JetBrains Mono',monospace;line-height:1.5;">
           <span style="color:#c0392b;font-weight:700;">⊕ SELL</span> = jak často byla soustava+ (cena ≤ 0, přebytek) v této QH za posledních 30 dní<br>
@@ -3059,14 +3059,11 @@ async function loadHistOdchTable() {
       const selHour = window._histSelectedHour;
       const selQh = window._histSelectedQh;
       
-      let html = '<colgroup><col style="width:4%;">';
-      for (let i = 0; i < 24; i++) html += '<col style="width:4%;">';
-      html += '</colgroup>';
-      html += '<thead><tr>';
-      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;height:32px;position:sticky;left:0;top:0;z-index:3;font-size:9px;"></th>';
+      let html = '<thead><tr>';
+      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;height:32px;position:sticky;left:0;top:0;z-index:3;font-size:9px;"></th>';
       for (let h = 1; h <= 24; h++) {
         const isCur = h === selHour;
-        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;height:32px;position:sticky;top:0;z-index:2;">H${pad(h)}</th>`;
+        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;height:32px;position:sticky;top:0;z-index:2;">H${pad(h)}</th>`;
       }
       html += '</tr></thead><tbody>';
       
@@ -3409,6 +3406,8 @@ function drawQhProbHistogram(byDay, curHourH, curQhMin) {
 
 
 
+
+
 async function loadCenaTable() {
   try {
     const now = new Date();
@@ -3454,13 +3453,10 @@ async function loadCenaTable() {
 
     const tbl = document.getElementById('tbl-cena');
     const curHour = now.getHours() + 1;  // 0-23 -> H01-H24
-    let html = '<colgroup><col style="width:4%;">';
-    for (let i = 0; i < 24; i++) html += '<col style="width:4%;">';
-    html += '</colgroup>';
-    html += '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;"></th>';
+    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
     hours.forEach(h => {
       const isCur = h === curHour;
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;">H${String(h).padStart(2,'0')}</th>`;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
     });
     html += '</tr></thead><tbody>';
 
@@ -3483,6 +3479,441 @@ async function loadCenaTable() {
     tbl.innerHTML = html;
   } catch(e) {}
 }
+
+async function loadCena() {
+  const d = await apiFetch('OdhadovanaCenaOdchylky');
+  if (!d.rows.length) return;
+  const priceCol = d.columns.find(c=>/price|estim/i.test(c))||d.columns[0];
+  const intCol   = d.columns.find(c=>c==='Interval')||'';
+  
+  // Najit POSLEDNI ZUCTOVANOU QH = posledni radek s nenulovou cenou (kladnou i zapornou)
+  let last = null;
+  for (let i = d.rows.length - 1; i >= 0; i--) {
+    const raw = d.rows[i][priceCol];
+    if (raw === null || raw === undefined || raw === '') continue;
+    const v = parseFloat(raw);
+    if (isNaN(v)) continue;
+    if (v === 0) continue;
+    last = d.rows[i];
+    break;
+  }
+  if (!last) last = d.rows[d.rows.length-1];
+  
+  // Cena odchylky - prevod Kc -> EUR (kurz 24.5)
+  const cenaKc = parseFloat(last[priceCol])||0;
+  const cenaEur = cenaKc / 24.5;
+  setKPI('C', cenaEur, 'EUR/MWh', `interval: ${last[intCol]||'—'}`, d.fetched_at,
+    {greenBelow: 40, redAbove: 120});
+}
+
+// Throttling pro pomalé endpointy
+let _lastResLoad = 0;
+let _lastCenaTableLoad = 0;
+let _lastYearlyLoad = 0;
+let _lastWeatherLoad = 0;
+let _lastVdtKpiLoad = 0;
+const RES_THROTTLE_MS  = 60 * 1000;
+const CENA_TABLE_THROTTLE_MS = 60 * 1000;
+const YEARLY_THROTTLE_MS = 30 * 60 * 1000;  // 30min - data se meni jen 1x denne
+const WEATHER_THROTTLE_MS = 60 * 60 * 1000;  // 1 hodina - pocasi se nemeni rychle, setrime rate limit
+const VDT_KPI_THROTTLE_MS = 5 * 60 * 1000;  // 5 min - VDT XLSX zpozdeni ~1h
+
+// Mini fetch jen pro KPI kartu (poslední VDT cena + čas)
+async function loadVdtKpi() {
+  if (!API_URL) return;
+  try {
+    const today = new Date();
+    const fmt = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const r = await fetch(`${API_URL}/ote/vdt?date=${fmt(today)}`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d || !d.data || !d.data.length) return;
+    // Najít poslední bod s "last" cenou
+    let last = null;
+    for (let i = d.data.length - 1; i >= 0; i--) {
+      const row = d.data[i];
+      if (row.last != null && !isNaN(parseFloat(row.last))) { last = row; break; }
+    }
+    if (!last) return;
+    const v = parseFloat(last.last);
+    const dt = new Date(last.timestamp);
+    const dStr = `${String(dt.getDate()).padStart(2,'0')}.${String(dt.getMonth()+1).padStart(2,'0')}.`;
+    const tStr = `${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+    const dvEl = document.getElementById('dv-VDT');
+    const dsEl = document.getElementById('ds-VDT');
+    if (dvEl) dvEl.innerHTML = `${v.toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
+    if (dsEl) dsEl.textContent = `${dStr} ${tStr}`;
+  } catch (e) {
+    console.warn('vdtKpi:', e);
+  }
+}
+
+async function loadOteSpot() {
+  // OTE day-ahead spotová cena + denní statistiky (cache 5min na backendu)
+  try {
+    const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) return;
+
+    // === Spot OTE (aktuální cena) ===
+    if (d.price_eur != null) {
+      const eur = parseFloat(d.price_eur);
+      const czk = parseFloat(d.price_czk);
+      const hour = d.hour != null ? `h${d.hour}` : '';
+      // Hodinovy interval napr. h14 -> "14:00-15:00"
+      const hourInterval = d.hour != null
+        ? `${String(d.hour).padStart(2,'0')}:00-${String((d.hour+1)%24).padStart(2,'0')}:00`
+        : '';
+      document.getElementById('dv-P').innerHTML =
+        `${eur.toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
+      document.getElementById('ds-P').textContent =
+        `${Math.round(czk).toLocaleString('cs')} Kč · ${hourInterval} · upd ${fmtCet(d.fetched_at) || nowCet()}`;
+      const card = document.getElementById('crd-P');
+      const dvP = document.getElementById('dv-P');
+      if (eur < 50)       { card.className = 'kpi pos'; dvP.className = 'kpi-v pos'; }
+      else if (eur > 150) { card.className = 'kpi neg'; dvP.className = 'kpi-v neg'; }
+      else                { card.className = 'kpi mid'; dvP.className = 'kpi-v mid'; }
+    }
+
+    // === Min / Max dne, Spread, Vs průměr ===
+    const stats = d.day_stats;
+    if (stats) {
+      // 1) Min / Max dne
+      const minE = stats.min_eur, maxE = stats.max_eur;
+      // Hodinove intervaly (napr. 14 -> "14-15h")
+      const fmtHourInt = h => h != null
+        ? `${String(h).padStart(2,'0')}-${String((h+1)%24).padStart(2,'0')}h`
+        : '—';
+      const minInt = fmtHourInt(stats.min_hour);
+      const maxInt = fmtHourInt(stats.max_hour);
+      document.getElementById('dv-MM').innerHTML =
+        `${Math.round(minE)} / ${Math.round(maxE)}<span class="kpi-u">EUR</span>`;
+      document.getElementById('ds-MM').textContent =
+        `min: ${minInt} · max: ${maxInt}`;
+      // Min/Max barva: stejne jako Spread - velky spread = zelena, maly = cervena, mezi = oranzova
+      const cardMM = document.getElementById('crd-MM');
+      const dvMM = document.getElementById('dv-MM');
+      const sprForMM = stats.spread_eur || 0;
+      if (sprForMM >= 100)      { cardMM.className = 'kpi pos'; dvMM.className = 'kpi-v pos'; }
+      else if (sprForMM < 50)   { cardMM.className = 'kpi neg'; dvMM.className = 'kpi-v neg'; }
+      else                      { cardMM.className = 'kpi mid'; dvMM.className = 'kpi-v mid'; }
+
+      // 2) Spread dne
+      const spread = stats.spread_eur;
+      document.getElementById('dv-SP').innerHTML =
+        `${Math.round(spread)}<span class="kpi-u">EUR</span>`;
+      // Spread > 100 EUR = výhodný den pro arbitráž
+      let spreadLabel = 'malý spread';
+      if (spread >= 200) spreadLabel = '⭐ výborný pro arbitráž';
+      else if (spread >= 100) spreadLabel = '✓ dobrý pro arbitráž';
+      else if (spread >= 50) spreadLabel = 'průměrný';
+      document.getElementById('ds-SP').textContent = `${spreadLabel} · ${minInt}→${maxInt}`;
+      // Spread barva: >=100 = zelena (kupuj/dobry den), 50-100 = oranzova, <50 = cervena
+      const cardSP = document.getElementById('crd-SP');
+      const dvSP = document.getElementById('dv-SP');
+      if (spread >= 100)      { cardSP.className = 'kpi pos'; dvSP.className = 'kpi-v pos'; }
+      else if (spread < 50)   { cardSP.className = 'kpi neg'; dvSP.className = 'kpi-v neg'; }
+      else                    { cardSP.className = 'kpi mid'; dvSP.className = 'kpi-v mid'; }
+
+      // 3) Vs průměr dne (kolik % nad/pod průměrem aktuální hodina)
+      const vsAvg = stats.current_vs_avg_pct;
+      if (vsAvg != null) {
+        const sign = vsAvg > 0 ? '+' : '';
+        document.getElementById('dv-VA').innerHTML =
+          `${sign}${vsAvg.toFixed(0)}<span class="kpi-u">%</span>`;
+        const avg = stats.avg_eur;
+        let label = `prům 24h: ${Math.round(avg)} EUR`;
+        if (vsAvg < -20)      label += ' · LEVNÉ ✓';
+        else if (vsAvg > 20)  label += ' · DRAHÉ ⚠';
+        document.getElementById('ds-VA').textContent = label;
+        const cardVA = document.getElementById('crd-VA');
+        const dvVA = document.getElementById('dv-VA');
+        // <-10% = zelena (LEVNE), >+10% = cervena (DRAHO), mezi = oranzova
+        if (vsAvg < -10)      { cardVA.className = 'kpi pos'; dvVA.className = 'kpi-v pos'; }
+        else if (vsAvg > 10)  { cardVA.className = 'kpi neg'; dvVA.className = 'kpi-v neg'; }
+        else                  { cardVA.className = 'kpi mid'; dvVA.className = 'kpi-v mid'; }
+      }
+    }
+
+  } catch (e) { console.warn('OTE spot:', e); }
+}
+
+async function loadWeather() {
+  // Pocasi - Praha (Open-Meteo, cache 3h na backendu)
+  try {
+    const r = await fetch(`${API_URL}/weather`, { cache: 'no-store' });
+    if (!r.ok) {
+      document.getElementById('dv-W').innerHTML = `<span style="color:#999;">—</span>`;
+      document.getElementById('ds-W').innerHTML = `<span style="color:#c0392b;">HTTP ${r.status}</span>`;
+      return;
+    }
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('dv-W').innerHTML = `<span style="color:#999;">—</span>`;
+      document.getElementById('ds-W').innerHTML = `<span style="color:#c0392b;">${d.error}</span>`;
+      console.warn('weather error:', d.error);
+      return;
+    }
+
+    const cur = d.current || {};
+    const today = d.today || {};
+    const tom = d.tomorrow || {};
+
+    // Hlavni hodnota - aktualni teplota + ikona dneska
+    const tNow = cur.temp_c != null ? cur.temp_c.toFixed(0) : '—';
+    const wNow = cur.wind_ms != null ? cur.wind_ms.toFixed(1) : '—';
+    const iconToday = today.icon || '';
+
+    // Velke cislo: ikona + teplota
+    document.getElementById('dv-W').innerHTML =
+      `<span style="font-size:24px;">${iconToday}</span> ${tNow}<span class="kpi-u">°C · ${wNow}m/s</span>`;
+
+    // Podtitulek - kompaktni 2 radky info: dnes vs zitra
+    const dRange = (today.temp_min != null && today.temp_max != null)
+      ? `${today.temp_min.toFixed(0)}↔${today.temp_max.toFixed(0)}°` : '—';
+    const tRange = (tom.temp_min != null && tom.temp_max != null)
+      ? `${tom.temp_min.toFixed(0)}↔${tom.temp_max.toFixed(0)}°` : '—';
+    const tWind = tom.wind_max_ms != null ? `${tom.wind_max_ms.toFixed(0)}m/s` : '—';
+    const tIcon = tom.icon || '';
+    const tSun = tom.sunshine_h != null ? `${tom.sunshine_h}h ☀️` : '';
+
+    // Strukturovany podtitulek - vse na jeden radek ale kratke
+    document.getElementById('ds-W').innerHTML =
+      `<b>dnes</b> ${dRange} · <b>zítra</b> ${tIcon} ${tRange} ${tWind} ${tSun}`;
+
+    document.getElementById('crd-W').className = 'kpi';
+    document.getElementById('dv-W').className = 'kpi-v';
+  } catch (e) { console.warn('weather:', e); }
+}
+
+async function loadQh() {
+  // 15-min OTE data: posledni 8 ctvrthodin (LAST 8) + nasledujicich 8 (NEXT 8)
+  // = 2h dozadu + 2h dopredu, REALNE OTE day-ahead ceny
+  try {
+    const r = await fetch(`${API_URL}/ote/qh`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error) return;
+
+    // Helper pro plneni jedne bunky
+    function fillCell(prefix, i, row, isCurrent) {
+      const dEl = document.getElementById(`${prefix.d}${i}`);
+      const vEl = document.getElementById(`${prefix.v}${i}`);
+      const tEl = document.getElementById(`${prefix.t}${i}`);
+      const cardEl = document.getElementById(`${prefix.c}${i}`);
+      if (!dEl || !vEl || !tEl || !cardEl) return;
+
+      // Datum
+      if (row.date) {
+        const parts = row.date.split('-');
+        if (parts.length === 3) {
+          dEl.textContent = `${parseInt(parts[2])}.${parseInt(parts[1])}.${parts[0]}`;
+        } else {
+          dEl.textContent = '—';
+        }
+      } else {
+        dEl.textContent = '—';
+      }
+
+      // Cas: HH:MM (15-min interval)
+      if (row.hour != null && row.minute != null) {
+        const hh = String(row.hour).padStart(2, '0');
+        const mm = String(row.minute).padStart(2, '0');
+        tEl.textContent = `${hh}:${mm}`;
+      } else {
+        tEl.textContent = '—';
+      }
+
+      // Cena
+      if (row.price_eur == null) {
+        vEl.textContent = '—';
+        vEl.className = 'kpi-v';
+        cardEl.className = 'kpi mini' + (isCurrent ? ' current' : '');
+        return;
+      }
+      vEl.innerHTML = `${Math.round(row.price_eur)}<span style="font-size:10px;color:#555;"> €</span>`;
+
+      // Barva JEN na cene: <50 zelena (KUPUJ), 50-150 oranzova (PRUMER), >150 cervena (PRODAVEJ)
+      let cls = '';
+      if (row.price_eur < 50) cls = 'pos';
+      else if (row.price_eur > 150) cls = 'neg';
+      else cls = 'mid';
+      vEl.className = `kpi-v ${cls}`;
+      cardEl.className = 'kpi mini' + (isCurrent ? ' current' : '');
+    }
+
+    // LAST 8 - bunky H0-H7
+    if (d.last_8 && d.last_8.length === 8) {
+      d.last_8.forEach((row, i) => {
+        fillCell({c: 'crd-H', d: 'hd-H', v: 'hv-H', t: 'ht-H'}, i, row, row.is_current);
+      });
+    }
+
+    // NEXT 8 - bunky F0-F7
+    if (d.next_8 && d.next_8.length === 8) {
+      d.next_8.forEach((row, i) => {
+        fillCell({c: 'crd-F', d: 'fd-F', v: 'fv-F', t: 'ft-F'}, i, row, false);
+      });
+    }
+  } catch (e) { console.warn('OTE qh:', e); }
+}
+
+async function loadForecastDe() {
+  // EpexPredictor DE forecast - dalsich 8 hodin (proxy pro CZ via Market Coupling)
+  try {
+    const r = await fetch(`${API_URL}/forecast/de`, { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+    if (d.error || !d.next_8h) return;
+
+    d.next_8h.forEach((row, i) => {
+      const dEl = document.getElementById(`fd-F${i}`);
+      const vEl = document.getElementById(`fv-F${i}`);
+      const tEl = document.getElementById(`ft-F${i}`);
+      const cardEl = document.getElementById(`crd-F${i}`);
+      if (!dEl || !vEl || !tEl || !cardEl) return;
+
+      // Datum (z row.date = "2026-05-07")
+      const parts = (row.date || '').split('-');
+      if (parts.length === 3) {
+        dEl.textContent = `${parseInt(parts[2])}.${parseInt(parts[1])}.${parts[0]}`;
+      } else {
+        dEl.textContent = '—';
+      }
+
+      // Cas
+      if (row.hour == null) {
+        tEl.textContent = '—';
+      } else {
+        const hh = String(row.hour).padStart(2, '0');
+        tEl.textContent = `${hh}:00`;
+      }
+
+      if (row.price_eur == null) {
+        vEl.textContent = '—';
+        vEl.className = 'kpi-v';
+        cardEl.className = 'kpi mini';
+        return;
+      }
+      vEl.innerHTML = `${Math.round(row.price_eur)}<span style="font-size:10px;color:#555;"> €</span>`;
+
+      // Barva JEN na cene: <50 zelena (KUPUJ), 50-150 oranzova (PRUMER), >150 cervena (PRODAVEJ)
+      let cls = '';
+      if (row.price_eur < 50) cls = 'pos';
+      else if (row.price_eur > 150) cls = 'neg';
+      else cls = 'mid';
+      vEl.className = `kpi-v ${cls}`;
+      cardEl.className = 'kpi mini';
+    });
+  } catch (e) { console.warn('forecast DE:', e); }
+}
+
+async function loadWindDe() {
+  // Vitr v severnim Nemecku - prumer ze 3 mest (Hamburg/Bremerhaven/Husum)
+  // Ve stylu KPI Pocasi Praha - stejne poradi hodnot
+  try {
+    const r = await fetch(`${API_URL}/wind-de`, { cache: 'no-store' });
+    if (!r.ok) {
+      document.getElementById('dv-T').innerHTML = `<span style="color:#999;">—</span>`;
+      document.getElementById('ds-T').innerHTML = `<span style="color:#c0392b;">HTTP ${r.status}</span>`;
+      return;
+    }
+    const d = await r.json();
+    if (d.error) {
+      document.getElementById('dv-T').innerHTML = `<span style="color:#999;">—</span>`;
+      document.getElementById('ds-T').innerHTML = `<span style="color:#c0392b;">${d.error}</span>`;
+      console.warn('wind-de error:', d.error);
+      return;
+    }
+
+    const cur = d.current || {};
+    const today = d.today || {};
+    const tom = d.tomorrow || {};
+
+    // Velke cislo: ikona + teplota + vitr (stejne jako Praha)
+    const tNow = cur.temp_c != null ? cur.temp_c.toFixed(0) : '—';
+    const wNow = cur.wind_ms != null ? cur.wind_ms.toFixed(1) : '—';
+    const iconToday = today.icon || '';
+
+    document.getElementById('dv-T').innerHTML =
+      `<span style="font-size:24px;">${iconToday}</span> ${tNow}<span class="kpi-u">°C · ${wNow}m/s</span>`;
+
+    // Podtitulek - dnes vs zitra (stejne jako Praha)
+    const dRange = (today.temp_min != null && today.temp_max != null)
+      ? `${today.temp_min.toFixed(0)}↔${today.temp_max.toFixed(0)}°` : '—';
+    const tRange = (tom.temp_min != null && tom.temp_max != null)
+      ? `${tom.temp_min.toFixed(0)}↔${tom.temp_max.toFixed(0)}°` : '—';
+    const tWind = tom.wind_max_ms != null ? `${tom.wind_max_ms.toFixed(0)}m/s` : '—';
+    const tIcon = tom.icon || '';
+    const tSun = tom.sunshine_h != null ? `${tom.sunshine_h}h ☀️` : '';
+
+    document.getElementById('ds-T').innerHTML =
+      `<b>dnes</b> ${dRange} · <b>zítra</b> ${tIcon} ${tRange} ${tWind} ${tSun}`;
+
+    // Vitr DE-sever - vzdy cerna (jen informativni jako Praha)
+    document.getElementById('crd-T').className = 'kpi';
+    document.getElementById('dv-T').className = 'kpi-v';
+  } catch (e) { console.warn('wind-de:', e); }
+}
+
+async function loadAll() {
+  if (!API_URL) return;
+  setDot('idle', 'Načítám…');
+  document.getElementById('err').style.display = 'none';
+  try {
+    const tasks = [loadMain(), loadFreq(), loadCena(), loadOteSpot(), loadQh()];
+
+    const now = Date.now();
+    // Pocasi a vitr DE - throttle 1 hodina (cache 3h na backendu)
+    if (now - _lastWeatherLoad > WEATHER_THROTTLE_MS) {
+      _lastWeatherLoad = now;
+      tasks.push(loadWeather());
+      tasks.push(loadWindDe());
+    }
+    if (now - _lastCenaTableLoad > CENA_TABLE_THROTTLE_MS) {
+      _lastCenaTableLoad = now;
+      tasks.push(loadCenaTable());
+      tasks.push(loadCenaRE());  // Cena RE - minutova granularita, throttle 60s
+      tasks.push(loadSpotTable('CZ', 'tbl-spot-cz'));
+      tasks.push(loadSpotTable('DE', 'tbl-spot-de'));
+    }
+    if (now - _lastResLoad > RES_THROTTLE_MS) {
+      _lastResLoad = now;
+      tasks.push(loadGenerationRES());
+    }
+    // VDT KPI karta - throttle 5min (data se mění s ~1h zpožděním)
+    if (now - _lastVdtKpiLoad > VDT_KPI_THROTTLE_MS) {
+      _lastVdtKpiLoad = now;
+      tasks.push(loadVdtKpi());
+    }
+    // Regelleistung NENI v await chain - bezi nezavisle na zbytku dashboardu.
+    // Vlastni loading state, vlastni 15min throttling, neblokuje setDot('ok').
+    loadRegelleistungAfrr(false);
+
+    await Promise.allSettled(tasks);
+    setDot('ok', 'Live · '+new Date().toLocaleTimeString('cs'));
+  } catch(e) {
+    setDot('err', 'Chyba');
+    const el=document.getElementById('err');
+    el.innerHTML=`Nelze připojit <code>${API_URL}</code> — spusť <code>python server.py</code>`;
+    el.style.display='block';
+  }
+}
+
+function setRefresh(sec) {
+  if (refreshTimer)   clearInterval(refreshTimer);
+  if (countdownTimer) clearInterval(countdownTimer);
+  let rem = sec;
+  document.getElementById('cd').textContent = rem+'s';
+  countdownTimer = setInterval(()=>{ rem=Math.max(0,rem-1); document.getElementById('cd').textContent=rem+'s'; if(rem<=0)rem=sec; }, 1000);
+  refreshTimer   = setInterval(()=>{ loadAll(); rem=sec; }, sec*1000);
+}
+
+window.addEventListener('resize', ()=>{ if(API_URL) loadAll(); });
+window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ if(API_URL) loadAll(); }, 200); }
+
+
 
 async function loadSpotTable(country, tableId) {
   // Spot cena DA pro CZ/DE - dnes + šedý řádek zítra

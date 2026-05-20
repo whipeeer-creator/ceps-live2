@@ -224,7 +224,7 @@ canvas { max-width: 100%; display: block; }
     <div class="panel-hdr"><div class="panel-title">Ceny — odchylka & spot (CZ/DE)</div></div>
     <div style="overflow-x:auto;padding:8px 12px;">
       <div style="font-size:10px;color:#666;margin-bottom:3px;font-family:'JetBrains Mono',monospace;">Odhadovaná cena odchylky · EUR/MWh</div>
-      <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table>
+      <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
       <div onclick="
         var w=document.getElementById('tbl-hist-odch-wrap');
         var arrow=this.querySelector('.hist-arrow');
@@ -249,7 +249,7 @@ canvas { max-width: 100%; display: block; }
           <span><span style="display:inline-block;width:14px;height:10px;background:#c0392b;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><b>top 5%</b> nejdražší</span>
         </div>
         <div style="max-height:600px;overflow:auto;">
-          <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table>
+          <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
         </div>
         <div style="font-size:9px;color:#666;margin-top:6px;font-family:'JetBrains Mono',monospace;line-height:1.5;">
           <span style="color:#c0392b;font-weight:700;">⊕ SELL</span> = jak často byla soustava+ (cena ≤ 0, přebytek) v této QH za posledních 30 dní<br>
@@ -2808,14 +2808,11 @@ async function loadHistOdchTable() {
       const selHour = window._histSelectedHour;
       const selQh = window._histSelectedQh;
       
-      let html = '<colgroup><col style="width:4%;">';
-      for (let i = 0; i < 24; i++) html += '<col style="width:4%;">';
-      html += '</colgroup>';
-      html += '<thead><tr>';
-      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;height:32px;position:sticky;left:0;top:0;z-index:3;font-size:9px;"></th>';
+      let html = '<thead><tr>';
+      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;height:32px;position:sticky;left:0;top:0;z-index:3;font-size:9px;"></th>';
       for (let h = 1; h <= 24; h++) {
         const isCur = h === selHour;
-        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;height:32px;position:sticky;top:0;z-index:2;">H${pad(h)}</th>`;
+        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;height:32px;position:sticky;top:0;z-index:2;">H${pad(h)}</th>`;
       }
       html += '</tr></thead><tbody>';
       
@@ -3192,13 +3189,10 @@ async function loadCenaTable() {
 
     const tbl = document.getElementById('tbl-cena');
     const curHour = now.getHours() + 1;  // 0-23 -> H01-H24
-    let html = '<colgroup><col style="width:4%;">';
-    for (let i = 0; i < 24; i++) html += '<col style="width:4%;">';
-    html += '</colgroup>';
-    html += '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;"></th>';
+    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
     hours.forEach(h => {
       const isCur = h === curHour;
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;">H${String(h).padStart(2,'0')}</th>`;
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
     });
     html += '</tr></thead><tbody>';
 
