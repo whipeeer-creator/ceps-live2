@@ -718,10 +718,7 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
   ctx.fill();
   ctx.restore();
 
-  ctx.strokeStyle = '#111'; ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  odchVals.forEach((v, i) => { const x=xP(i),y=yP(v); if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y); });
-  ctx.stroke();
+  // BLACK LINE PRESUNUTA NA KONEC (do popredi)
 
   if (colMm) {
     ctx.fillStyle = 'rgba(76,175,80,0.55)';
@@ -756,7 +753,7 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
     });
   }
   if (colAp) {
-    ctx.fillStyle = 'rgba(255,152,0,0.65)';
+    ctx.fillStyle = 'rgba(255,152,0,0.5)';
     ctx.strokeStyle = 'rgba(255,255,255,0.9)';
     ctx.lineWidth = 0.8;
     apVals.forEach((v, i) => {
@@ -767,6 +764,12 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
       ctx.strokeRect(x-bw/2, yTop, bw, yBot-yTop);
     });
   }
+
+  // ČERNÁ ČÁRA ODCHYLKY - V POPREDI (po aFRR+ a mFRR)
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  odchVals.forEach((v, i) => { const x=xP(i),y=yP(v); if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y); });
+  ctx.stroke();
 
   ctx.fillStyle = '#6688aa'; ctx.font = '10px JetBrains Mono, monospace'; ctx.textAlign = 'right';
   const yTicks = [-250,-200,-150,-100,-50,0,50,100,150,200,250].filter(v => v>=yMin && v<=yMax);
