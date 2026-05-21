@@ -131,19 +131,22 @@ main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; }
 @media(max-width:700px){ .kpi-row{grid-template-columns:repeat(2,1fr);} .kpi-row.kpi-row-wide{grid-template-columns:repeat(2,1fr);} .kpi-row.kpi-row-8{grid-template-columns:repeat(8,1fr);} .two-col{grid-template-columns:1fr;} }
 @media(max-width:400px){ .kpi-row{grid-template-columns:1fr;} .kpi-row.kpi-row-wide{grid-template-columns:1fr;} .kpi-row.kpi-row-8{grid-template-columns:repeat(4,1fr);} }
 @media(max-width:600px) {
-  body { font-size: 10px; padding: 8px; }
+  body { padding: 8px; }
   h1 { font-size: 14px !important; }
   h2 { font-size: 12px !important; }
-  /* Tabulky - silne zmensit font + padding aby se na iPhone veslo 24 sloupcu */
-  #tbl-cena, #tbl-hist-odch, #tbl-spot-cz, #tbl-spot-cz-qh, #tbl-spot-de { font-size: 8px !important; }
-  #tbl-cena th, #tbl-cena td,
-  #tbl-hist-odch th, #tbl-hist-odch td,
-  #tbl-spot-cz th, #tbl-spot-cz td,
-  #tbl-spot-cz-qh th, #tbl-spot-cz-qh td,
-  #tbl-spot-de th, #tbl-spot-de td { padding: 2px 1px !important; font-size: 8px !important; }
-  /* Skryt hover detaily (H01:00-01:00) */
-  #tbl-cena th div, #tbl-hist-odch th div, #tbl-spot-cz th div, #tbl-spot-cz-qh th div, #tbl-spot-de th div { display: none; }
-  /* Kompaktni karty */
+  /* Tabulky: HORIZONTÁLNÍ SCROLL místo zmenšování */
+  #tbl-cena, #tbl-hist-odch, #tbl-spot-cz, #tbl-spot-cz-qh, #tbl-spot-de {
+    width: 900px !important;       /* skutečná šířka tabulky */
+    table-layout: fixed !important;
+    min-width: 900px !important;
+  }
+  /* Wrap div okolo tabulky umožní scroll */
+  .table-scroll-wrap {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+    width: 100% !important;
+  }
+  /* Karty kompaktnější */
   .card-l { font-size: 9px !important; }
   .card-v { font-size: 14px !important; }
   .card-s { font-size: 9px !important; }
@@ -225,7 +228,7 @@ canvas { max-width: 100%; display: block; }
   <div class="chart-panel">
     <div class="panel-hdr"><div class="panel-title">ČEPS - CENY</div></div>
     <div id="spotTablesWrap" style="overflow-x:auto;padding:8px 12px;">
-      <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table>
+      <div class="table-scroll-wrap"><table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table></div>
       <div onclick="
         var w=document.getElementById('tbl-hist-odch-wrap');
         var arrow=this.querySelector('.hist-arrow');
@@ -249,7 +252,7 @@ canvas { max-width: 100%; display: block; }
           <span><span style="display:inline-block;width:14px;height:10px;background:#ececec;border:1px solid #ccc;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>cena > 0 (soustava−)</span>
           <span><span style="display:inline-block;width:14px;height:10px;background:#c0392b;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><b>top 5%</b> nejdražší</span>
         </div>
-        <table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table>
+        <div class="table-scroll-wrap"><table id="tbl-hist-odch" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table></div>
         <div style="font-size:9px;color:#666;margin-top:6px;font-family:'JetBrains Mono',monospace;line-height:1.5;">
           <span style="color:#c0392b;font-weight:700;">⊕ SELL</span> = jak často byla soustava+ (cena ≤ 0, přebytek) v této QH za posledních 30 dní<br>
           <span style="color:#1565c0;font-weight:700;">⊖ BUY</span> = jak často byla soustava− (cena > 0, deficit) v této QH za posledních 30 dní
@@ -266,13 +269,13 @@ canvas { max-width: 100%; display: block; }
         </div>
       </div>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT</div>
-      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table>
+      <div class="table-scroll-wrap"><table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table></div>
       <div onclick="toggleSpotQh(this)" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:6px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:4px 8px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="qh-arrow">▸</span> 🇨🇿 CZ DT · 15min QH (rozkliknout)</div>
       <div id="tbl-spot-cz-qh-wrap" style="display:none;">
-        <table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table>
+        <div class="table-scroll-wrap"><table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table></div>
       </div>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE DT</div>
-      <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table>
+      <div class="table-scroll-wrap"><table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table></div>
     </div>
   </div>
 
