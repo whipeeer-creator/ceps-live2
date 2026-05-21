@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>SuperSmoother3 · NET SPREAD Strategy</title>
+<title>EMA8 · NET SPREAD Strategy</title>
 <style>
 /* Vypnout slashed-zero (vypadala jak 8) */
 body, * { font-variant-numeric: lining-nums tabular-nums; font-feature-settings: "zero" 0, "ss01" 0; }
@@ -52,21 +52,21 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 
 <header>
   <div>
-    <h1>SS3 NET SPREAD <small>· VDT → Odchylka · Tom strategy</small></h1>
+    <h1>EMA8 NET SPREAD <small>· VDT → Odchylka · Tom strategy</small></h1>
     <div class="meta" id="metaInfo">načítám…</div>
   </div>
   <button class="refresh" onclick="loadAll()">↺ Refresh</button>
 </header>
 
 <div class="formula">
-<b>STRATEGIE:</b> SS3 signál → směr · Koupíš/prodáš MWh na VDT (OTE) · Pozici necháš do ČEPS odchylky · <b>NET = Odch − VDT</b> (LONG) nebo <b>VDT − Odch</b> (SHORT)<br>
-<b>Příklad:</b> Soustava v deficitu (SS3>0). Kupuješ na VDT za 100 €/MWh, ČEPS dotuje odchylku 150 €/MWh → <b>NET +50 €</b>
+<b>STRATEGIE:</b> EMA8 signál → směr · Koupíš/prodáš MWh na VDT (OTE) · Pozici necháš do ČEPS odchylky · <b>NET = Odch − VDT</b> (LONG) nebo <b>VDT − Odch</b> (SHORT)<br>
+<b>Příklad:</b> Soustava v deficitu (EMA8>0). Kupuješ na VDT za 100 €/MWh, ČEPS dotuje odchylku 150 €/MWh → <b>NET +50 €</b>
 </div>
 
 <h2>📊 Position Sizing</h2>
 <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
   <div class="card" style="background:#e8f5e9; border-left:4px solid #2e7d32;">
-    <div style="font-size:13px; font-weight:700; color:#2e7d32; margin-bottom:8px;">▲ LONG (SS3 > 0)</div>
+    <div style="font-size:13px; font-weight:700; color:#2e7d32; margin-bottom:8px;">▲ LONG (EMA8 > 0)</div>
     <div id="longSizing" style="font-size:11px; font-family:'JetBrains Mono',monospace;">
       <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>0-30</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
       <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>30-100</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
@@ -76,7 +76,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
     </div>
   </div>
   <div class="card" style="background:#ffebee; border-left:4px solid #c62828;">
-    <div style="font-size:13px; font-weight:700; color:#c62828; margin-bottom:8px;">▼ SHORT (SS3 < 0)</div>
+    <div style="font-size:13px; font-weight:700; color:#c62828; margin-bottom:8px;">▼ SHORT (EMA8 < 0)</div>
     <div id="shortSizing" style="font-size:11px; font-family:'JetBrains Mono',monospace;">
       <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-30 až 0</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
       <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-100 až -30</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
@@ -95,7 +95,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
     <div class="card-s" id="currentSignalDetail">—</div>
   </div>
   <div class="card">
-    <div class="card-l">SS3 hodnota</div>
+    <div class="card-l">EMA8 hodnota</div>
     <div class="card-v" id="emaValue">—<span class="u">EUR/MWh</span></div>
     <div class="card-s" id="emaTrend">—</div>
   </div>
@@ -106,11 +106,11 @@ header { display: flex; justify-content: space-between; align-items: center; mar
   </div>
 </div>
 
-<h2>📐 Výpočet SS3 - posledních 8 publikovaných cen odchylky</h2>
+<h2>📐 Výpočet EMA8 - posledních 8 publikovaných cen odchylky</h2>
 <div class="row" style="grid-template-columns: 1fr;">
   <div class="card" style="padding: 0;">
     <div style="padding:8px 12px;border-bottom:1px solid #eef0f7;display:flex;justify-content:space-between;align-items:center;">
-      <span style="font-size:11px;color:#666;font-weight:600;">Posledních 8 QH (z toho použito pro SS3 výpočet):</span>
+      <span style="font-size:11px;color:#666;font-weight:600;">Posledních 8 QH (z toho použito pro EMA8 výpočet):</span>
       <span id="emaTableSummary"></span>
     </div>
     <table>
@@ -118,7 +118,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
         <tr>
           <th>Interval (QH)</th>
           <th>Cena EUR/MWh</th>
-          <th>SS3 EUR</th>
+          <th>EMA8 EUR</th>
           <th>Váha</th>
           <th>Graf</th>
         </tr>
@@ -196,7 +196,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
       <thead>
         <tr>
           <th>QH</th>
-          <th>SS3</th>
+          <th>EMA8</th>
           <th>Směr</th>
           <th>VDT</th>
           <th>Odch</th>
@@ -270,17 +270,13 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 
 <script>
 const KURZ = 24.5;
-const SS_PERIOD = 3;  // SuperSmoother3 (Ehlers 2nd-order Butterworth)
+const SS_PERIOD = 8;  // EMA8 (Exponential Moving Average, perioda 8)
+const ALPHA_EMA = 2 / (SS_PERIOD + 1);  // = 2/9 ≈ 0.222
+// EMA: ema[i] = α × cena[i] + (1-α) × ema[i-1]
 const LAG = 4;  // T-40 - Tom tradeu QH(i) ze signalu z dat T-60 stara
-// SuperSmoother koeficienty
-const SS_A1 = Math.exp(-1.414 * Math.PI / SS_PERIOD);
-const SS_B1 = 2 * SS_A1 * Math.cos(1.414 * Math.PI / SS_PERIOD);
-const SS_C2 = SS_B1;
-const SS_C3 = -SS_A1 * SS_A1;
-const SS_C1 = 1 - SS_C2 - SS_C3;
 
-// Backward compat - některé staré reference
-const ALPHA = 2/9;
+// Backward compat - alias for old SS_ references (now means EMA)
+const ALPHA = ALPHA_EMA;
 let API_URL = window.location.origin;
 
 // === BACKTEST MODE + PERIOD ===
@@ -387,20 +383,12 @@ async function load30DayBacktest() {
     }
   }
   
-  // Spocitej SS3 pro 30-day data
+  // Spocitej EMA8 pro 30-day data
   const prices = allRows.map(r => r.odch);
   const ema30 = [];
-  const validPrices30 = [];
   for (let i = 0; i < prices.length; i++) {
-    validPrices30.push(prices[i]);
-    if (validPrices30.length === 1) ema30.push(prices[i]);
-    else if (validPrices30.length === 2) ema30.push(prices[i]);
-    else {
-      const prev1 = ema30[ema30.length-1];
-      const prev2 = ema30[ema30.length-2];
-      const ss = SS_C1 * (prices[i] + prices[i-1]) / 2 + SS_C2 * prev1 + SS_C3 * prev2;
-      ema30.push(ss);
-    }
+    if (i === 0) ema30.push(prices[i]);
+    else ema30.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema30[i-1]);
   }
   
   _btRows30dCache = allRows;
@@ -414,7 +402,7 @@ async function loadAll() {
     const nowLocal = new Date();
     const today = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth()+1).padStart(2,'0')}-${String(nowLocal.getDate()).padStart(2,'0')}`;
     
-    // VČEREJŠÍ datum pro kontinuitu (SS3 potřebuje historii přes půlnoc)
+    // VČEREJŠÍ datum pro kontinuitu (EMA8 potřebuje historii přes půlnoc)
     const yesterdayLocal = new Date(nowLocal.getTime() - 86400000);
     const yesterday = `${yesterdayLocal.getFullYear()}-${String(yesterdayLocal.getMonth()+1).padStart(2,'0')}-${String(yesterdayLocal.getDate()).padStart(2,'0')}`;
     
@@ -515,10 +503,9 @@ async function loadAll() {
     }
     
     const prices = rows.map(r => r.odch);
-    // SuperSmoother3 - SKIP 0 jen pro RECENT QH (<30 min po skončení = pravděpodobně nezúčtováno)
+    // EMA8 - SKIP 0 jen pro RECENT QH (<30 min po skončení = pravděpodobně nezúčtováno)
     const nowMinEma = new Date().getHours() * 60 + new Date().getMinutes();
-    const ema = [];  // ponecháno jméno 'ema' pro kompatibilitu, ale obsahuje SuperSmoother
-    const validPrices = [];
+    const ema = [];  // obsahuje EMA8 hodnoty
     
     for (let i = 0; i < prices.length; i++) {
       const tmE = rows[i].interval.match(/^(\d{1,2}):(\d{2})/);
@@ -529,17 +516,11 @@ async function loadAll() {
         // Recent 0 = nezúčtováno, zachovej poslední
         ema.push(ema.length > 0 ? ema[ema.length-1] : 0);
       } else {
-        validPrices.push(prices[i]);
-        if (validPrices.length === 1) {
-          ema.push(prices[i]);
-        } else if (validPrices.length === 2) {
+        if (ema.length === 0) {
           ema.push(prices[i]);
         } else {
-          // SuperSmoother: c1×(p[i]+p[i-1])/2 + c2×ss[i-1] + c3×ss[i-2]
-          const prev1 = ema[ema.length-1];
-          const prev2 = ema[ema.length-2];
-          const ss = SS_C1 * (prices[i] + prices[i-1]) / 2 + SS_C2 * prev1 + SS_C3 * prev2;
-          ema.push(ss);
+          // EMA8: ema[i] = α × p[i] + (1-α) × ema[i-1]
+          ema.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema[ema.length-1]);
         }
       }
     }
@@ -548,7 +529,7 @@ async function loadAll() {
     const nowR = new Date();
     const refreshTime = `${String(nowR.getHours()).padStart(2,'0')}:${String(nowR.getMinutes()).padStart(2,'0')}:${String(nowR.getSeconds()).padStart(2,'0')}`;
     document.getElementById('metaInfo').textContent = 
-      `${rows.length} QH · VDT: ${vdtCount}/${rows.length} · LAG${LAG} · SS${SS_PERIOD} · refresh ${refreshTime}`;
+      `${rows.length} QH · VDT: ${vdtCount}/${rows.length} · LAG${LAG} · EMA${SS_PERIOD} · refresh ${refreshTime}`;
     
     renderCurrentSignal(rows, ema);
     renderEmaTable(rows, ema);
@@ -602,7 +583,7 @@ function renderCurrentSignal(rows, ema) {
   } else {
     direction = '⏸ NEUTRAL';
     dirColor = 'gray';
-    dirEx = 'SS3 = 0 → žádný směr';
+    dirEx = 'EMA8 = 0 → žádný směr';
   }
   
   document.getElementById('currentSignal').innerHTML = 
@@ -692,7 +673,7 @@ function renderEmaTable(rows, ema) {
   const startIdx = Math.max(0, n - 8);
   const sigIdx = n - 1;
   
-  // Zjisti ktere radky byly REALNE pouzity v SS3 (skip recent 0)
+  // Zjisti ktere radky byly REALNE pouzity v EMA8 (skip recent 0)
   const nowMinE = new Date().getHours() * 60 + new Date().getMinutes();
   const usedSet = new Set();
   for (let i = 0; i < rows.length; i++) {
@@ -712,7 +693,7 @@ function renderEmaTable(rows, ema) {
     const isLag = (i === sigIdx);
     const isUsed = usedSet.has(i);
     const cls = isLag ? 'signal-now' : '';
-    // Vaha = 0 pokud skipnuto, jinak relativni vaha v SS3
+    // Vaha = 0 pokud skipnuto, jinak relativni vaha v EMA8
     const weight = isUsed ? Math.pow(1 - ALPHA, n - 1 - i) : 0;
     const weightPct = isUsed ? (weight * 100).toFixed(1) : '0.0';
     const eur = r.odch;
@@ -725,7 +706,7 @@ function renderEmaTable(rows, ema) {
     if (!isUsed) {
       statusBadge = '<span style="background:#ffe7d4;color:#c0392b;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;margin-left:4px;">SKIP·0 nezúčt.</span>';
     } else {
-      statusBadge = '<span style="background:#d4f5e0;color:#155724;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;margin-left:4px;">✓ SS3</span>';
+      statusBadge = '<span style="background:#d4f5e0;color:#155724;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;margin-left:4px;">✓ EMA8</span>';
     }
     if (isLag) {
       statusBadge += ' <span style="color:#1565c0;font-size:9px;font-weight:700;">← poslední</span>';
@@ -1076,16 +1057,14 @@ function computeDayBacktest(date, dOdch, dVdt) {
   
   if (rows.length < 12) return result;  // potřebujeme warmup + LAG
   
-  // EMA8 - warm-up first 8 QH (init průměrem)
+  // EMA8 - warm-up first 8 QH
   const prices = rows.map(r => r.odch);
-  // SuperSmoother3 (stejně jako live)
   const ema = [];
   for (let i = 0; i < prices.length; i++) {
-    if (i < 2) {
+    if (i === 0) {
       ema.push(prices[i]);
     } else {
-      const ss = SS_C1 * (prices[i] + prices[i-1]) / 2 + SS_C2 * ema[i-1] + SS_C3 * ema[i-2];
-      ema.push(ss);
+      ema.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema[i-1]);
     }
   }
   
