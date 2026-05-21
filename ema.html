@@ -134,7 +134,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
   <div style="display:flex;gap:0;background:#eef0f7;border-radius:8px;padding:3px;">
     <button id="btn-mode-flat" onclick="setBtMode('flat')" style="padding:6px 14px;border:none;background:#1565c0;color:#fff;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">1 MWh flat</button>
-    <button id="btn-mode-pyr" onclick="setBtMode('pyr')" style="padding:6px 14px;border:none;background:transparent;color:#1a1a2e;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Pyramid 1-10 MWh + hedge −30€</button>
+    <button id="btn-mode-pyr" onclick="setBtMode('pyr')" style="padding:6px 14px;border:none;background:transparent;color:#1a1a2e;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Pyramid 1-10 MWh</button>
   </div>
   <div style="display:flex;gap:0;background:#eef0f7;border-radius:8px;padding:3px;margin-left:auto;">
     <button id="btn-period-today" onclick="setBtPeriod('today')" style="padding:6px 14px;border:none;background:#1565c0;color:#fff;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Dnes</button>
@@ -280,7 +280,7 @@ const ALPHA = ALPHA_EMA;
 let API_URL = window.location.origin;
 
 // === BACKTEST MODE + PERIOD ===
-let BT_MODE = 'flat';     // 'flat' (1 MWh) | 'pyr' (1-10 MWh + hedge -30)
+let BT_MODE = 'flat';     // 'flat' (1 MWh) | 'pyr' (1-10 MWh)
 let BT_PERIOD = 'today';  // 'today' | '30d'
 let _btRowsCache = null;  // cache pro dnešní rows
 let _btRows30dCache = null;  // cache pro 30-day rows
@@ -294,7 +294,7 @@ function setBtMode(mode) {
   document.getElementById('btn-mode-pyr').style.color = mode === 'pyr' ? '#fff' : '#1a1a2e';
   document.getElementById('backtestTitleMode').textContent = mode === 'flat' 
     ? '@ 1 MWh (NET spread Odch−VDT)'
-    : '@ Pyramid 1-10 MWh + hedge stop −30€';
+    : '@ Pyramid 1-10 MWh';
   refreshBacktest();
 }
 
@@ -784,12 +784,10 @@ function renderBacktest(rows, ema) {
         else if (absSig < 200) mwh = 7;
         else mwh = 10;
         
-        // HEDGE STOP -30€/MWh
-        const netPerMwh = direction * rawSpread;
-        const effectivePerMwh = Math.max(netPerMwh, -30);  // ztráta max -30 EUR/MWh
-        net = effectivePerMwh * mwh;
+        // Pyramid bez hedge - plná ztráta i zisk
+        net = direction * rawSpread * mwh;
       } else {
-        // FLAT 1 MWh, no hedge
+        // FLAT 1 MWh
         net = direction * rawSpread;
       }
       
@@ -831,7 +829,7 @@ function renderBacktest(rows, ema) {
     `<span class="${netProfit >= 0 ? 'green' : 'red'}">${netProfit >= 0 ? '+' : ''}${netProfit.toFixed(0)}</span><span class="u">EUR</span>`;
   
   const periodTxt = BT_PERIOD === 'today' ? 'dnes' : `30 dní`;
-  const modeTxt = BT_MODE === 'flat' ? '@ 1 MWh' : `Ø ${(totalMwh/trades||0).toFixed(1)} MWh/trade · hedge −30€`;
+  const modeTxt = BT_MODE === 'flat' ? '@ 1 MWh' : `Ø ${(totalMwh/trades||0).toFixed(1)} MWh/trade`;
   document.getElementById('bkProfitKc').textContent = `${periodTxt} · ${modeTxt}` + (skipNoVdt > 0 ? ` · ${skipNoVdt} skip VDT` : '');
   
   document.getElementById('bkTrades').textContent = trades;
