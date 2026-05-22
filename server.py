@@ -1597,14 +1597,17 @@ class Handler(BaseHTTPRequestHandler):
             nocache = qs.get("nocache", ["0"])[0] in ("1", "true", "yes")
             
             # Cache (30 min, zúčtování je finální)
+            # ALE: skipni cache pokud má prázdné qh (mohla být chyba parsingu)
             cache_key = f"_OTE_ZO_CACHE_{date_str_iso}"
             if cache_key not in globals():
                 globals()[cache_key] = {"ts": 0, "data": None}
             cache = globals()[cache_key]
             now_ts = time.time()
             if not nocache and cache["data"] and (now_ts - cache["ts"]) < 1800:
-                out = dict(cache["data"]); out["_cache"] = "hit"
-                self._json(out); return
+                cached_qh = cache["data"].get("qh", [])
+                if len(cached_qh) > 0:  # JEN pokud cache má data
+                    out = dict(cache["data"]); out["_cache"] = "hit"
+                    self._json(out); return
             
             # URL varianty - název souboru
             # Hlavní: Odchylky_DD_MM_YYYY_V0_CZ.xlsx
@@ -1657,95 +1660,146 @@ class Handler(BaseHTTPRequestHandler):
             import re as _re
             
             wb = load_workbook(BytesIO(xlsx_bytes), read_only=True, data_only=True)
-            ws = wb.active
             
-            # Find header - hledáme sloupce: čas/interval + cena zúčtování
             qh_data = []
-            header_row_idx = None
-            interval_col = None
-            price_col = None
-            currency_col = None
-            
-            all_rows = list(ws.iter_rows(values_only=True))
-            
-            # Najdi hlavičku
-            for ri, row in enumerate(all_rows[:30]):  # první 30 řádků
-                if not row: continue
-                for ci, val in enumerate(row):
-                    if not isinstance(val, str): continue
-                    vlow = val.lower()
-                    if interval_col is None and ("interval" in vlow or "perioda" in vlow or "čas" in vlow or "cas" in vlow or "hodina" in vlow):
-                        interval_col = ci
-                        header_row_idx = ri
-                    # Cena zúčtování odchylky (CZK/MWh nebo EUR/MWh)
-                    if price_col is None and ("cena" in vlow and ("odchyl" in vlow or "zúčt" in vlow or "zuct" in vlow)):
-                        price_col = ci
-                        if header_row_idx is None:
-                            header_row_idx = ri
-                    # Currency detection
-                    if "eur" in vlow and "MWh" in val:
-                        currency_col = "EUR"
-                    elif ("kč" in vlow or "czk" in vlow) and "MWh" in val:
-                        currency_col = "CZK"
-                
-                if interval_col is not None and price_col is not None:
-                    break
-            
-            if header_row_idx is None or interval_col is None or price_col is None:
-                # Try generic - cena = 3. sloupec, interval = 2. sloupec
-                # (typický pattern OTE XLS)
-                print(f"  -> OTE ZO {date_str_iso}: header not found, using positional", flush=True)
-                header_row_idx = 5  # typically row 6
-                interval_col = 1
-                price_col = 2
-            
             KURZ = 24.5
             
-            # Parse data rows
-            for ri in range(header_row_idx + 1, len(all_rows)):
-                row = all_rows[ri]
-                if not row or len(row) <= max(interval_col, price_col): continue
+            # Pro debug - sber sample obsah z prvních řádků každého sheetu
+            debug_sheets = []
+            
+            # Procházej VŠECHNY sheety, ne jen active
+            for ws_name in wb.sheetnames:
+                ws = wb[ws_name]
+                all_rows = list(ws.iter_rows(values_only=True))
+                if not all_rows: continue
                 
-                interval_val = row[interval_col]
-                price_val = row[price_col]
+                # Debug: ulož prvních 8 řádků 
+                sheet_dbg = {
+                    "sheet": ws_name,
+                    "rows": len(all_rows),
+                    "first_rows": []
+                }
+                for r in all_rows[:8]:
+                    if r:
+                        sheet_dbg["first_rows"].append([str(c)[:50] if c is not None else None for c in r[:10]])
+                debug_sheets.append(sheet_dbg)
                 
-                if interval_val is None or price_val is None: continue
+                # Najdi sloupce - interval (HH:MM-HH:MM nebo Perioda) + cena
+                interval_col = None
+                price_col = None  
+                header_row_idx = None
+                currency = "CZK"  # default
                 
-                # Parse interval HH:MM-HH:MM
-                if not isinstance(interval_val, str):
-                    interval_val = str(interval_val)
-                m = _re.match(r"(\d{1,2}):(\d{2})", interval_val)
-                if not m: continue
-                h = int(m.group(1))
-                mi = int(m.group(2))
+                for ri, row in enumerate(all_rows[:25]):
+                    if not row: continue
+                    for ci, val in enumerate(row):
+                        if val is None: continue
+                        sval = str(val).lower().strip()
+                        
+                        # Interval/perioda/čas
+                        if interval_col is None:
+                            if "perioda" in sval or "interval" in sval or sval == "čas" or sval == "cas" or "hodina" in sval:
+                                interval_col = ci
+                                if header_row_idx is None: header_row_idx = ri
+                        
+                        # Cena zúčtování / cena odchylky
+                        if price_col is None:
+                            if ("cena" in sval and "odchyl" in sval) or \
+                               ("zúčt" in sval and "cena" in sval) or \
+                               ("zuct" in sval and "cena" in sval) or \
+                               (sval == "cena odchylky") or \
+                               ("cena" in sval and ("kč/mwh" in sval or "eur/mwh" in sval)):
+                                price_col = ci
+                                if header_row_idx is None: header_row_idx = ri
+                                if "eur" in sval: currency = "EUR"
+                                elif "kč" in sval or "czk" in sval: currency = "CZK"
                 
-                try:
-                    price_num = float(price_val)
-                except (ValueError, TypeError):
+                if header_row_idx is None or interval_col is None or price_col is None:
+                    # Tento sheet nemá strukturu - skip
                     continue
                 
-                # Konvert na EUR pokud potřeba
-                if currency_col == "CZK" or abs(price_num) > 200:
-                    price_eur = price_num / KURZ
-                else:
-                    price_eur = price_num
+                # Parse data
+                for ri in range(header_row_idx + 1, len(all_rows)):
+                    row = all_rows[ri]
+                    if not row or len(row) <= max(interval_col, price_col): continue
+                    
+                    iv = row[interval_col]
+                    pv = row[price_col]
+                    if iv is None or pv is None: continue
+                    
+                    # Try parse interval as "HH:MM" or "HH:MM-HH:MM" or just hour number
+                    interval_str = str(iv) if not isinstance(iv, str) else iv
+                    
+                    h = None; mi = None
+                    m = _re.search(r"(\d{1,2}):(\d{2})", interval_str)
+                    if m:
+                        h = int(m.group(1)); mi = int(m.group(2))
+                    else:
+                        # Možná jen hodina jako číslo (1, 2, ..., 96 pro QH index)
+                        try:
+                            num = int(float(interval_str))
+                            if 1 <= num <= 96:
+                                # QH index (1-96) → hour, minute
+                                idx0 = num - 1
+                                h = idx0 // 4
+                                mi = (idx0 % 4) * 15
+                            elif 0 <= num <= 23:
+                                h = num
+                                mi = 0
+                        except (ValueError, TypeError):
+                            continue
+                    
+                    if h is None or h > 23 or mi is None: continue
+                    
+                    # Cena
+                    try:
+                        price_num = float(pv)
+                    except (ValueError, TypeError):
+                        continue
+                    
+                    # Currency conversion
+                    if currency == "CZK" or abs(price_num) > 500:
+                        price_eur = price_num / KURZ
+                    else:
+                        price_eur = price_num
+                    
+                    qh_data.append({
+                        "hour": h,
+                        "minute": mi,
+                        "interval": f"{h:02d}:{mi:02d}-{(h + (1 if mi==45 else 0)):02d}:{(mi+15)%60:02d}",
+                        "price_eur": round(price_eur, 2),
+                        "price_kc": round(price_eur * KURZ, 2),
+                    })
                 
-                qh_data.append({
-                    "hour": h,
-                    "minute": mi,
-                    "interval": interval_val,
-                    "price_eur": round(price_eur, 2),
-                    "price_kc": round(price_eur * KURZ, 2),
-                })
+                if qh_data:
+                    # Našli jsme data v tomto sheetu, neprocházet další
+                    break
+            
+            # Dedupe podle (hour, minute)
+            seen = set()
+            deduped = []
+            for r in qh_data:
+                k = (r["hour"], r["minute"])
+                if k not in seen:
+                    seen.add(k)
+                    deduped.append(r)
+            deduped.sort(key=lambda r: (r["hour"], r["minute"]))
+            qh_data = deduped
             
             out = {
                 "date": date_str_iso,
                 "day_offset": int(qs.get("day", ["?"])[0]) if not date_param else None,
                 "qh": qh_data,
                 "count": len(qh_data),
-                "source": "ote-cr.cz XLSX RPVZ",
+                "source": "ote-cr.cz Odchylky XLSX",
                 "fetched_at": datetime.now().isoformat(),
             }
+            
+            # Pokud parsing selhal, přilož debug info
+            if not qh_data:
+                out["debug_sheets"] = debug_sheets[:3]  # max 3 sheety
+                out["error"] = "parser found no QH data"
+            
             cache["ts"] = now_ts; cache["data"] = out
             self._json(out); return
             

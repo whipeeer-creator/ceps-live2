@@ -3573,7 +3573,7 @@ async function loadHistOteTable() {
       const dd = d.getDate();
       const key = `${yyyy}-${pad(mm)}-${pad(dd)}`;
       daysToFetch.push({yyyy, mm, dd, key, label: `${dd}.${mm}.`});
-      const uOte = `${API_URL}/ote/zo?day=${-i}`;
+      const uOte = `${API_URL}/ote/zo?day=${-i}&nocache=1`;
       dayPromises.push(
         fetch(uOte, { cache: 'no-store' })
           .then(r => r.ok ? r.json() : null)
@@ -3617,8 +3617,14 @@ async function loadHistOteTable() {
       // Sample
       const sample = dayResults.find(d => d);
       if (sample) {
-        dbg += `<br>Sample odpověď:<br><pre style="font-size:10px;background:#f4f5f9;padding:6px;max-height:200px;overflow:auto;">`;
-        dbg += JSON.stringify(sample, null, 2).slice(0, 1500);
+        dbg += `<br>Sample odpověď:<br><pre style="font-size:10px;background:#f4f5f9;padding:6px;max-height:300px;overflow:auto;">`;
+        // Pokud má debug_sheets, ukaž ho strukturovaně
+        if (sample.debug_sheets) {
+          dbg += `XLSX nalezen ale parser ho nepřečetl.<br>Struktura sheetů:<br><br>`;
+          dbg += JSON.stringify(sample.debug_sheets, null, 2).slice(0, 2500);
+        } else {
+          dbg += JSON.stringify(sample, null, 2).slice(0, 1500);
+        }
         dbg += '</pre>';
       }
       tbl.innerHTML = '<tr><td colspan="25" style="padding:12px;color:#c0392b;font-size:11px;">' + dbg + '</td></tr>';
