@@ -1685,37 +1685,81 @@ class Handler(BaseHTTPRequestHandler):
                 debug_sheets.append(sheet_dbg)
                 
                 # Najdi sloupce - interval (HH:MM-HH:MM nebo Perioda) + cena
-                interval_col = None
-                price_col = None  
+                # Strategie: scan VŠECHNY header buňky, ulož kandidaty,
+                # pak vyber NEJLEPŠÍ interval + cena ROZDÍLNÉ sloupce
+                
                 header_row_idx = None
-                currency = "CZK"  # default
+                interval_candidates = []  # [(ri, ci, score), ...]
+                price_candidates = []
+                currency = "CZK"
                 
                 for ri, row in enumerate(all_rows[:25]):
                     if not row: continue
                     for ci, val in enumerate(row):
                         if val is None: continue
                         sval = str(val).lower().strip()
+                        if not sval: continue
                         
-                        # Interval/perioda/čas
-                        if interval_col is None:
-                            if "perioda" in sval or "interval" in sval or sval == "čas" or sval == "cas" or "hodina" in sval:
-                                interval_col = ci
-                                if header_row_idx is None: header_row_idx = ri
+                        # Interval kandidáti - upřednost je explicitní "interval" nebo "od/do"
+                        interval_score = 0
+                        if sval == "interval" or "interval " in sval or sval.startswith("interval"):
+                            interval_score = 10
+                        elif "od/do" in sval or "od-do" in sval:
+                            interval_score = 9
+                        elif sval == "čas" or sval == "cas" or sval == "time":
+                            interval_score = 7
+                        elif sval == "perioda":
+                            # Perioda je 1-96, NE časový interval - DOWNGRADE
+                            interval_score = 2
+                        if interval_score:
+                            interval_candidates.append((ri, ci, interval_score))
+                            if header_row_idx is None: header_row_idx = ri
                         
-                        # Cena zúčtování / cena odchylky
-                        if price_col is None:
-                            if ("cena" in sval and "odchyl" in sval) or \
-                               ("zúčt" in sval and "cena" in sval) or \
-                               ("zuct" in sval and "cena" in sval) or \
-                               (sval == "cena odchylky") or \
-                               ("cena" in sval and ("kč/mwh" in sval or "eur/mwh" in sval)):
-                                price_col = ci
-                                if header_row_idx is None: header_row_idx = ri
-                                if "eur" in sval: currency = "EUR"
-                                elif "kč" in sval or "czk" in sval: currency = "CZK"
+                        # Cena - hledej "cena" + "odchylk" nebo "zúčt" + jednotka
+                        price_score = 0
+                        if "cena" in sval and "odchyl" in sval:
+                            price_score = 10
+                            if "eur" in sval: currency = "EUR"
+                            elif "kč" in sval or "czk" in sval: currency = "CZK"
+                        elif "cena" in sval and ("zúčt" in sval or "zuct" in sval):
+                            price_score = 9
+                        elif sval == "cena" or "cena [" in sval:
+                            price_score = 7
+                            if "eur" in sval: currency = "EUR"
+                            elif "kč" in sval or "czk" in sval: currency = "CZK"
+                        elif "price" in sval:
+                            price_score = 6
+                            if "eur" in sval: currency = "EUR"
+                            elif "kč" in sval or "czk" in sval: currency = "CZK"
+                        if price_score:
+                            price_candidates.append((ri, ci, price_score))
+                            if header_row_idx is None: header_row_idx = ri
+                
+                # Vyber nejlepší kandidáty (NESMÍ být stejný sloupec)
+                interval_col = None
+                price_col = None
+                
+                # Seřaď podle score
+                interval_candidates.sort(key=lambda x: (-x[2], x[1]))
+                price_candidates.sort(key=lambda x: (-x[2], x[1]))
+                
+                # Vezmi nejlepší cenu
+                if price_candidates:
+                    price_col = price_candidates[0][1]
+                    if header_row_idx is None: header_row_idx = price_candidates[0][0]
+                
+                # Vezmi nejlepší interval co NENÍ price_col
+                for ri_c, ci_c, sc in interval_candidates:
+                    if ci_c != price_col:
+                        interval_col = ci_c
+                        if header_row_idx is None: header_row_idx = ri_c
+                        break
                 
                 if header_row_idx is None or interval_col is None or price_col is None:
-                    # Tento sheet nemá strukturu - skip
+                    continue
+                
+                # KEY CHECK: interval_col MUSÍ být JINÝ než price_col
+                if interval_col == price_col:
                     continue
                 
                 # Parse data
@@ -1794,6 +1838,16 @@ class Handler(BaseHTTPRequestHandler):
                 "source": "ote-cr.cz Odchylky XLSX",
                 "fetched_at": datetime.now().isoformat(),
             }
+            
+            # Sanity check - pokud price_kc tvoří sekvenci (1,2,3,4...), 
+            # parser sebral sloupec PERIODA místo CENY
+            if len(qh_data) >= 10:
+                sample_prices = [r["price_kc"] for r in qh_data[:10]]
+                # Test sekvenčnosti
+                diffs = [sample_prices[i+1] - sample_prices[i] for i in range(len(sample_prices)-1)]
+                if all(0.9 < d < 1.1 for d in diffs):
+                    # Vyresetuj - parser vzal špatný sloupec
+                    qh_data = []
             
             # Pokud parsing selhal nebo malé data, přilož debug info
             if len(qh_data) < 80:  # méně než 80 QH = něco špatně
