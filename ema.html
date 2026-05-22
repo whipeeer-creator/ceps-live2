@@ -770,8 +770,12 @@ function renderBacktest(rows, ema) {
     if (vdt === null || vdt === undefined) {
       skipReason = '⏸ chybí VDT';
       skipNoVdt++;
-    } else if (kc === 0 && isRecent) {
-      skipReason = '⏸ Odch=0 (recent)';
+    } else if (kc === 0) {
+      // SKIP všechny QH s cenou = 0 (nezúčtováno, ne jen recent)
+      skipReason = '⏸ Odch=0 nezúčt.';
+    } else if (Math.abs(sig) < 1) {
+      // Skip velmi slabé signály (|sig| < 1 EUR)
+      skipReason = '⏸ |sig|<1';
     } else {
       direction = sig > 0 ? +1 : -1;
       const rawSpread = actual - vdt;
@@ -824,6 +828,9 @@ function renderBacktest(rows, ema) {
   const wr = trades > 0 ? wins/trades*100 : 0;
   const avg = trades > 0 ? netProfit/trades : 0;
   const zeros = trades - wins - losses;
+  
+  // Debug log pro check čísel
+  console.log(`[BACKTEST ${BT_PERIOD} ${BT_MODE}] rows=${n} | trades=${trades} | skipVDT=${skipNoVdt} | wins=${wins} | losses=${losses} | profit=${netProfit.toFixed(0)} | peak=${peakEquity.toFixed(0)} | DD=${maxDD.toFixed(0)} | mwh=${totalMwh}`);
   
   document.getElementById('bkProfit').innerHTML = 
     `<span class="${netProfit >= 0 ? 'green' : 'red'}">${netProfit >= 0 ? '+' : ''}${netProfit.toFixed(0)}</span><span class="u">EUR</span>`;
