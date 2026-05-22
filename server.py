@@ -636,6 +636,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/ote/dt15":
             self._ote_dt15(qs); return
 
+        if parsed.path == "/ote/zo":
+            self._ote_zo(qs); return
+
         if parsed.path == "/ote/yearly-profile":
             self._ote_yearly_profile(qs); return
 
@@ -1566,6 +1569,190 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             import traceback
             self._json({"error": f"OTE DT15: {e}", "trace": traceback.format_exc()[:500]}, 500)
+
+    def _ote_zo(self, qs):
+        """OTE Výsledky zúčtování odchylek (finální cena).
+        URL: /attachments/05_09_12/{year}/month{mm}/day{dd}/RPVZ_15MIN_DD_MM_YYYY_CZ.xlsx
+        Query: ?day=N (offset) or ?date=YYYY-MM-DD
+        Vraci: {date, qh: [{hour, minute, interval, price_eur}], count, source}
+        Cache 30 min (zúčtování je finální, nemění se).
+        """
+        try:
+            # Determine date
+            date_param = qs.get("date", [None])[0]
+            if date_param:
+                target_date = datetime.strptime(date_param, "%Y-%m-%d")
+            else:
+                day_offset = int(qs.get("day", ["-1"])[0])
+                now_utc = datetime.now(timezone.utc)
+                month_now = now_utc.month
+                berlin_offset = 2 if 4 <= month_now <= 10 else 1
+                berlin_now = now_utc + timedelta(hours=berlin_offset)
+                target_date = berlin_now + timedelta(days=day_offset)
+            
+            yyyy = target_date.year
+            mm = target_date.month
+            dd = target_date.day
+            date_str_iso = target_date.strftime("%Y-%m-%d")
+            nocache = qs.get("nocache", ["0"])[0] in ("1", "true", "yes")
+            
+            # Cache (30 min, zúčtování je finální)
+            cache_key = f"_OTE_ZO_CACHE_{date_str_iso}"
+            if cache_key not in globals():
+                globals()[cache_key] = {"ts": 0, "data": None}
+            cache = globals()[cache_key]
+            now_ts = time.time()
+            if not nocache and cache["data"] and (now_ts - cache["ts"]) < 1800:
+                out = dict(cache["data"]); out["_cache"] = "hit"
+                self._json(out); return
+            
+            # URL varianty - název souboru je RPVZ_15MIN_DD_MM_YYYY_CZ.xlsx
+            # (Rozpis Položek Vyhodnocení Zúčtování)
+            file_names = [
+                f"RPVZ_15MIN_{dd:02d}_{mm:02d}_{yyyy}_CZ.xlsx",
+                f"ZO_15MIN_{dd:02d}_{mm:02d}_{yyyy}_CZ.xlsx",
+                f"ODCHYLKY_15MIN_{dd:02d}_{mm:02d}_{yyyy}_CZ.xlsx",
+            ]
+            base_path = f"https://www.ote-cr.cz/attachments/05_09_12/{yyyy}/month{mm:02d}/day{dd:02d}"
+            
+            urls = []
+            for fn in file_names:
+                urls.append(f"{base_path}/{fn}")
+                urls.append(f"{base_path}/{fn}/view")
+            
+            xlsx_bytes = None
+            tried_urls = []
+            for url in urls:
+                tried_urls.append(url)
+                try:
+                    r = requests.get(url, timeout=15, headers={
+                        "User-Agent": "Mozilla/5.0",
+                        "Accept": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, */*",
+                    })
+                    if r.status_code == 200 and r.content[:2] == b"PK":
+                        xlsx_bytes = r.content
+                        print(f"  -> OTE ZO {date_str_iso}: XLSX nalezeno @ {url}", flush=True)
+                        break
+                except Exception as e:
+                    print(f"  -> OTE ZO {date_str_iso}: chyba {url}: {e}", flush=True)
+                    continue
+            
+            if xlsx_bytes is None:
+                out = {
+                    "date": date_str_iso,
+                    "qh": [],
+                    "count": 0,
+                    "error": "no XLSX found",
+                    "tried": tried_urls[:3],
+                    "fetched_at": datetime.now().isoformat(),
+                }
+                cache["ts"] = now_ts; cache["data"] = out
+                self._json(out); return
+            
+            # Parse XLSX
+            from openpyxl import load_workbook
+            from io import BytesIO
+            import re as _re
+            
+            wb = load_workbook(BytesIO(xlsx_bytes), read_only=True, data_only=True)
+            ws = wb.active
+            
+            # Find header - hledáme sloupce: čas/interval + cena zúčtování
+            qh_data = []
+            header_row_idx = None
+            interval_col = None
+            price_col = None
+            currency_col = None
+            
+            all_rows = list(ws.iter_rows(values_only=True))
+            
+            # Najdi hlavičku
+            for ri, row in enumerate(all_rows[:30]):  # první 30 řádků
+                if not row: continue
+                for ci, val in enumerate(row):
+                    if not isinstance(val, str): continue
+                    vlow = val.lower()
+                    if interval_col is None and ("interval" in vlow or "perioda" in vlow or "čas" in vlow or "cas" in vlow or "hodina" in vlow):
+                        interval_col = ci
+                        header_row_idx = ri
+                    # Cena zúčtování odchylky (CZK/MWh nebo EUR/MWh)
+                    if price_col is None and ("cena" in vlow and ("odchyl" in vlow or "zúčt" in vlow or "zuct" in vlow)):
+                        price_col = ci
+                        if header_row_idx is None:
+                            header_row_idx = ri
+                    # Currency detection
+                    if "eur" in vlow and "MWh" in val:
+                        currency_col = "EUR"
+                    elif ("kč" in vlow or "czk" in vlow) and "MWh" in val:
+                        currency_col = "CZK"
+                
+                if interval_col is not None and price_col is not None:
+                    break
+            
+            if header_row_idx is None or interval_col is None or price_col is None:
+                # Try generic - cena = 3. sloupec, interval = 2. sloupec
+                # (typický pattern OTE XLS)
+                print(f"  -> OTE ZO {date_str_iso}: header not found, using positional", flush=True)
+                header_row_idx = 5  # typically row 6
+                interval_col = 1
+                price_col = 2
+            
+            KURZ = 24.5
+            
+            # Parse data rows
+            for ri in range(header_row_idx + 1, len(all_rows)):
+                row = all_rows[ri]
+                if not row or len(row) <= max(interval_col, price_col): continue
+                
+                interval_val = row[interval_col]
+                price_val = row[price_col]
+                
+                if interval_val is None or price_val is None: continue
+                
+                # Parse interval HH:MM-HH:MM
+                if not isinstance(interval_val, str):
+                    interval_val = str(interval_val)
+                m = _re.match(r"(\d{1,2}):(\d{2})", interval_val)
+                if not m: continue
+                h = int(m.group(1))
+                mi = int(m.group(2))
+                
+                try:
+                    price_num = float(price_val)
+                except (ValueError, TypeError):
+                    continue
+                
+                # Konvert na EUR pokud potřeba
+                if currency_col == "CZK" or abs(price_num) > 200:
+                    price_eur = price_num / KURZ
+                else:
+                    price_eur = price_num
+                
+                qh_data.append({
+                    "hour": h,
+                    "minute": mi,
+                    "interval": interval_val,
+                    "price_eur": round(price_eur, 2),
+                    "price_kc": round(price_eur * KURZ, 2),
+                })
+            
+            out = {
+                "date": date_str_iso,
+                "day_offset": int(qs.get("day", ["?"])[0]) if not date_param else None,
+                "qh": qh_data,
+                "count": len(qh_data),
+                "source": "ote-cr.cz XLSX RPVZ",
+                "fetched_at": datetime.now().isoformat(),
+            }
+            cache["ts"] = now_ts; cache["data"] = out
+            self._json(out); return
+            
+        except Exception as e:
+            import traceback
+            self._json({
+                "error": f"OTE ZO: {e}",
+                "trace": traceback.format_exc()[:500]
+            }, 500)
 
     def _ote_qh(self, qs):
         """Vraci 15-min data ze spotovaelektrina.cz get-prices-json-qh.

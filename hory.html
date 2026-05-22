@@ -297,7 +297,34 @@ canvas { max-width: 100%; display: block; }
           Záporný spread = SHORT (SELL) vydělá nebo LONG prohrál
         </div>
       </div>
-      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT</div>
+      <div onclick="
+        var w=document.getElementById('tbl-hist-ote-wrap');
+        var arrow=this.querySelector('.ote-arrow');
+        if(w.style.display==='none'){
+          w.style.display='block';
+          arrow.textContent='▾';
+          if(typeof loadHistOteTable==='function'){loadHistOteTable();}
+        }else{
+          w.style.display='none';
+          arrow.textContent='▸';
+        }"
+        style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:10px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:6px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;">
+        <span class="ote-arrow">▸</span> OTE Finální zúčtování odchylek · last 30 days · EUR/MWh
+      </div>
+      <div id="tbl-hist-ote-wrap" style="display:none;margin-top:6px;">
+        <div style="font-size:10px;color:#666;margin-bottom:6px;font-family:'JetBrains Mono',monospace;display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+          <span><span style="display:inline-block;width:14px;height:10px;background:#1565c0;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><b>current QH</b></span>
+          <span><span style="display:inline-block;width:14px;height:10px;background:#c8d8e8;border:1px solid #a8c5e5;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>cena ≤ 0 (přebytek)</span>
+          <span><span style="display:inline-block;width:14px;height:10px;background:#ececec;border:1px solid #ccc;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>cena > 0 (deficit)</span>
+          <span><span style="display:inline-block;width:14px;height:10px;background:#c0392b;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><b>top 5%</b> nejdražší</span>
+        </div>
+        <div class="table-scroll-wrap"><table id="tbl-hist-ote" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table></div>
+        <div style="font-size:9px;color:#666;margin-top:6px;font-family:'JetBrains Mono',monospace;line-height:1.5;">
+          <b>Zdroj:</b> OTE-CR.cz finální zúčtovací cena (RPVZ XLSX po D+1)<br>
+          Liší se od ČEPS "OdhadovanéCenyOdchylky" - to je real-time odhad,<br>
+          tohle je FINÁLNÍ zúčtovaná hodnota.
+        </div>
+      </div>
       <div class="table-scroll-wrap"><table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table></div>
       <div onclick="toggleSpotQh(this)" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:6px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:4px 8px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="qh-arrow">▸</span> 🇨🇿 CZ DT · 15min QH (rozkliknout)</div>
       <div id="tbl-spot-cz-qh-wrap" style="display:none;">
@@ -3521,6 +3548,223 @@ async function loadHistSpreadTable() {
     const tbl = document.getElementById('tbl-hist-spread');
     if (tbl) tbl.innerHTML = `<tr><td style="padding:8px;color:#c0392b;">Chyba: ${e.message}</td></tr>`;
     window._histSpreadLoading = false;
+  }
+}
+
+
+async function loadHistOteTable() {
+  if (window._histOteLoading) return;
+  window._histOteLoading = true;
+  try {
+    const tbl = document.getElementById('tbl-hist-ote');
+    if (!tbl) return;
+    tbl.innerHTML = '<tr><td style="padding:8px;color:#666;font-style:italic;">Načítám 30 dní OTE zúčtování...</td></tr>';
+    
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    
+    // Fetch 30 dni OTE ZO
+    const dayPromises = [];
+    const daysToFetch = [];
+    for (let i = 30; i >= 1; i--) {
+      const d = new Date(now.getTime() - i*24*60*60*1000);
+      const yyyy = d.getFullYear();
+      const mm = d.getMonth() + 1;
+      const dd = d.getDate();
+      const key = `${yyyy}-${pad(mm)}-${pad(dd)}`;
+      daysToFetch.push({yyyy, mm, dd, key, label: `${dd}.${mm}.`});
+      const uOte = `${API_URL}/ote/zo?day=${-i}`;
+      dayPromises.push(
+        fetch(uOte, { cache: 'no-store' })
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+      );
+    }
+    
+    const dayResults = await Promise.all(dayPromises);
+    
+    // byDay[dayKey][hour][minute] = price_eur
+    const byDay = {};
+    let totalQh = 0;
+    let firstError = null;
+    
+    dayResults.forEach((dOte, idx) => {
+      const dayKey = daysToFetch[idx].key;
+      if (!dOte) { if (!firstError) firstError = 'null response'; return; }
+      if (dOte.error && !firstError) firstError = dOte.error;
+      const qhList = dOte?.qh || [];
+      if (!qhList.length) return;
+      for (const v of qhList) {
+        const h = v.hour;
+        const m = v.minute;
+        if (h === undefined || m === undefined) continue;
+        const price = parseFloat(v.price_eur);
+        if (isNaN(price)) continue;
+        if (!byDay[dayKey]) byDay[dayKey] = {};
+        if (!byDay[dayKey][h]) byDay[dayKey][h] = {};
+        byDay[dayKey][h][m] = price;
+        totalQh++;
+      }
+    });
+    
+    const days = daysToFetch.filter(d => byDay[d.key]).reverse();
+    console.log('[HIST OTE ZO] days:', days.length, '/ 30, total QH:', totalQh);
+    
+    if (!days.length) {
+      let dbg = `Žádná data se nepodařilo načíst.<br><br>Debug:<br>`;
+      dbg += `Fetched: ${dayResults.length}<br>`;
+      dbg += `First error: ${firstError || 'none'}<br>`;
+      // Sample
+      const sample = dayResults.find(d => d);
+      if (sample) {
+        dbg += `<br>Sample odpověď:<br><pre style="font-size:10px;background:#f4f5f9;padding:6px;max-height:200px;overflow:auto;">`;
+        dbg += JSON.stringify(sample, null, 2).slice(0, 1500);
+        dbg += '</pre>';
+      }
+      tbl.innerHTML = '<tr><td colspan="25" style="padding:12px;color:#c0392b;font-size:11px;">' + dbg + '</td></tr>';
+      window._histOteLoading = false;
+      return;
+    }
+    
+    // Color scale
+    const allVals = [];
+    days.forEach(d => {
+      Object.values(byDay[d.key]).forEach(hMap => {
+        Object.values(hMap).forEach(v => { if (Number.isFinite(v)) allVals.push(v); });
+      });
+    });
+    
+    const positiveVals = allVals.filter(v => v > 0).sort((a,b) => a-b);
+    const top5p = positiveVals.length ? positiveVals[Math.floor(positiveVals.length * 0.95)] : Infinity;
+    
+    const realCurHour = now.getHours() + 1;
+    const realCurQh = Math.floor(now.getMinutes() / 15) * 15;
+    if (window._histOteSelectedHour == null) window._histOteSelectedHour = realCurHour;
+    if (window._histOteSelectedQh == null) window._histOteSelectedQh = realCurQh;
+    
+    function renderOteTable() {
+      const selHour = window._histOteSelectedHour;
+      const selQh = window._histOteSelectedQh;
+      
+      let html = '<colgroup><col style="width:60px;">';
+      for (let i = 0; i < 24; i++) html += '<col>';
+      html += '</colgroup><thead><tr>';
+      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;font-size:9px;"></th>';
+      for (let h = 1; h <= 24; h++) {
+        const isCur = h === selHour;
+        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;">H${pad(h)}</th>`;
+      }
+      html += '</tr></thead><tbody>';
+      
+      const minutes = [0, 15, 30, 45];
+      days.forEach(d => {
+        const dayKey = d.key;
+        minutes.forEach((min, mIdx) => {
+          html += '<tr>';
+          let cellContent, cellBg, cellColor;
+          if (mIdx === 0) {
+            cellContent = `<span style="font-weight:700;color:#fff;">${d.label}</span>`;
+            cellBg = '#1565c0'; cellColor = '#fff';
+          } else {
+            cellContent = `<span style="font-size:9px;font-weight:600;">:${pad(min)}</span>`;
+            cellBg = '#fff'; cellColor = '#1a1a2e';
+          }
+          html += `<td style="padding:3px 4px;background:${cellBg};border:1px solid #dde;font-size:10px;color:${cellColor};white-space:nowrap;text-align:center;font-weight:${mIdx===0?'700':'600'};">${cellContent}</td>`;
+          for (let h = 1; h <= 24; h++) {
+            const dataH = h - 1;
+            const v = byDay[dayKey]?.[dataH]?.[min];
+            const isCurCell = h === selHour && min === selQh;
+            const borderStyle = isCurCell ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
+            if (!Number.isFinite(v)) {
+              html += `<td data-h="${h}" data-min="${min}" style="padding:3px 4px;background:#ececec;${borderStyle}cursor:pointer;text-align:center;color:#aaa;font-size:10px;">—</td>`;
+              continue;
+            }
+            const txt = v === 0 ? '0' : Math.round(v).toString();
+            let bgColor, color;
+            if (v <= 0) {
+              bgColor = '#c8d8e8'; color = '#1565c0';
+            } else if (v >= top5p) {
+              bgColor = '#c0392b'; color = '#fff';
+            } else {
+              bgColor = '#ececec'; color = '#1a1a2e';
+            }
+            html += `<td data-h="${h}" data-min="${min}" style="padding:3px 4px;background:${bgColor};${borderStyle}cursor:pointer;text-align:center;color:${color};font-weight:600;font-size:10px;">${txt}</td>`;
+          }
+          html += '</tr>';
+        });
+      });
+      
+      // Footer: SELL % (cena ≤ 0)
+      html += `<tr><td style="padding:2px 4px;background:#c0392b;color:#fff;border:1px solid #c0392b;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:32px;box-sizing:border-box;overflow:hidden;"><div style="line-height:1.1;">⊕ SELL</div><div style="font-size:8px;font-weight:400;color:#fcd5d2;line-height:1.1;">:${pad(selQh)}</div></td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        let neg = 0, total = 0;
+        days.forEach(d => {
+          const v = byDay[d.key]?.[dataH]?.[selQh];
+          if (Number.isFinite(v)) { total++; if (v <= 0) neg++; }
+        });
+        const isCurCol = h === selHour;
+        const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #c0392b;';
+        const bg = isCurCol ? '#a02818' : '#c0392b';
+        const pct = total ? Math.round(neg/total*100) : 0;
+        html += `<td style="padding:2px 2px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;height:32px;box-sizing:border-box;white-space:nowrap;overflow:hidden;"><div style="line-height:1.1;">${neg}<span style="color:#fcd5d2;font-weight:400;">/${total}</span></div><div style="font-size:8px;color:#fcd5d2;font-weight:400;line-height:1.1;">${pct}%</div></td>`;
+      }
+      html += '</tr>';
+      
+      // Footer: BUY % (cena > 0)
+      html += `<tr><td style="padding:2px 4px;background:#1565c0;color:#fff;border:1px solid #1565c0;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:32px;box-sizing:border-box;overflow:hidden;"><div style="line-height:1.1;">⊖ BUY</div><div style="font-size:8px;font-weight:400;color:#d1deed;line-height:1.1;">:${pad(selQh)}</div></td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        let pos = 0, total = 0;
+        days.forEach(d => {
+          const v = byDay[d.key]?.[dataH]?.[selQh];
+          if (Number.isFinite(v)) { total++; if (v > 0) pos++; }
+        });
+        const isCurCol = h === selHour;
+        const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #1565c0;';
+        const bg = isCurCol ? '#0d4a8e' : '#1565c0';
+        const pct = total ? Math.round(pos/total*100) : 0;
+        html += `<td style="padding:2px 2px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;height:32px;box-sizing:border-box;white-space:nowrap;overflow:hidden;"><div style="line-height:1.1;">${pos}<span style="color:#d1deed;font-weight:400;">/${total}</span></div><div style="font-size:8px;color:#d1deed;font-weight:400;line-height:1.1;">${pct}%</div></td>`;
+      }
+      html += '</tr>';
+      
+      // Footer: Ø cena
+      html += `<tr><td style="padding:2px 4px;background:#1a1a2e;color:#fff;border:1px solid #1a1a2e;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:28px;box-sizing:border-box;"><div>Ø cena</div></td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        let sum = 0, n = 0;
+        days.forEach(d => {
+          const v = byDay[d.key]?.[dataH]?.[selQh];
+          if (Number.isFinite(v)) { sum += v; n++; }
+        });
+        const avg = n ? sum/n : 0;
+        const isCurCol = h === selHour;
+        const borderStyle = isCurCol ? 'border:2px solid #fff;' : 'border:1px solid #2c2c40;';
+        const color = avg > 0 ? '#f7a8a3' : avg < 0 ? '#a8c5e5' : '#999';
+        html += `<td style="padding:2px 2px;background:#1a1a2e;${borderStyle}text-align:center;color:${color};font-weight:700;font-size:10px;height:28px;box-sizing:border-box;">${Math.round(avg)}</td>`;
+      }
+      html += '</tr>';
+      
+      html += '</tbody>';
+      tbl.innerHTML = html;
+      
+      tbl.querySelectorAll('td[data-h]').forEach(td => {
+        td.addEventListener('click', () => {
+          window._histOteSelectedHour = parseInt(td.getAttribute('data-h'), 10);
+          window._histOteSelectedQh = parseInt(td.getAttribute('data-min'), 10);
+          renderOteTable();
+        });
+      });
+    }
+    
+    renderOteTable();
+    window._histOteLoaded = true;
+    window._histOteLoading = false;
+  } catch (e) {
+    console.warn('hist ote:', e);
+    const tbl = document.getElementById('tbl-hist-ote');
+    if (tbl) tbl.innerHTML = `<tr><td style="padding:8px;color:#c0392b;">Chyba: ${e.message}</td></tr>`;
+    window._histOteLoading = false;
   }
 }
 
