@@ -1795,10 +1795,13 @@ class Handler(BaseHTTPRequestHandler):
                 "fetched_at": datetime.now().isoformat(),
             }
             
-            # Pokud parsing selhal, přilož debug info
-            if not qh_data:
-                out["debug_sheets"] = debug_sheets[:3]  # max 3 sheety
-                out["error"] = "parser found no QH data"
+            # Pokud parsing selhal nebo malé data, přilož debug info
+            if len(qh_data) < 80:  # méně než 80 QH = něco špatně
+                out["debug_sheets"] = debug_sheets[:3]
+                if not qh_data:
+                    out["error"] = "parser found no QH data"
+                else:
+                    out["warning"] = f"parsed only {len(qh_data)} QH (expected 96)"
             
             cache["ts"] = now_ts; cache["data"] = out
             self._json(out); return

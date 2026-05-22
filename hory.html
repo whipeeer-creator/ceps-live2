@@ -3610,6 +3610,27 @@ async function loadHistOteTable() {
     const days = daysToFetch.filter(d => byDay[d.key]).reverse();
     console.log('[HIST OTE ZO] days:', days.length, '/ 30, total QH:', totalQh);
     
+    // Check if any response has warning (parsing issue)
+    const sampleWithDebug = dayResults.find(d => d && (d.debug_sheets || d.warning));
+    if (sampleWithDebug) {
+      console.warn('[HIST OTE ZO] Parser issue:', sampleWithDebug.warning || sampleWithDebug.error);
+      console.warn('[HIST OTE ZO] Debug sheets:', sampleWithDebug.debug_sheets);
+      
+      // Pokud máme málo dat, ukaž debug místo tabulky
+      if (totalQh < days.length * 80) {  // <80 QH/den = problém
+        let dbg = `<b>PARSER PROBLEM</b><br>`;
+        dbg += `Total QH parsed: ${totalQh} (expected: ${days.length * 96})<br>`;
+        dbg += `Warning: ${sampleWithDebug.warning || sampleWithDebug.error}<br><br>`;
+        dbg += `<b>Struktura prvního sheetu z XLSX:</b><br>`;
+        dbg += '<pre style="font-size:10px;background:#f4f5f9;padding:6px;max-height:400px;overflow:auto;">';
+        dbg += JSON.stringify(sampleWithDebug.debug_sheets, null, 2).slice(0, 3000);
+        dbg += '</pre>';
+        tbl.innerHTML = '<tr><td colspan="25" style="padding:12px;color:#c0392b;font-size:11px;">' + dbg + '</td></tr>';
+        window._histOteLoading = false;
+        return;
+      }
+    }
+    
     if (!days.length) {
       let dbg = `Žádná data se nepodařilo načíst.<br><br>Debug:<br>`;
       dbg += `Fetched: ${dayResults.length}<br>`;
