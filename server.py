@@ -1618,7 +1618,7 @@ class Handler(BaseHTTPRequestHandler):
                 f"Odchylky_{dd:02d}_{mm:02d}_{yyyy}_V2_CZ.xlsx",
                 f"Odchylky_{dd:02d}_{mm:02d}_{yyyy}_V0_CZ.xls",
             ]
-            base_path = f"https://www.ote-cr.cz/attachments/05_09_12/{yyyy}/month{mm:02d}/day{dd:02d}"
+            base_path = f"https://www.ote-cr.cz/pubweb/attachments/05_09_12/{yyyy}/month{mm:02d}/day{dd:02d}"
             
             urls = []
             for fn in file_names:
@@ -1702,33 +1702,36 @@ class Handler(BaseHTTPRequestHandler):
                         
                         # Interval kandidáti - upřednost je explicitní "interval" nebo "od/do"
                         interval_score = 0
-                        if sval == "interval" or "interval " in sval or sval.startswith("interval"):
+                        if "časový interval" in sval or "casovy interval" in sval:
+                            interval_score = 100
+                        elif sval == "interval" or "interval " in sval or sval.startswith("interval"):
                             interval_score = 10
                         elif "od/do" in sval or "od-do" in sval:
                             interval_score = 9
                         elif sval == "čas" or sval == "cas" or sval == "time":
                             interval_score = 7
                         elif sval == "perioda":
-                            # Perioda je 1-96, NE časový interval - DOWNGRADE
                             interval_score = 2
                         if interval_score:
                             interval_candidates.append((ri, ci, interval_score))
                             if header_row_idx is None: header_row_idx = ri
                         
-                        # Cena - hledej "cena" + "odchylk" nebo "zúčt" + jednotka
+                        # Cena - hledej KONKRÉTNĚ "zúčtovací cena odchylky"
+                        # NE protiodchylky, NE komponenty, NE neuskutečněné aktivace
                         price_score = 0
-                        if "cena" in sval and "odchyl" in sval:
+                        # Nejvyšší priorita: přesný název
+                        if "zúčtovací cena odchylky" in sval or "zuctovaci cena odchylky" in sval:
+                            price_score = 100  # nejvyšší
+                            if "eur" in sval: currency = "EUR"
+                            elif "kč" in sval or "czk" in sval: currency = "CZK"
+                        # Druhá priorita: jiné varianty zúčtovací ceny
+                        elif "zúčtovac" in sval and "cena" in sval and "protiodchyl" not in sval and "komponent" not in sval:
+                            price_score = 50
+                            if "eur" in sval: currency = "EUR"
+                            elif "kč" in sval or "czk" in sval: currency = "CZK"
+                        # Pak ostatní (pokud nic lepšího není)
+                        elif "cena" in sval and "odchyl" in sval and "protiodchyl" not in sval and "komponent" not in sval:
                             price_score = 10
-                            if "eur" in sval: currency = "EUR"
-                            elif "kč" in sval or "czk" in sval: currency = "CZK"
-                        elif "cena" in sval and ("zúčt" in sval or "zuct" in sval):
-                            price_score = 9
-                        elif sval == "cena" or "cena [" in sval:
-                            price_score = 7
-                            if "eur" in sval: currency = "EUR"
-                            elif "kč" in sval or "czk" in sval: currency = "CZK"
-                        elif "price" in sval:
-                            price_score = 6
                             if "eur" in sval: currency = "EUR"
                             elif "kč" in sval or "czk" in sval: currency = "CZK"
                         if price_score:
