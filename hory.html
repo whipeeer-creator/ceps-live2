@@ -3300,23 +3300,20 @@ async function loadHistSpreadTable() {
       
       // Build DT map
       const dtMap = {};
-      const dtList = Array.isArray(dDt) ? dDt : (dDt?.data || dDt?.rows || []);
+      const dtList = (dDt?.rows) || (Array.isArray(dDt) ? dDt : (dDt?.data || []));
       for (const v of dtList) {
-        const ts = v.timestamp || v.ts || v.date || v.Date || '';
-        const interval = v.Interval || v.interval || '';
+        // server.py vrací: {hour, minute, interval, price_eur}
         let h = -1, m = -1;
-        if (interval && typeof interval === 'string') {
-          const im = interval.match(/^(\d{1,2}):(\d{2})/);
+        if (v.hour !== undefined && v.minute !== undefined) {
+          h = v.hour; m = v.minute;
+        } else if (v.interval) {
+          const im = String(v.interval).match(/^(\d{1,2}):(\d{2})/);
           if (im) { h = parseInt(im[1]); m = parseInt(im[2]); }
-        } else if (ts) {
-          const tm = String(ts).match(/T?(\d{2}):(\d{2})/);
-          if (tm) { h = parseInt(tm[1]); m = parseInt(tm[2]); }
         }
         if (h < 0) continue;
-        const priceEur = parseFloat(v.last || v.price || v['Estimated price [Kč/MWh]'] || v.Price || 0);
+        const priceEur = parseFloat(v.price_eur ?? v.last ?? v.price ?? v.Price ?? 0);
         if (isNaN(priceEur)) continue;
-        const priceFinalEur = Math.abs(priceEur) > 1000 ? priceEur / KURZ : priceEur;
-        dtMap[`${h}:${m}`] = priceFinalEur;
+        dtMap[`${h}:${m}`] = priceEur;
       }
       
       if (!dOdch || dOdch.error || !dOdch.rows) return;
@@ -3346,7 +3343,24 @@ async function loadHistSpreadTable() {
     });
     
     const days = daysToFetch.filter(d => byDay[d.key]).reverse();
-    console.log('[HIST SPREAD] days with data:', days.length);
+    
+    // Debug stats
+    let totalDtParsed = 0, totalDtFailed = 0, totalOdchSkipped = 0;
+    let firstSample = null;
+    dayResults.forEach((pair, idx) => {
+      const [dOdch, dDt] = pair;
+      if (!firstSample && dDt) firstSample = dDt;
+      const dtList = (dDt?.rows) || (Array.isArray(dDt) ? dDt : []);
+      totalDtParsed += dtList.length;
+    });
+    console.log('[HIST SPREAD] days with data:', days.length, 'of', daysToFetch.length);
+    console.log('[HIST SPREAD] DT total rows fetched:', totalDtParsed);
+    console.log('[HIST SPREAD] First DT response sample:', firstSample);
+    if (days.length > 0) {
+      const sampleDay = days[0];
+      const sampleSpreads = byDay[sampleDay.key];
+      console.log('[HIST SPREAD] Sample day:', sampleDay.label, 'with hours:', Object.keys(sampleSpreads).length);
+    }
     
     if (!days.length) {
       tbl.innerHTML = '<tr><td style="padding:8px;color:#666;">Žádná data (chybí DT?)</td></tr>';
