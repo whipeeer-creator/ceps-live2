@@ -268,6 +268,35 @@ canvas { max-width: 100%; display: block; }
           <div id="histProbStats" style="font-size:10px;color:#555;margin-top:6px;font-family:'JetBrains Mono',monospace;display:flex;gap:14px;flex-wrap:wrap;"></div>
         </div>
       </div>
+
+      <div onclick="
+        var w=document.getElementById('tbl-hist-spread-wrap');
+        var arrow=this.querySelector('.spread-arrow');
+        if(w.style.display==='none'){
+          w.style.display='block';
+          arrow.textContent='▾';
+          if(typeof loadHistSpreadTable==='function'){loadHistSpreadTable();}
+        }else{
+          w.style.display='none';
+          arrow.textContent='▸';
+        }"
+        style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:10px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:6px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;">
+        <span class="spread-arrow">▸</span> Historický SPREAD (Odchylka − DT) · last 30 days · EUR/MWh
+      </div>
+      <div id="tbl-hist-spread-wrap" style="display:none;margin-top:6px;">
+        <div style="font-size:10px;color:#666;margin-bottom:6px;font-family:'JetBrains Mono',monospace;display:flex;gap:14px;flex-wrap:wrap;align-items:center;">
+          <span><span style="display:inline-block;width:14px;height:10px;background:#1565c0;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><b>current QH</b></span>
+          <span><span style="display:inline-block;width:14px;height:10px;background:#c8d8e8;border:1px solid #a8c5e5;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>spread ≤ 0 (LONG prohrál)</span>
+          <span><span style="display:inline-block;width:14px;height:10px;background:#ececec;border:1px solid #ccc;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>spread > 0 (LONG vydělal)</span>
+          <span><span style="display:inline-block;width:14px;height:10px;background:#27ae60;border-radius:2px;vertical-align:middle;margin-right:4px;"></span><b>top 5%</b> nejvýdělečnější</span>
+        </div>
+        <div class="table-scroll-wrap"><table id="tbl-hist-spread" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table></div>
+        <div style="font-size:9px;color:#666;margin-top:6px;font-family:'JetBrains Mono',monospace;line-height:1.5;">
+          <b>SPREAD = Cena odchylky − DT cena</b> (EUR/MWh)<br>
+          Kladný spread = LONG (BUY na VDT, čekej ČEPS doplatek) vydělá<br>
+          Záporný spread = SHORT (SELL) vydělá nebo LONG prohrál
+        </div>
+      </div>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT</div>
       <div class="table-scroll-wrap"><table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;table-layout:fixed;"></table></div>
       <div onclick="toggleSpotQh(this)" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:6px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:4px 8px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="qh-arrow">▸</span> 🇨🇿 CZ DT · 15min QH (rozkliknout)</div>
@@ -3229,6 +3258,228 @@ async function loadHistOdchTable() {
     window._histOdchLoading = false;
   }
 }
+
+async function loadHistSpreadTable() {
+  if (window._histSpreadLoading) return;
+  window._histSpreadLoading = true;
+  try {
+    const tbl = document.getElementById('tbl-hist-spread');
+    if (!tbl) return;
+    tbl.innerHTML = '<tr><td style="padding:8px;color:#666;font-style:italic;">Načítám 30 dní (Odchylka + DT)...</td></tr>';
+    
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const KURZ = 24.5;
+    
+    // Fetch 30 dni pro odchylku I DT paralelne
+    const dayPromises = [];
+    const daysToFetch = [];
+    for (let i = 30; i >= 1; i--) {
+      const d = new Date(now.getTime() - i*24*60*60*1000);
+      const yyyy = d.getFullYear();
+      const mm = d.getMonth() + 1;
+      const dd = d.getDate();
+      const key = `${yyyy}-${pad(mm)}-${pad(dd)}`;
+      daysToFetch.push({yyyy, mm, dd, key, label: `${dd}.${mm}.`});
+      const uOdch = `${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${encodeURIComponent(key+'T00:00:00')}&dateTo=${encodeURIComponent(key+'T23:59:59')}&agregation=MI&function=AVG`;
+      const uDt = `${API_URL}/ote/dt15?day=${-i}`;
+      dayPromises.push(Promise.all([
+        fetch(uOdch, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(uDt, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+      ]));
+    }
+    
+    const dayResults = await Promise.all(dayPromises);
+    
+    // byDay[dayKey][hour][minute] = spread = odch_eur - dt_eur
+    const byDay = {};
+    
+    dayResults.forEach((pair, idx) => {
+      const [dOdch, dDt] = pair;
+      const dayKey = daysToFetch[idx].key;
+      
+      // Build DT map
+      const dtMap = {};
+      const dtList = Array.isArray(dDt) ? dDt : (dDt?.data || dDt?.rows || []);
+      for (const v of dtList) {
+        const ts = v.timestamp || v.ts || v.date || v.Date || '';
+        const interval = v.Interval || v.interval || '';
+        let h = -1, m = -1;
+        if (interval && typeof interval === 'string') {
+          const im = interval.match(/^(\d{1,2}):(\d{2})/);
+          if (im) { h = parseInt(im[1]); m = parseInt(im[2]); }
+        } else if (ts) {
+          const tm = String(ts).match(/T?(\d{2}):(\d{2})/);
+          if (tm) { h = parseInt(tm[1]); m = parseInt(tm[2]); }
+        }
+        if (h < 0) continue;
+        const priceEur = parseFloat(v.last || v.price || v['Estimated price [Kč/MWh]'] || v.Price || 0);
+        if (isNaN(priceEur)) continue;
+        const priceFinalEur = Math.abs(priceEur) > 1000 ? priceEur / KURZ : priceEur;
+        dtMap[`${h}:${m}`] = priceFinalEur;
+      }
+      
+      if (!dOdch || dOdch.error || !dOdch.rows) return;
+      const cols = dOdch.columns || [];
+      const priceCol = cols.find(c => /price|estim/i.test(c)) || 'Estimated price [Kč/MWh]';
+      const intervalCol = cols.find(c => /interval/i.test(c));
+      
+      dOdch.rows.forEach(row => {
+        let h = 0, m = 0;
+        if (intervalCol && row[intervalCol]) {
+          const im = String(row[intervalCol]).match(/^(\d{1,2}):(\d{2})/);
+          if (im) { h = parseInt(im[1]); m = parseInt(im[2]); }
+        } else {
+          const dt = new Date(row.date || row.Date);
+          if (!isNaN(dt)) { h = dt.getHours(); m = dt.getMinutes(); }
+        }
+        const m15 = Math.floor(m / 15) * 15;
+        const odchKc = parseFloat(row[priceCol]) || 0;
+        const odchEur = odchKc / KURZ;
+        const dtEur = dtMap[`${h}:${m15}`];
+        if (dtEur === undefined) return;
+        const spread = odchEur - dtEur;
+        if (!byDay[dayKey]) byDay[dayKey] = {};
+        if (!byDay[dayKey][h]) byDay[dayKey][h] = {};
+        byDay[dayKey][h][m15] = spread;
+      });
+    });
+    
+    const days = daysToFetch.filter(d => byDay[d.key]).reverse();
+    console.log('[HIST SPREAD] days with data:', days.length);
+    
+    if (!days.length) {
+      tbl.innerHTML = '<tr><td style="padding:8px;color:#666;">Žádná data (chybí DT?)</td></tr>';
+      window._histSpreadLoading = false;
+      return;
+    }
+    
+    // Color scale
+    const allVals = [];
+    days.forEach(d => {
+      const dayData = byDay[d.key];
+      Object.values(dayData).forEach(hMap => {
+        Object.values(hMap).forEach(v => { if (Number.isFinite(v)) allVals.push(v); });
+      });
+    });
+    
+    const positiveVals = allVals.filter(v => v > 0).sort((a,b) => a-b);
+    const top5p = positiveVals.length ? positiveVals[Math.floor(positiveVals.length * 0.95)] : Infinity;
+    
+    const realCurHour = now.getHours() + 1;
+    const realCurQh = Math.floor(now.getMinutes() / 15) * 15;
+    if (window._histSpreadSelectedHour == null) window._histSpreadSelectedHour = realCurHour;
+    if (window._histSpreadSelectedQh == null) window._histSpreadSelectedQh = realCurQh;
+    
+    function renderSpreadTable() {
+      const selHour = window._histSpreadSelectedHour;
+      const selQh = window._histSpreadSelectedQh;
+      
+      let html = '<colgroup><col style="width:60px;">';
+      for (let i = 0; i < 24; i++) html += '<col>';
+      html += '</colgroup><thead><tr>';
+      html += '<th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;font-size:9px;"></th>';
+      for (let h = 1; h <= 24; h++) {
+        const isCur = h === selHour;
+        html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;">H${pad(h)}</th>`;
+      }
+      html += '</tr></thead><tbody>';
+      
+      const minutes = [0, 15, 30, 45];
+      days.forEach(d => {
+        const dayKey = d.key;
+        minutes.forEach((min, mIdx) => {
+          html += '<tr>';
+          let cellContent, cellBg, cellColor;
+          if (mIdx === 0) {
+            cellContent = `<span style="font-weight:700;color:#fff;">${d.label}</span>`;
+            cellBg = '#1565c0'; cellColor = '#fff';
+          } else {
+            cellContent = `<span style="font-size:9px;font-weight:600;">:${pad(min)}</span>`;
+            cellBg = '#fff'; cellColor = '#1a1a2e';
+          }
+          html += `<td style="padding:3px 4px;background:${cellBg};border:1px solid #dde;font-size:10px;color:${cellColor};white-space:nowrap;text-align:center;font-weight:${mIdx===0?'700':'600'};">${cellContent}</td>`;
+          for (let h = 1; h <= 24; h++) {
+            const dataH = h - 1;
+            const v = byDay[dayKey]?.[dataH]?.[min];
+            const isCurCell = h === selHour && min === selQh;
+            const borderStyle = isCurCell ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
+            if (!Number.isFinite(v)) {
+              html += `<td data-h="${h}" data-min="${min}" style="padding:3px 4px;background:#ececec;${borderStyle}cursor:pointer;text-align:center;color:#aaa;font-size:10px;">—</td>`;
+              continue;
+            }
+            const txt = v === 0 ? '0' : Math.round(v).toString();
+            let bgColor, color;
+            if (v <= 0) {
+              bgColor = '#c8d8e8'; color = '#1565c0';
+            } else if (v >= top5p) {
+              bgColor = '#27ae60'; color = '#fff';
+            } else {
+              bgColor = '#ececec'; color = '#1a1a2e';
+            }
+            html += `<td data-h="${h}" data-min="${min}" style="padding:3px 4px;background:${bgColor};${borderStyle}cursor:pointer;text-align:center;color:${color};font-weight:600;font-size:10px;">${txt}</td>`;
+          }
+          html += '</tr>';
+        });
+      });
+      
+      // Footer: kolik dni z 30 mělo POZITIVNÍ spread (LONG vydělá)
+      html += `<tr><td style="padding:2px 4px;background:#27ae60;color:#fff;border:1px solid #27ae60;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:32px;box-sizing:border-box;overflow:hidden;"><div style="line-height:1.1;">⊕ LONG WIN</div><div style="font-size:8px;font-weight:400;color:#d8eedb;line-height:1.1;">:${pad(selQh)}</div></td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        let pos = 0, total = 0;
+        days.forEach(d => {
+          const v = byDay[d.key]?.[dataH]?.[selQh];
+          if (Number.isFinite(v)) { total++; if (v > 0) pos++; }
+        });
+        const isCurCol = h === selHour;
+        const borderStyle = isCurCol ? 'border:2px solid #1a1a2e;' : 'border:1px solid #27ae60;';
+        const bg = isCurCol ? '#1e7e44' : '#27ae60';
+        const pct = total ? Math.round(pos/total*100) : 0;
+        html += `<td style="padding:2px 2px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:700;font-size:9px;height:32px;box-sizing:border-box;white-space:nowrap;overflow:hidden;"><div style="line-height:1.1;">${pos}<span style="color:#d8eedb;font-weight:400;">/${total}</span></div><div style="font-size:8px;color:#d8eedb;font-weight:400;line-height:1.1;">${pct}%</div></td>`;
+      }
+      html += '</tr>';
+      
+      // Footer: avg spread per hour
+      html += `<tr><td style="padding:2px 4px;background:#1a1a2e;color:#fff;border:1px solid #1a1a2e;font-size:9px;text-align:center;font-weight:700;white-space:nowrap;height:28px;box-sizing:border-box;"><div>Ø spread</div></td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        let sum = 0, n = 0;
+        days.forEach(d => {
+          const v = byDay[d.key]?.[dataH]?.[selQh];
+          if (Number.isFinite(v)) { sum += v; n++; }
+        });
+        const avg = n ? sum/n : 0;
+        const isCurCol = h === selHour;
+        const borderStyle = isCurCol ? 'border:2px solid #fff;' : 'border:1px solid #2c2c40;';
+        const color = avg > 0 ? '#7ee5a0' : avg < 0 ? '#a8c5e5' : '#999';
+        html += `<td style="padding:2px 2px;background:#1a1a2e;${borderStyle}text-align:center;color:${color};font-weight:700;font-size:10px;height:28px;box-sizing:border-box;">${Math.round(avg)}</td>`;
+      }
+      html += '</tr>';
+      
+      html += '</tbody>';
+      tbl.innerHTML = html;
+      
+      tbl.querySelectorAll('td[data-h]').forEach(td => {
+        td.addEventListener('click', () => {
+          window._histSpreadSelectedHour = parseInt(td.getAttribute('data-h'), 10);
+          window._histSpreadSelectedQh = parseInt(td.getAttribute('data-min'), 10);
+          renderSpreadTable();
+        });
+      });
+    }
+    
+    renderSpreadTable();
+    window._histSpreadLoaded = true;
+    window._histSpreadLoading = false;
+  } catch (e) {
+    console.warn('hist spread:', e);
+    const tbl = document.getElementById('tbl-hist-spread');
+    if (tbl) tbl.innerHTML = `<tr><td style="padding:8px;color:#c0392b;">Chyba: ${e.message}</td></tr>`;
+    window._histSpreadLoading = false;
+  }
+}
+
 
 function drawQhProbHistogram(byDay, curHourH, curQhMin) {
   const canvas = document.getElementById('histProbCanvas');
