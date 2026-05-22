@@ -3363,7 +3363,33 @@ async function loadHistSpreadTable() {
     }
     
     if (!days.length) {
-      tbl.innerHTML = '<tr><td style="padding:8px;color:#666;">Žádná data (chybí DT?)</td></tr>';
+      // DEBUG - vypiš co se přesně načetlo
+      let debugInfo = `Žádná data se nepodařilo načíst.<br><br>`;
+      debugInfo += `<b>Debug:</b><br>`;
+      debugInfo += `Fetched dní: ${dayResults.length}<br>`;
+      debugInfo += `DT total rows: ${totalDtParsed}<br>`;
+      
+      // Sample 1 day
+      const firstResult = dayResults[dayResults.length - 1]; // nejnovější
+      if (firstResult) {
+        const [dOdch, dDt] = firstResult;
+        debugInfo += `<br><b>Nejnovější den (včera):</b><br>`;
+        debugInfo += `Odch keys: ${dOdch ? Object.keys(dOdch).join(', ') : 'null'}<br>`;
+        debugInfo += `Odch rows: ${dOdch?.rows?.length || 0}<br>`;
+        debugInfo += `DT keys: ${dDt ? Object.keys(dDt).join(', ') : 'null'}<br>`;
+        debugInfo += `DT rows: ${dDt?.rows?.length || 0}<br>`;
+        
+        if (dDt?.rows?.length) {
+          debugInfo += `<br><b>DT[0] sample:</b><br>`;
+          debugInfo += '<pre style="font-size:10px;background:#f4f5f9;padding:6px;">' + JSON.stringify(dDt.rows[0], null, 2) + '</pre>';
+        }
+        if (dOdch?.rows?.length) {
+          debugInfo += `<br><b>Odch[0] sample:</b><br>`;
+          debugInfo += '<pre style="font-size:10px;background:#f4f5f9;padding:6px;">' + JSON.stringify(dOdch.rows[0], null, 2) + '</pre>';
+        }
+      }
+      
+      tbl.innerHTML = '<tr><td colspan="25" style="padding:12px;color:#c0392b;font-size:11px;">' + debugInfo + '</td></tr>';
       window._histSpreadLoading = false;
       return;
     }
