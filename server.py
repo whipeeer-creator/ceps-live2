@@ -1606,12 +1606,14 @@ class Handler(BaseHTTPRequestHandler):
                 out = dict(cache["data"]); out["_cache"] = "hit"
                 self._json(out); return
             
-            # URL varianty - název souboru je RPVZ_15MIN_DD_MM_YYYY_CZ.xlsx
-            # (Rozpis Položek Vyhodnocení Zúčtování)
+            # URL varianty - název souboru
+            # Hlavní: Odchylky_DD_MM_YYYY_V0_CZ.xlsx
+            # V0 = první publikace, V1+ = opravy/závěrečná verze
             file_names = [
-                f"RPVZ_15MIN_{dd:02d}_{mm:02d}_{yyyy}_CZ.xlsx",
-                f"ZO_15MIN_{dd:02d}_{mm:02d}_{yyyy}_CZ.xlsx",
-                f"ODCHYLKY_15MIN_{dd:02d}_{mm:02d}_{yyyy}_CZ.xlsx",
+                f"Odchylky_{dd:02d}_{mm:02d}_{yyyy}_V0_CZ.xlsx",
+                f"Odchylky_{dd:02d}_{mm:02d}_{yyyy}_V1_CZ.xlsx",
+                f"Odchylky_{dd:02d}_{mm:02d}_{yyyy}_V2_CZ.xlsx",
+                f"Odchylky_{dd:02d}_{mm:02d}_{yyyy}_V0_CZ.xls",
             ]
             base_path = f"https://www.ote-cr.cz/attachments/05_09_12/{yyyy}/month{mm:02d}/day{dd:02d}"
             
