@@ -173,9 +173,11 @@ canvas { max-width: 100%; display: block; }
   <div class="err-bar" id="err"></div>
 
   <div class="chart-panel" style="margin-bottom:8px;">
-    <div class="panel-hdr"><div class="panel-title">🇨🇿 CZ spot cena (DA) · EUR/MWh</div></div>
+    <div class="panel-hdr">
+      <div class="panel-title">🇨🇿 CZ spot cena (DA) · EUR/MWh</div>
+    </div>
     <div style="overflow-x:auto;padding:8px 12px;">
-      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:13px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:100%;"></table>
     </div>
   </div>
 
@@ -2607,28 +2609,41 @@ async function loadSpotTable(country, tableId) {
     const priceByHourTom = {};
     tomRows.forEach(row => { priceByHourTom[row.hour] = row.price_eur; });
     
-    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
-    for (let h = 1; h <= 24; h++) {
-      const isCur = h === curHour;
-      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
-    }
-    html += '</tr></thead><tbody>';
+    let html = '<tbody>';
     
-    // Řádek 1 - DNES
+    // Řádek 1 - hodiny 1-12
     html += '<tr>';
-    html += `<td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;font-weight:600;">€/MWh</td>`;
-    for (let h = 1; h <= 24; h++) {
+    for (let h = 1; h <= 12; h++) {
       const dataH = h - 1;
+      const isCur = h === curHour;
       if (!(dataH in priceByHour)) {
-        html += `<td style="padding:3px 6px;background:#c8d8e8;border:1px solid #dde;text-align:center;color:#888;">—</td>`;
+        html += `<td style="padding:8px 4px;background:#fff;border:1px solid #1a1a2e;text-align:center;color:#999;font-size:16px;">—</td>`;
         continue;
       }
       const v = priceByHour[dataH];
-      const bg = cellColor(v);
       const txt = Math.round(v);
+      const bg = isCur ? '#1a1a2e' : '#fff';
+      const color = isCur ? '#fff' : '#1a1a2e';
+      const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #1a1a2e;';
+      html += `<td style="padding:8px 4px;background:${bg};${borderStyle}text-align:center;color:${color};font-weight:700;font-size:18px;">${txt}</td>`;
+    }
+    html += '</tr>';
+    
+    // Řádek 2 - hodiny 13-24
+    html += '<tr>';
+    for (let h = 13; h <= 24; h++) {
+      const dataH = h - 1;
       const isCur = h === curHour;
-      const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
-      html += `<td style="padding:3px 6px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
+      if (!(dataH in priceByHour)) {
+        html += `<td style="padding:8px 4px;background:#fff;border:1px solid #1a1a2e;text-align:center;color:#999;font-size:16px;">—</td>`;
+        continue;
+      }
+      const v = priceByHour[dataH];
+      const txt = Math.round(v);
+      const bg = isCur ? '#1a1a2e' : '#fff';
+      const color = isCur ? '#fff' : '#1a1a2e';
+      const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #1a1a2e;';
+      html += `<td style="padding:8px 4px;background:${bg};${borderStyle}text-align:center;color:${color};font-weight:700;font-size:18px;">${txt}</td>`;
     }
     html += '</tr>';
     
