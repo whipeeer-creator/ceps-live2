@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EISI-NEW v2 · Imbalance Strategy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', sans-serif;
+    background: #f4f5f9;
+    color: #1a1a2e;
+    padding: 15px;
+    -webkit-font-smoothing: antialiased;
+  }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding: 8px 4px;
+  }
+  h1 {
+    color: #0d47a1;
+    font-size: 22px;
+    font-weight: 700;
+  }
+  h1 small {
+    font-size: 13px;
+    font-weight: 400;
+    color: #6b7280;
+    margin-left: 6px;
+  }
+  h2 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #374151;
+    margin: 18px 4px 8px 4px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  button {
+    background: #0d47a1;
+    color: white;
+    border: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  button:hover { background: #1565c0; }
+  button:disabled { background: #9ca3af; cursor: not-allowed; }
+  .card {
+    background: white;
+    border: 1px solid #e0e4ef;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card-l {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: #6b7280;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .big {
+    font-size: 32px;
+    font-weight: 700;
+    font-family: 'JetBrains Mono', monospace;
+    line-height: 1.1;
+  }
+  .small-detail {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .green { color: #2e7d32; }
+  .red { color: #c62828; }
+  .gray { color: #6b7280; }
+  .signal-card { padding: 20px; }
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .grid-2 .card { margin-bottom: 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+  }
+  th, td {
+    padding: 7px 8px;
+    text-align: right;
+    border-top: 1px solid #eef0f5;
+  }
+  th {
+    background: #f4f5f9;
+    font-weight: 600;
+    color: #374151;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+  }
+  td:first-child, th:first-child { text-align: left; }
+  .badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+  }
+  .badge-long { background: #e8f5e9; color: #2e7d32; }
+  .badge-short { background: #ffebee; color: #c62828; }
+  .badge-flat { background: #f5f5f5; color: #6b7280; }
+  .badge-spike { background: #fff3e0; color: #e65100; }
+  .badge-trend { background: #e3f2fd; color: #1565c0; }
+  .status {
+    font-size: 11px;
+    color: #6b7280;
+    margin-top: 4px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  .error {
+    background: #ffebee;
+    color: #c62828;
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-size: 12px;
+    margin-bottom: 12px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>EISI-NEW v2 <small>· Imbalance Strategy</small></h1>
+  <button id="refreshBtn" onclick="loadAll()">↺ Refresh</button>
+</header>
+
+<div id="errorBox"></div>
+
+<div class="card signal-card">
+  <div class="card-l">Aktuální signál (EISI-NEW v2)</div>
+  <div class="big" id="currentSignal">—</div>
+  <div class="small-detail" id="signalDetail">načítání…</div>
+  <div class="status" id="lastUpdate"></div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="card-l">EISI hodnota</div>
+    <div class="big" id="eisiValue">—</div>
+    <div class="small-detail" id="regime">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Doporučená velikost</div>
+    <div class="big" id="positionSize">— MWh</div>
+    <div class="small-detail" id="thresholdInfo">—</div>
+  </div>
+</div>
+
+<h2>Posledních 12 QH</h2>
+<div class="card" style="padding:0; overflow-x:auto;">
+  <table id="emaTable">
+    <thead>
+      <tr>
+        <th>QH</th>
+        <th>Odch €</th>
+        <th>EISI</th>
+        <th>Thresh</th>
+        <th>Režim</th>
+        <th>Signal</th>
+        <th>MWh</th>
+      </tr>
+    </thead>
+    <tbody><tr><td colspan="7" style="text-align:center; padding:20px; color:#6b7280;">načítání dat…</td></tr></tbody>
+  </table>
+</div>
+
+<script>
+// ============================================================
+// EISI-NEW v2 · Imbalance Strategy (port z Pythonu)
+// ============================================================
+const API_URL = window.location.origin;
+const KURZ    = 24.5;     // CZK/EUR
+const LAG     = 3;        // 3 QH = 45 min posun signálu
+const CAPITAL = 10000;    // počáteční € (info)
+
+// ===== Pomocné statistické funkce (port pandas → JS) =====
+function rollingMean(arr, w) {
+  const out = new Array(arr.length).fill(NaN);
+  let sum = 0, cnt = 0;
+  for (let i = 0; i < arr.length; i++) {
+    const v = arr[i];
+    if (!isNaN(v)) { sum += v; cnt++; }
+    if (i >= w) {
+      const old = arr[i - w];
+      if (!isNaN(old)) { sum -= old; cnt--; }
+    }
+    if (i >= w - 1 && cnt === w) out[i] = sum / w;
+  }
+  return out;
+}
+
+function rollingStd(arr, w) {
+  const out = new Array(arr.length).fill(NaN);
+  for (let i = w - 1; i < arr.length; i++) {
+    const slice = arr.slice(i - w + 1, i + 1);
+    if (slice.some(v => isNaN(v))) continue;
+    const m = slice.reduce((a, b) => a + b, 0) / w;
+    const variance = slice.reduce((a, b) => a + (b - m) ** 2, 0) / (w - 1);
+    out[i] = Math.sqrt(variance);
+  }
+  return out;
+}
+
+function rollingMedian(arr, w) {
+  const out = new Array(arr.length).fill(NaN);
+  for (let i = w - 1; i < arr.length; i++) {
+    const slice = arr.slice(i - w + 1, i + 1).filter(v => !isNaN(v));
+    if (slice.length !== w) continue;
+    const sorted = [...slice].sort((a, b) => a - b);
+    const mid = Math.floor(w / 2);
+    out[i] = w % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  }
+  return out;
+}
+
+// Hull Moving Average (HMA) — port z Pythonu
+// Pozn.: Python verze používá rolling().mean() místo váženého WMA,
+// tak držím stejnou logiku ať backtest = live.
+function hullMovingAverage(series, period = 12) {
+  const half = Math.floor(period / 2);
+  const wmaHalf = rollingMean(series, half);
+  const wmaFull = rollingMean(series, period);
+  const raw = wmaHalf.map((v, i) => isNaN(v) || isNaN(wmaFull[i]) ? NaN : 2 * v - wmaFull[i]);
+  return rollingMean(raw, Math.round(Math.sqrt(period)));
+}
+
+function diff(arr) {
+  return arr.map((v, i) => i === 0 ? NaN : v - arr[i - 1]);
+}
+
+function sign(x) {
+  if (isNaN(x)) return NaN;
+  return x > 0 ? 1 : x < 0 ? -1 : 0;
+}
+
+// ===== Hlavní výpočet EISI-NEW v2 =====
+function calcEisiV2(prices) {
+  const n = prices.length;
+  const eps = 1e-6;
+
+  const hmaFast = hullMovingAverage(prices, 12);
+  const hmaSlow = hullMovingAverage(prices, 36);
+  const trend = hmaFast.map((v, i) => isNaN(v) || isNaN(hmaSlow[i]) ? NaN : v - hmaSlow[i]);
+
+  const mean48 = rollingMean(prices, 48);
+  const std48 = rollingStd(prices, 48);
+  const zscore48 = prices.map((p, i) =>
+    isNaN(mean48[i]) || isNaN(std48[i]) ? NaN : (p - mean48[i]) / (std48[i] + eps)
+  );
+
+  const direction = diff(prices).map(sign);
+  const persistence = rollingMean(direction, 8);
+
+  const priceDiff = diff(prices);
+  const vol24 = rollingStd(priceDiff, 24);
+  const volMedian = rollingMedian(vol24, 200);
+
+  const isSpike = zscore48.map(z => !isNaN(z) && Math.abs(z) > 1.75);
+
+  const trendScore = trend.map((t, i) =>
+    isNaN(t) || isNaN(zscore48[i]) ? NaN : t * 0.65 + zscore48[i] * 6
+  );
+  const spikeScore = zscore48.map((z, i) =>
+    isNaN(z) || isNaN(persistence[i]) ? NaN : -z * 9 - sign(z) * persistence[i] * 4
+  );
+
+  const eisi = prices.map((_, i) => isSpike[i] ? spikeScore[i] : trendScore[i]);
+
+  const eisiStd = rollingStd(eisi, 200);
+  const threshold = eisiStd.map(v => isNaN(v) ? NaN : v * 1.55);
+  const valid = vol24.map((v, i) => !isNaN(v) && !isNaN(volMedian[i]) && v > volMedian[i] * 0.85);
+
+  // Signál + velikost
+  const signal = new Array(n).fill(0);
+  const mwh = new Array(n).fill(0);
+  for (let i = 0; i < n; i++) {
+    if (!valid[i] || isNaN(eisi[i]) || isNaN(threshold[i])) continue;
+    if (eisi[i] > threshold[i])  signal[i] = 1;
+    if (eisi[i] < -threshold[i]) signal[i] = -1;
+    const absRatio = Math.abs(eisi[i]) / (threshold[i] + eps);
+    mwh[i] = Math.round(Math.max(0.5, Math.min(5.0, absRatio)) * 10) / 10;
+  }
+
+  // Aplikace LAG (shift dopředu o LAG kroků)
+  const signalLagged = new Array(n).fill(0);
+  const mwhLagged = new Array(n).fill(0);
+  const validLagged = new Array(n).fill(false);
+  for (let i = LAG; i < n; i++) {
+    signalLagged[i] = signal[i - LAG];
+    mwhLagged[i] = mwh[i - LAG];
+    validLagged[i] = valid[i - LAG];
+  }
+
+  return {
+    eisi, threshold, isSpike, valid: validLagged,
+    signal: signalLagged, mwh: mwhLagged,
+    trend, zscore48, persistence
+  };
+}
+
+// ===== Načtení dat a hlavní orchestrace =====
+async function loadAll() {
+  const btn = document.getElementById('refreshBtn');
+  const errBox = document.getElementById('errorBox');
+  btn.disabled = true;
+  btn.textContent = '… načítám';
+  errBox.innerHTML = '';
+
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const yesterday = new Date(now.getTime() - 86400000).toISOString().slice(0, 10);
+  // pro spike-detekci (48 + 200 okna) potřebujeme historii
+  const weekAgo = new Date(now.getTime() - 7 * 86400000).toISOString().slice(0, 10);
+
+  try {
+    const [odchRes, vdtRes] = await Promise.all([
+      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${weekAgo}T00:00&dateTo=${today}T23:59`),
+      fetch(`${API_URL}/ote/vdt?date=${today}`)
+    ]);
+
+    if (!odchRes.ok) throw new Error(`API odchylky: HTTP ${odchRes.status}`);
+    const odchData = await odchRes.json();
+    const vdtData = vdtRes.ok ? await vdtRes.json() : { rows: [] };
+
+    processData(odchData, vdtData);
+  } catch (e) {
+    console.error(e);
+    errBox.innerHTML = `<div class="error">⚠ ${e.message}</div>`;
+    document.getElementById('currentSignal').innerHTML = '<span class="gray">CHYBA</span>';
+    document.getElementById('signalDetail').textContent = e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '↺ Refresh';
+  }
+}
+
+function processData(odchData, vdtData) {
+  const rows = odchData.rows || odchData.data || [];
+
+  if (rows.length < 100) {
+    document.getElementById('currentSignal').innerHTML = '<span class="gray">NEDOSTATEK DAT</span>';
+    document.getElementById('signalDetail').textContent =
+      `Pro EISI-NEW v2 je potřeba min. ~250 QH historie (mám ${rows.length})`;
+    return;
+  }
+
+  // Extrakce cen + časových razítek (robustně přes možné názvy klíčů)
+  const prices = [];
+  const timestamps = [];
+  for (const r of rows) {
+    const ceny = r['Zúčtovací cena odchylky (Kč/MWh)']
+              ?? r['Zúčtovací cena odchylky']
+              ?? r['cena_odch']
+              ?? r['odch']
+              ?? 0;
+    const ts = r['Datum'] ?? r['Cas'] ?? r['timestamp'] ?? r['QH'] ?? '';
+    prices.push(parseFloat(ceny) / KURZ);
+    timestamps.push(ts);
+  }
+
+  const res = calcEisiV2(prices);
+  const last = prices.length - 1;
+
+  // === Aktuální signál ===
+  const sig = res.signal[last];
+  const eisiVal = res.eisi[last];
+  const thr = res.threshold[last];
+  const mwh = res.mwh[last];
+  const spike = res.isSpike[last];
+  const valid = res.valid[last];
+
+  let signalEl, sigText;
+  if (sig === 1)      { signalEl = '<span class="green">LONG ▲</span>';  sigText = 'koupit MWh'; }
+  else if (sig === -1){ signalEl = '<span class="red">SHORT ▼</span>';   sigText = 'prodat MWh'; }
+  else                { signalEl = '<span class="gray">FLAT —</span>';   sigText = valid ? 'pod prahem' : 'nízká volatilita (neobchodovat)'; }
+
+  document.getElementById('currentSignal').innerHTML = signalEl;
+  document.getElementById('signalDetail').textContent =
+    `${sigText} · LAG ${LAG} QH (signál z času ${timestamps[last - LAG] || '?'})`;
+
+  document.getElementById('eisiValue').innerHTML =
+    isNaN(eisiVal) ? '—' : `<span class="${eisiVal > 0 ? 'green' : 'red'}">${eisiVal.toFixed(1)}</span>`;
+  document.getElementById('regime').innerHTML =
+    spike ? '<span class="badge badge-spike">SPIKE režim</span>' : '<span class="badge badge-trend">TREND režim</span>';
+
+  document.getElementById('positionSize').innerHTML =
+    sig === 0
+      ? '<span class="gray">0 MWh</span>'
+      : `<span class="${sig > 0 ? 'green' : 'red'}">${mwh.toFixed(1)} MWh</span>`;
+  document.getElementById('thresholdInfo').textContent =
+    `Práh: ±${thr ? thr.toFixed(1) : '—'} · |EISI|/práh: ${thr ? (Math.abs(eisiVal) / thr).toFixed(2) : '—'}`;
+
+  document.getElementById('lastUpdate').textContent =
+    `aktualizováno ${new Date().toLocaleTimeString('cs-CZ')} · ${rows.length} QH načteno`;
+
+  // === Tabulka 12 posledních QH ===
+  const tbody = document.querySelector('#emaTable tbody');
+  tbody.innerHTML = '';
+  const startIdx = Math.max(0, last - 11);
+  for (let i = startIdx; i <= last; i++) {
+    const s = res.signal[i];
+    const sigBadge = s === 1
+      ? '<span class="badge badge-long">LONG</span>'
+      : s === -1
+        ? '<span class="badge badge-short">SHORT</span>'
+        : '<span class="badge badge-flat">FLAT</span>';
+    const regBadge = res.isSpike[i]
+      ? '<span class="badge badge-spike">SPIKE</span>'
+      : '<span class="badge badge-trend">TREND</span>';
+    const eisiCell = isNaN(res.eisi[i])
+      ? '—'
+      : `<span class="${res.eisi[i] > 0 ? 'green' : 'red'}">${res.eisi[i].toFixed(1)}</span>`;
+    const tsShort = (timestamps[i] || '').toString().slice(5, 16).replace('T', ' ');
+
+    tbody.innerHTML += `
+      <tr>
+        <td>${tsShort || i}</td>
+        <td>${prices[i].toFixed(2)}</td>
+        <td>${eisiCell}</td>
+        <td>${isNaN(res.threshold[i]) ? '—' : res.threshold[i].toFixed(1)}</td>
+        <td>${regBadge}</td>
+        <td>${sigBadge}</td>
+        <td>${res.mwh[i] ? res.mwh[i].toFixed(1) : '—'}</td>
+      </tr>`;
+  }
+}
+
+// Start
+loadAll();
+setInterval(loadAll, 60000); // refresh každou minutu
+</script>
+</body>
+</html>
