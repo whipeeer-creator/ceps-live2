@@ -86,18 +86,13 @@ async function loadPrices() {
   errEl.classList.remove('show');
   
   try {
-    const now = new Date();
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
-    const today = `${yyyy}-${mm}-${dd}`;
-    
-    const res = await fetch(`${API_URL}/ote/spot?date=${today}&country=CZ`, { cache: 'no-store' });
+    const res = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     
-    const rows = data.rows || data.data || [];
-    if (!rows.length) {
+    // Endpoint vrací: { hours_today: [{hour, priceEur, priceCZK}, ...], hour: <current> }
+    const hoursToday = data.hours_today || [];
+    if (!hoursToday.length) {
       errEl.textContent = 'Žádná data pro dnešní den';
       errEl.classList.add('show');
       document.getElementById('rows').innerHTML = '';
@@ -105,15 +100,17 @@ async function loadPrices() {
     }
     
     const priceByHour = {};
-    for (const row of rows) {
+    for (const row of hoursToday) {
       const h = row.hour !== undefined ? row.hour : null;
       if (h === null) continue;
-      const p = row.price_eur !== undefined ? row.price_eur : row.price;
+      const p = row.priceEur !== undefined ? row.priceEur : row.price_eur;
       if (p === undefined || p === null) continue;
       priceByHour[h] = parseFloat(p);
     }
     
-    const curHour = now.getHours() + 1;
+    const now = new Date();
+    const curHour0 = now.getHours();  // 0-23
+    const curHour = curHour0 + 1;     // pro popis H01-H24
     
     let html = '';
     for (let h = 1; h <= 24; h++) {
@@ -139,6 +136,10 @@ async function loadPrices() {
     }
     document.getElementById('rows').innerHTML = html;
     
+    const yyyy = now.getFullYear();
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const dd = String(now.getDate()).padStart(2, '0');
+    const today = `${yyyy}-${mm}-${dd}`;
     const nowStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
     document.getElementById('meta').textContent = `${today} · ${nowStr}`;
     
