@@ -770,7 +770,7 @@ class Handler(BaseHTTPRequestHandler):
             self._ote_vdt_range(qs); return
         
         # Staticke HTML soubory (hruska.html, kapacity.html, live_odchylky.html)
-        if parsed.path in ("/hruska.html", "/kapacity.html", "/live_odchylky.html", "/ema.html", "/odhad.html", "/eisi.html"):
+        if parsed.path in ("/hruska.html", "/kapacity.html", "/live_odchylky.html", "/ema.html", "/odhad.html", "/eisi.html", "/ceny.html"):
             try:
                 fname = parsed.path.lstrip("/")
                 # Hleda soubor vedle server.py
