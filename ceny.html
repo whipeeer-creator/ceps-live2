@@ -7,47 +7,20 @@
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: 'Inter', sans-serif;
-    background: #fff;
-    color: #1a1a2e;
-    padding: 16px;
-    max-width: 480px;
-    margin: 0 auto;
-  }
+  body { font-family: 'Inter', sans-serif; background: #fff; color: #1a1a2e; padding: 16px; max-width: 480px; margin: 0 auto; }
   h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
   .subtitle { font-size: 12px; color: #666; margin-bottom: 16px; font-family: 'JetBrains Mono', monospace; }
   .refresh { margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
   button { background: #1a1a2e; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-family: inherit; font-size: 12px; cursor: pointer; }
-  button:hover { background: #2c2c40; }
   
-  .row {
-    display: grid;
-    grid-template-columns: 50px 1fr 100px;
-    align-items: center;
-    padding: 10px 12px;
-    border-bottom: 1px solid #1a1a2e;
-    font-family: 'JetBrains Mono', monospace;
-  }
-  .row.current { background: #1a1a2e; color: #fff; font-weight: 700; border: 2px solid #1a1a2e; }
+  .row { display: grid; grid-template-columns: 50px 1fr 100px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #1a1a2e; font-family: 'JetBrains Mono', monospace; }
+  .row.current { background: #1a1a2e; color: #fff; font-weight: 700; }
   .row .label { font-weight: 700; font-size: 15px; }
   .row .time { font-size: 13px; color: #666; text-align: center; }
   .row.current .time { color: #d0d0d8; }
   .row .price { text-align: right; font-weight: 700; font-size: 18px; }
   
-  .header-row {
-    display: grid;
-    grid-template-columns: 50px 1fr 100px;
-    padding: 8px 12px;
-    background: #fff;
-    border-bottom: 2px solid #1a1a2e;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: #666;
-    font-weight: 600;
-    font-family: 'JetBrains Mono', monospace;
-  }
+  .header-row { display: grid; grid-template-columns: 50px 1fr 100px; padding: 8px 12px; border-bottom: 2px solid #1a1a2e; font-size: 11px; text-transform: uppercase; color: #666; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
   .header-row .price-label { text-align: right; }
   .header-row .time-label { text-align: center; }
   
@@ -74,9 +47,7 @@
   <span class="price-label">€/MWh</span>
 </div>
 
-<div id="rows">
-  <div class="loading">Načítám ceny…</div>
-</div>
+<div id="rows"><div class="loading">Načítám ceny…</div></div>
 
 <script>
 const API_URL = window.location.origin;
@@ -86,13 +57,18 @@ async function loadPrices() {
   errEl.classList.remove('show');
   
   try {
-    const res = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const data = await r.json();
     
-    // Endpoint vrací: { hours_today: [{hour, priceEur, priceCZK}, ...], hour: <current> }
-    const hoursToday = data.hours_today || [];
-    if (!hoursToday.length) {
+    // Stejne jako live_odchylky.html - hours_today s priceEur
+    const ht = data.hours_today || data.hoursToday || [];
+    const rows = ht.map(p => ({
+      hour: p.hour,
+      price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur
+    })).filter(p => Number.isFinite(p.price_eur));
+    
+    if (!rows.length) {
       errEl.textContent = 'Žádná data pro dnešní den';
       errEl.classList.add('show');
       document.getElementById('rows').innerHTML = '';
@@ -100,17 +76,10 @@ async function loadPrices() {
     }
     
     const priceByHour = {};
-    for (const row of hoursToday) {
-      const h = row.hour !== undefined ? row.hour : null;
-      if (h === null) continue;
-      const p = row.priceEur !== undefined ? row.priceEur : row.price_eur;
-      if (p === undefined || p === null) continue;
-      priceByHour[h] = parseFloat(p);
-    }
+    for (const row of rows) priceByHour[row.hour] = row.price_eur;
     
     const now = new Date();
-    const curHour0 = now.getHours();  // 0-23
-    const curHour = curHour0 + 1;     // pro popis H01-H24
+    const curHour = now.getHours() + 1;
     
     let html = '';
     for (let h = 1; h <= 24; h++) {
@@ -124,8 +93,7 @@ async function loadPrices() {
       
       let priceStr = '—';
       if (dataH in priceByHour) {
-        const p = priceByHour[dataH];
-        priceStr = (Math.round(p * 10) / 10).toFixed(1);
+        priceStr = (Math.round(priceByHour[dataH] * 10) / 10).toFixed(1);
       }
       
       html += `<div class="${rowClass}">
@@ -139,9 +107,8 @@ async function loadPrices() {
     const yyyy = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, '0');
     const dd = String(now.getDate()).padStart(2, '0');
-    const today = `${yyyy}-${mm}-${dd}`;
-    const nowStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
-    document.getElementById('meta').textContent = `${today} · ${nowStr}`;
+    const nowStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
+    document.getElementById('meta').textContent = `${yyyy}-${mm}-${dd} · ${nowStr}`;
     
   } catch (e) {
     console.error(e);
