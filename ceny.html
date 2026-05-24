@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🇨🇿 CZ Spot Ceny · DA</title>
+<title>🇨🇿 CZ Spot Ceny</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -52,21 +52,37 @@
 <script>
 const API_URL = window.location.origin;
 
+// === IDENTICKÁ logika z live_odchylky.html ===
 async function loadPrices() {
   const errEl = document.getElementById('err');
   errEl.classList.remove('show');
   
   try {
-    const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
     
-    // Stejne jako live_odchylky.html - hours_today s priceEur
-    const ht = data.hours_today || data.hoursToday || [];
-    const rows = ht.map(p => ({
-      hour: p.hour,
-      price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur
-    })).filter(p => Number.isFinite(p.price_eur));
+    let rows = [];
+    
+    // CZ - OTE primary
+    const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
+    if (r.ok) {
+      const d = await r.json();
+      const ht = d.hours_today || d.hoursToday || [];
+      rows = ht.map(p => ({ 
+        hour: p.hour, 
+        price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
+      })).filter(p => Number.isFinite(p.price_eur));
+    }
+    
+    // Fallback: pokud OTE selhal
+    if (!rows.length) {
+      const r2 = await fetch(`${API_URL}/spot/prices?country=CZ&date=${today}`, { cache: 'no-store' });
+      if (r2.ok) {
+        const d2 = await r2.json();
+        if (d2.data) rows = d2.data.filter(p => p.minute === 0).map(p => ({hour: p.hour, price_eur: p.price_eur}));
+      }
+    }
     
     if (!rows.length) {
       errEl.textContent = 'Žádná data pro dnešní den';
@@ -78,7 +94,6 @@ async function loadPrices() {
     const priceByHour = {};
     for (const row of rows) priceByHour[row.hour] = row.price_eur;
     
-    const now = new Date();
     const curHour = now.getHours() + 1;
     
     let html = '';
@@ -104,11 +119,8 @@ async function loadPrices() {
     }
     document.getElementById('rows').innerHTML = html;
     
-    const yyyy = now.getFullYear();
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const dd = String(now.getDate()).padStart(2, '0');
-    const nowStr = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}`;
-    document.getElementById('meta').textContent = `${yyyy}-${mm}-${dd} · ${nowStr}`;
+    const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    document.getElementById('meta').textContent = `${today} · ${nowStr} · ${rows.length}h`;
     
   } catch (e) {
     console.error(e);
