@@ -172,15 +172,6 @@ canvas { max-width: 100%; display: block; }
 <main>
   <div class="err-bar" id="err"></div>
 
-  <div class="chart-panel" style="margin-bottom:8px;">
-    <div class="panel-hdr">
-      <div class="panel-title">🇨🇿 CZ spot cena (DA) · EUR/MWh</div>
-    </div>
-    <div style="overflow-x:auto;padding:8px 12px;">
-      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:13px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:100%;"></table>
-    </div>
-  </div>
-
   <div class="kpi-row">
     <div class="kpi" id="crd-O"><div class="kpi-l">Aktuální regulace</div><div class="kpi-v" id="dv-O">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-O">—</div></div>
     <div class="kpi" id="crd-C"><div class="kpi-l" style="font-weight:700;color:#1a1a2e;">ČEPS</div><div class="kpi-l" style="font-size:10px;">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
@@ -276,6 +267,9 @@ canvas { max-width: 100%; display: block; }
           <div id="histProbStats" style="font-size:10px;color:#555;margin-top:6px;font-family:'JetBrains Mono',monospace;display:flex;gap:14px;flex-wrap:wrap;"></div>
         </div>
       </div>
+    </div>
+      <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ spot cena (DA) · EUR/MWh</div>
+      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:13px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:100%;"></table>
     </div>
   </div>
 
