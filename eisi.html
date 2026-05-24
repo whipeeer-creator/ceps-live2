@@ -494,16 +494,16 @@ async function loadAll() {
     histFetches.push(fetch(`${API_URL}/ote/vdt?date=${today}&_=${cb}`, { cache: 'no-store' }));
     
     const responses = await Promise.all(histFetches);
+    // Parsuj VŠECHNY JSONy najednou (body stream lze číst jen 1×)
+    const jsonData = await Promise.all(responses.map(r => r.json().catch(() => ({}))));
     
-    // Posledni 2 jsou DNES (rOdch, rVdt) - pro kompat
-    const rOdch = responses[responses.length - 2];
-    const rVdt = responses[responses.length - 1];
-    const dOdch = await rOdch.json();
-    const dVdt = await rVdt.json();
+    // Posledni 2 jsou DNES
+    const dOdch = jsonData[jsonData.length - 2];
+    const dVdt = jsonData[jsonData.length - 1];
     
-    // Yesterday = historyDays[6] (poslední z minulosti)
-    const dOdchY = await responses[(historyDays.length - 1) * 2].json();
-    const dVdtY = await responses[(historyDays.length - 1) * 2 + 1].json();
+    // Yesterday = historyDays[poslední] - kompat
+    const dOdchY = jsonData[(historyDays.length - 1) * 2];
+    const dVdtY = jsonData[(historyDays.length - 1) * 2 + 1];
     
     if (!dOdch.rows || dOdch.rows.length === 0) {
       document.getElementById('metaInfo').textContent = 'Žádná data pro dnešní den';
@@ -529,7 +529,7 @@ async function loadAll() {
     // Build VDT z VŠECH historických dnů + dnes
     for (let i = 0; i < historyDays.length; i++) {
       const dStr = historyDays[i];
-      const dVdtH = await responses[i * 2 + 1].json();
+      const dVdtH = jsonData[i * 2 + 1];
       buildVdt(dVdtH, dStr);
     }
     buildVdt(dVdt, today);
@@ -541,7 +541,7 @@ async function loadAll() {
     // HISTORICKÁ data - všechny dny pro EISI warmup (60+ QH)
     for (let i = 0; i < historyDays.length; i++) {
       const dStr = historyDays[i];
-      const dOdchH = await responses[i * 2].json();
+      const dOdchH = jsonData[i * 2];
       if (!dOdchH.rows) continue;
       for (const row of dOdchH.rows) {
         const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
