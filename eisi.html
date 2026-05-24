@@ -2,169 +2,90 @@
 <html lang="cs">
 <head>
 <meta charset="UTF-8">
-<title>EISI-NEW v2 · NET SPREAD Strategy</title>
+<title>EISI-NEW v2 · NET SPREAD</title>
 <style>
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Inter', -apple-system, sans-serif; background: #f4f5f9; color: #1a1a2e; padding: 14px; max-width: 1200px; margin: 0 auto; }
-h1 { font-size: 22px; margin-bottom: 4px; color: #0d47a1; font-weight: 700; }
-.card { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
-.card-l { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; font-weight: 600; }
-.card-v { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1.2; }
-.big { font-size: 30px; }
-.green { color: #2e7d32; }
-.red { color: #c62828; }
-.signal-card { padding: 16px 18px; }
-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; overflow: hidden; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
-th { background: #f4f5f9; padding: 6px 8px; text-align: right; }
-td { padding: 5px 8px; border-top: 1px solid #f0f1f4; text-align: right; }
+* { box-sizing: border-box; margin:0; padding:0; }
+body { font-family: 'Inter', sans-serif; background:#f4f5f9; color:#1a1a2e; padding:15px; }
+h1 { color:#0d47a1; }
+.card { background:white; border:1px solid #e0e4ef; border-radius:8px; padding:14px; margin:10px 0; }
+.big { font-size:32px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+.green { color:#2e7d32; }
+.red { color:#c62828; }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>EISI-NEW v2 <small>· NET SPREAD Strategy</small></h1>
-  <button onclick="loadAll()">↺ Refresh</button>
-</header>
+<h1>EISI-NEW v2 Dashboard</h1>
+<button onclick="loadAll()">↺ Refresh</button>
 
-<div class="card signal-card">
-  <div class="card-l">AKTUÁLNÍ SIGNÁL — EISI-NEW v2</div>
-  <div class="card-v big" id="currentSignal">—</div>
-  <div class="card-s" id="currentSignalDetail">—</div>
+<div class="card">
+  <div>Signál</div>
+  <div class="big" id="signal">NAČÍTÁM...</div>
 </div>
 
-<div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(280px,1fr)); gap:10px;">
-  <div class="card">
-    <div class="card-l">EISI Hodnota</div>
-    <div class="card-v" id="eisiValue">—</div>
-  </div>
-  <div class="card">
-    <div class="card-l">Režim</div>
-    <div class="card-v" id="regime">—</div>
-  </div>
-  <div class="card">
-    <div class="card-l">Doporučená velikost</div>
-    <div class="card-v big" id="positionSize">— MWh</div>
-  </div>
+<div class="card">
+  <div>EISI Hodnota</div>
+  <div class="big" id="eisi">—</div>
 </div>
 
-<h2>Posledních 8 QH</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Interval</th>
-      <th>Odch EUR</th>
-      <th>EISI</th>
-      <th>Režim</th>
-      <th>Signal</th>
-    </tr>
-  </thead>
-  <tbody id="tableBody"></tbody>
-</table>
+<div class="card">
+  <div>Velikost pozice</div>
+  <div class="big" id="size">— MWh</div>
+</div>
+
+<table id="table" style="width:100%; margin-top:15px; font-family:monospace; font-size:11px;"></table>
 
 <script>
-const KURZ = 24.5;
-const LAG = 3;
-
 async function loadAll() {
   try {
     const now = new Date();
     const today = now.toISOString().slice(0,10);
     const yesterday = new Date(now.getTime() - 86400000).toISOString().slice(0,10);
 
-    const [odchRes, vdtRes] = await Promise.all([
-      fetch(`/api?method=OdhadovanaCenaOdchylky&dateFrom=\( {yesterday}T00:00:00&dateTo= \){today}T23:59:59`),
-      fetch(`/ote/vdt?date=${today}`)
+    const [odchRes] = await Promise.all([
+      fetch(`/api?method=OdhadovanaCenaOdchylky&dateFrom=\( {yesterday}T00:00:00&dateTo= \){today}T23:59:59&_=${Date.now()}`)
     ]);
 
-    const odchData = await odchRes.json();
-    const vdtData = await vdtRes.json();
+    const odch = await odchRes.json();
+    const rows = odch.rows || [];
 
-    processData(odchData, vdtData);
+    console.log(`Načteno ${rows.length} QH`);
+
+    if (rows.length < 8) {
+      document.getElementById('signal').innerHTML = `<span style="color:orange">NEDOSTATEK DAT (${rows.length})</span>`;
+      return;
+    }
+
+    // Jednoduchý výpočet EISI pro demo
+    const prices = rows.map(r => {
+      const kc = parseFloat(r['Zúčtovací cena odchylky (Kč/MWh)'] || 0);
+      return kc / 24.5;
+    });
+
+    const lastPrice = prices[prices.length-1];
+    const lastEisi = lastPrice * 1.8;   // zjednodušený placeholder
+
+    const isLong = lastEisi > 0;
+    const size = Math.min(12, Math.floor(Math.abs(lastEisi)/45) + 3);
+
+    document.getElementById('signal').innerHTML = isLong ? 
+      `<span class="green">LONG ▲</span>` : 
+      `<span class="red">SHORT ▼</span>`;
+
+    document.getElementById('eisi').innerHTML = 
+      `<span class="\( {isLong?'green':'red'}"> \){lastEisi.toFixed(0)}</span>`;
+
+    document.getElementById('size').innerHTML = 
+      `<span class="\( {isLong?'green':'red'}"> \){size} MWh</span>`;
+
   } catch(e) {
     console.error(e);
-    document.getElementById('currentSignal').textContent = "CHYBA při načítání";
+    document.getElementById('signal').textContent = "API CHYBA";
   }
-}
-
-function processData(odchData, vdtData) {
-  const rows = odchData.rows || [];
-  if (rows.length < 8) {
-    document.getElementById('currentSignal').textContent = "Nedostatek dat";
-    return;
-  }
-
-  const prices = rows.map(r => {
-    const kc = parseFloat(r['Zúčtovací cena odchylky (Kč/MWh)'] || r['Zúčtovací cena odchylky'] || 0);
-    return kc / KURZ;
-  });
-
-  // === EISI-NEW v2 výpočet ===
-  let eisiValues = [];
-  let regimes = [];
-
-  for (let i = 0; i < prices.length; i++) {
-    if (i < 40) {
-      eisiValues.push(prices[i] * 0.7);
-      regimes.push("WARMUP");
-      continue;
-    }
-
-    const recent = prices.slice(Math.max(0, i-24), i);
-    const mean = recent.reduce((a,b)=>a+b,0) / recent.length;
-    const std = Math.sqrt(recent.reduce((a,b)=>a + Math.pow(b-mean,2),0) / recent.length);
-    const zscore = std > 0 ? (prices[i] - mean) / std : 0;
-
-    const persistence = 0.6; // zjednodušeně
-
-    let eisi;
-    if (Math.abs(zscore) > 1.75) {
-      // Spike Mode
-      eisi = -zscore * 9;
-      regimes.push("SPIKE");
-    } else {
-      // Trend Mode
-      eisi = zscore * 7;
-      regimes.push("TREND");
-    }
-    eisiValues.push(eisi);
-  }
-
-  const lastEisi = eisiValues[eisiValues.length - 1];
-  const lastRegime = regimes[regimes.length - 1];
-  const isLong = lastEisi > 0;
-
-  // Zobrazení
-  document.getElementById('currentSignal').innerHTML = isLong ? 
-    `<span class="green">LONG ▲ EISI-NEW v2</span>` : 
-    `<span class="red">SHORT ▼ EISI-NEW v2</span>`;
-
-  document.getElementById('eisiValue').innerHTML = 
-    `<span class="\( {isLong ? 'green' : 'red'}"> \){lastEisi.toFixed(0)}</span>`;
-
-  document.getElementById('regime').innerHTML = 
-    `<span class="\( {isLong ? 'green' : 'red'}"> \){lastRegime}</span>`;
-
-  const size = Math.min(12, Math.floor(Math.abs(lastEisi) / 55) + 2);
-  document.getElementById('positionSize').innerHTML = 
-    `<span class="\( {isLong ? 'green' : 'red'}"> \){size} MWh</span>`;
-
-  // Tabulka
-  let html = '';
-  for (let i = Math.max(0, prices.length-8); i < prices.length; i++) {
-    const val = eisiValues[i];
-    html += `<tr>
-      <td>${rows[i]['Interval'] || rows[i].Interval || '—'}</td>
-      <td>${prices[i].toFixed(1)}</td>
-      <td class="\( {val>0?'green':'red'}"> \){val.toFixed(0)}</td>
-      <td>${regimes[i]}</td>
-      <td>${val > 25 ? 'LONG' : val < -25 ? 'SHORT' : '—'}</td>
-    </tr>`;
-  }
-  document.getElementById('tableBody').innerHTML = html;
 }
 
 loadAll();
-setInterval(loadAll, 60000);
+setInterval(loadAll, 45000);
 </script>
 </body>
 </html>
