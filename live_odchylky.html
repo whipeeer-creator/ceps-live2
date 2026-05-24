@@ -269,7 +269,7 @@ canvas { max-width: 100%; display: block; }
       </div>
     </div>
       <div style="font-size:10px;color:#666;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ spot cena (DA) · EUR/MWh</div>
-      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:13px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:100%;"></table>
+      <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
     </div>
   </div>
 
@@ -2508,7 +2508,7 @@ function _rlRedraw() {
 // Tabulka cen + ostatní
 // ============================================================
 async function loadSpotTable(country, tableId) {
-  // Spot cena DA - CZ z OTE (spotovaelektrina.cz), DE z energy-charts
+  // Spot cena DA pro CZ/DE - dnes + šedý řádek zítra (z hory.html)
   try {
     const now = new Date();
     const pad = n => String(n).padStart(2,'0');
@@ -2517,61 +2517,52 @@ async function loadSpotTable(country, tableId) {
     const tomorrow = `${tom.getFullYear()}-${pad(tom.getMonth()+1)}-${pad(tom.getDate())}`;
     
     let rows = [];
-    let tomRows = [];
-    
+    let rowsTom = [];
     if (country === 'CZ') {
-      // CZ - OTE primary (vrací dnes + zítra v jednom volání)
       const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
-      if (r.ok) {
-        const d = await r.json();
-        const ht = d.hours_today || d.hoursToday || [];
-        rows = ht.map(p => ({ 
-          hour: p.hour, 
-          price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
-        })).filter(p => Number.isFinite(p.price_eur));
-        const htTom = d.hours_tomorrow || d.hoursTomorrow || [];
-        tomRows = htTom.map(p => ({ 
-          hour: p.hour, 
-          price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
-        })).filter(p => Number.isFinite(p.price_eur));
-      }
-      // Fallback: pokud OTE selhal nebo nemá zítra
-      if (!rows.length) {
-        const r2 = await fetch(`${API_URL}/spot/prices?country=CZ&date=${today}`, { cache: 'no-store' });
-        if (r2.ok) {
-          const d2 = await r2.json();
-          if (d2.data) rows = d2.data.filter(p => p.minute === 0).map(p => ({hour: p.hour, price_eur: p.price_eur}));
-        }
-      }
-      if (!tomRows.length) {
+      if (!r.ok) return;
+      const d = await r.json();
+      const ht = d.hours_today || d.hoursToday || [];
+      rows = ht.map(p => ({ 
+        hour: p.hour, 
+        price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
+      })).filter(p => Number.isFinite(p.price_eur));
+      const htTom = d.hours_tomorrow || d.hoursTomorrow || [];
+      rowsTom = htTom.map(p => ({ 
+        hour: p.hour, 
+        price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
+      })).filter(p => Number.isFinite(p.price_eur));
+      if (!rowsTom.length) {
         try {
-          const r3 = await fetch(`${API_URL}/spot/prices?country=CZ&date=${tomorrow}`, { cache: 'no-store' });
-          if (r3.ok) {
-            const d3 = await r3.json();
-            if (d3.data && !d3.error) tomRows = d3.data.filter(p => p.minute === 0).map(p => ({hour: p.hour, price_eur: p.price_eur}));
+          const rTom = await fetch(`${API_URL}/spot/prices?country=${country}&date=${tomorrow}`, { cache: 'no-store' });
+          if (rTom.ok) {
+            const dTom = await rTom.json();
+            if (dTom && !dTom.error && dTom.data) {
+              rowsTom = dTom.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+            }
           }
         } catch(e) {}
       }
+      if (!rows.length) return;
     } else {
-      // DE - energy-charts.info (jediný zdroj DE spot)
       const [r, rTom] = await Promise.all([
-        fetch(`${API_URL}/spot/prices?country=DE&date=${today}`, { cache: 'no-store' }),
-        fetch(`${API_URL}/spot/prices?country=DE&date=${tomorrow}`, { cache: 'no-store' }).catch(()=>null)
+        fetch(`${API_URL}/spot/prices?country=${country}&date=${today}`, { cache: 'no-store' }),
+        fetch(`${API_URL}/spot/prices?country=${country}&date=${tomorrow}`, { cache: 'no-store' }).catch(()=>null)
       ]);
       if (!r.ok) return;
       const d = await r.json();
       if (d.error || !d.data || !d.data.length) return;
-      rows = d.data.filter(p => p.minute === 0).map(p => ({hour: p.hour, price_eur: p.price_eur}));
+      rows = d.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
       if (rTom && rTom.ok) {
         const dTom = await rTom.json().catch(()=>null);
         if (dTom && !dTom.error && dTom.data) {
-          tomRows = dTom.data.filter(p => p.minute === 0).map(p => ({hour: p.hour, price_eur: p.price_eur}));
+          rowsTom = dTom.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
         }
       }
     }
     
     if (!rows.length) return;
-    const allVals = [...rows.map(r => r.price_eur), ...tomRows.map(r => r.price_eur)].filter(v => Number.isFinite(v));
+    const allVals = [...rows.map(r => r.price_eur), ...rowsTom.map(r => r.price_eur)].filter(v => Number.isFinite(v));
     if (!allVals.length) return;
     
     const vMin = Math.min(...allVals);
@@ -2601,65 +2592,53 @@ async function loadSpotTable(country, tableId) {
     const priceByHour = {};
     rows.forEach(row => { priceByHour[row.hour] = row.price_eur; });
     const priceByHourTom = {};
-    tomRows.forEach(row => { priceByHourTom[row.hour] = row.price_eur; });
+    rowsTom.forEach(row => { priceByHourTom[row.hour] = row.price_eur; });
     
-    let html = '<tbody>';
-    
-    // === ŘÁDEK 1: hodiny 1-12 ===
-    // Hlavička H01-H12
-    html += '<tr>';
-    for (let h = 1; h <= 12; h++) {
+    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
+    for (let h = 1; h <= 24; h++) {
       const isCur = h === curHour;
-      const bg = isCur ? '#1a1a2e' : '#fff';
-      const color = isCur ? '#fff' : '#666';
-      html += `<th style="padding:4px 4px;background:${bg};color:${color};border:1px solid #1a1a2e;text-align:center;font-size:11px;font-weight:700;">H${String(h).padStart(2,'0')}</th>`;
+      const fromHr = String(h-1).padStart(2,'0');
+      const toHr = String(h).padStart(2,'0');
+      const labelColor = isCur ? '#fff' : '#666';
+      html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${labelColor};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}<div style="font-size:8px;font-weight:400;color:${labelColor};opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
     }
-    html += '</tr>';
-    // Ceny 1-12
+    html += '</tr></thead><tbody>';
+    
+    // Řádek 1 - DNES
     html += '<tr>';
-    for (let h = 1; h <= 12; h++) {
+    html += `<td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;font-weight:600;">€/MWh</td>`;
+    for (let h = 1; h <= 24; h++) {
       const dataH = h - 1;
-      const isCur = h === curHour;
       if (!(dataH in priceByHour)) {
-        html += `<td style="padding:8px 4px;background:#fff;border:1px solid #1a1a2e;text-align:center;color:#999;font-size:16px;">—</td>`;
+        html += `<td style="padding:3px 6px;background:#c8d8e8;border:1px solid #dde;text-align:center;color:#888;">—</td>`;
         continue;
       }
       const v = priceByHour[dataH];
+      const bg = cellColor(v);
       const txt = Math.round(v);
-      const bg = isCur ? '#1a1a2e' : '#fff';
-      const color = isCur ? '#fff' : '#1a1a2e';
-      const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #1a1a2e;';
-      html += `<td style="padding:8px 4px;background:${bg};${borderStyle}text-align:center;color:${color};font-weight:700;font-size:18px;">${txt}</td>`;
+      const isCur = h === curHour;
+      const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
+      html += `<td style="padding:3px 6px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
     }
     html += '</tr>';
     
-    // === ŘÁDEK 2: hodiny 13-24 ===
-    // Hlavička H13-H24
-    html += '<tr>';
-    for (let h = 13; h <= 24; h++) {
-      const isCur = h === curHour;
-      const bg = isCur ? '#1a1a2e' : '#fff';
-      const color = isCur ? '#fff' : '#666';
-      html += `<th style="padding:4px 4px;background:${bg};color:${color};border:1px solid #1a1a2e;text-align:center;font-size:11px;font-weight:700;">H${String(h).padStart(2,'0')}</th>`;
-    }
-    html += '</tr>';
-    // Ceny 13-24
-    html += '<tr>';
-    for (let h = 13; h <= 24; h++) {
-      const dataH = h - 1;
-      const isCur = h === curHour;
-      if (!(dataH in priceByHour)) {
-        html += `<td style="padding:8px 4px;background:#fff;border:1px solid #1a1a2e;text-align:center;color:#999;font-size:16px;">—</td>`;
-        continue;
+    // Řádek 2 - ZÍTRA (šedý overlay)
+    if (rowsTom.length > 0) {
+      html += '<tr>';
+      html += `<td style="padding:3px 6px;background:#ececec;border:1px solid #dde;white-space:nowrap;font-weight:600;color:#666;font-size:9px;">zítra</td>`;
+      for (let h = 1; h <= 24; h++) {
+        const dataH = h - 1;
+        if (!(dataH in priceByHourTom)) {
+          html += `<td style="padding:3px 6px;background:#f0f0f0;border:1px solid #dde;text-align:center;color:#aaa;">—</td>`;
+          continue;
+        }
+        const v = priceByHourTom[dataH];
+        const bg = cellColor(v);
+        const txt = Math.round(v);
+        html += `<td style="padding:3px 6px;background:${bg};opacity:0.45;border:1px solid #dde;text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
       }
-      const v = priceByHour[dataH];
-      const txt = Math.round(v);
-      const bg = isCur ? '#1a1a2e' : '#fff';
-      const color = isCur ? '#fff' : '#1a1a2e';
-      const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #1a1a2e;';
-      html += `<td style="padding:8px 4px;background:${bg};${borderStyle}text-align:center;color:${color};font-weight:700;font-size:18px;">${txt}</td>`;
+      html += '</tr>';
     }
-    html += '</tr>';
     
     html += '</tbody>';
     tbl.innerHTML = html;
