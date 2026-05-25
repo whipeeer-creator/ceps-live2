@@ -2,170 +2,1106 @@
 <html lang="cs">
 <head>
 <meta charset="UTF-8">
-<title>EISI-NEW v2 · NET SPREAD Strategy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EISI v2 · NET SPREAD Strategy</title>
 <style>
+/* Vypnout slashed-zero (vypadala jak 8) */
+body, * { font-variant-numeric: lining-nums tabular-nums; font-feature-settings: "zero" 0, "ss01" 0; }
+
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: 'Inter', -apple-system, sans-serif; background: #f4f5f9; color: #1a1a2e; padding: 14px; max-width: 1200px; margin: 0 auto; }
 h1 { font-size: 22px; margin-bottom: 4px; color: #0d47a1; font-weight: 700; }
 h1 small { font-size: 11px; color: #888; font-weight: 400; font-family: 'JetBrains Mono', monospace; }
-.card { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); margin-bottom: 12px; }
+h2 { font-size: 14px; color: #555; margin: 16px 0 8px; font-weight: 600; }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.card { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
 .card-l { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; font-weight: 600; }
 .card-v { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1.2; }
+.card-v .u { font-size: 11px; color: #888; font-weight: 400; margin-left: 4px; }
+.card-s { font-size: 10px; color: #666; font-family: 'JetBrains Mono', monospace; margin-top: 4px; line-height: 1.4; }
 .big { font-size: 30px; }
+.signal-card { padding: 16px 18px; }
 .green { color: #2e7d32; }
 .red { color: #c62828; }
-.signal-card { padding: 16px 18px; }
+.gray { color: #888; }
+.orange { color: #f57c00; }
+.blue { color: #1565c0; }
 table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; overflow: hidden; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
-th { background: #f4f5f9; padding: 6px 8px; text-align: right; }
+th { background: #f4f5f9; padding: 6px 8px; text-align: right; font-weight: 600; color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: .02em; }
+th:first-child, td:first-child { text-align: left; }
 td { padding: 5px 8px; border-top: 1px solid #f0f1f4; text-align: right; }
+tr.signal-now td { background: #e3f2fd; font-weight: 700; border-bottom: 2px solid #1565c0; }
+.bar-bg { background: #f0f1f4; border-radius: 3px; overflow: hidden; height: 6px; position: relative; }
+.bar-pos { background: #2e7d32; height: 100%; }
+.bar-neg { background: #c62828; height: 100%; }
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #e0e4ef; }
 .refresh { background: #1565c0; color: white; border: none; padding: 6px 14px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.refresh:hover { background: #0d47a1; }
+.meta { font-size: 10px; color: #888; font-family: 'JetBrains Mono', monospace; }
+.formula { background: #fff8e1; border-left: 3px solid #f57c00; padding: 8px 12px; margin: 8px 0 12px; font-size: 11px; line-height: 1.6; font-family: 'JetBrains Mono', monospace; }
+.formula b { color: #c62828; }
+@media (max-width: 600px) {
+  body { padding: 8px; }
+  h1 { font-size: 18px; }
+  .card-v { font-size: 18px; }
+  .big { font-size: 24px; }
+}
 </style>
 </head>
 <body>
 
 <header>
   <div>
-    <h1>EISI-NEW v2 <small>· NET SPREAD Strategy</small></h1>
-    <div class="meta" id="metaInfo">načítám data...</div>
+    <h1>EISI v2 NET SPREAD <small>· VDT → Odchylka · Tom strategy</small></h1>
+    <div class="meta" id="metaInfo">načítám…</div>
   </div>
   <button class="refresh" onclick="loadAll()">↺ Refresh</button>
 </header>
 
-<div class="card signal-card">
-  <div class="card-l">AKTUÁLNÍ SIGNÁL — EISI-NEW v2</div>
-  <div class="card-v big" id="currentSignal">—</div>
-  <div class="card-s" id="currentSignalDetail">—</div>
+<div class="formula">
+<b>STRATEGIE:</b> EISI v2 signál → směr · Koupíš/prodáš MWh na VDT (OTE) · Pozici necháš do ČEPS odchylky · <b>NET = Odch − VDT</b> (LONG) nebo <b>VDT − Odch</b> (SHORT)<br>
+<b>Příklad:</b> Soustava v deficitu (EISI>0). Kupuješ na VDT za 100 €/MWh, ČEPS dotuje odchylku 150 €/MWh → <b>NET +50 €</b>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;">
-  <div class="card">
-    <div class="card-l">EISI Hodnota</div>
-    <div class="card-v" id="eisiValue">—</div>
+<h2>📊 Position Sizing</h2>
+<div class="row" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
+  <div class="card" style="background:#e8f5e9; border-left:4px solid #2e7d32;">
+    <div style="font-size:13px; font-weight:700; color:#2e7d32; margin-bottom:8px;">▲ LONG (EISI > 0)</div>
+    <div id="longSizing" style="font-size:11px; font-family:'JetBrains Mono',monospace;">
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>0-30</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>30-100</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>100-200</b><span>4-7 MWh</span><span style="color:#999;">silný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>200-300</b><span>7-9 MWh</span><span style="color:#999;">v.silný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>300+</b><span>10 MWh</span><span style="color:#999;">extrém</span></div>
+    </div>
   </div>
-  <div class="card">
-    <div class="card-l">Režim</div>
-    <div class="card-v" id="regime">—</div>
-  </div>
-  <div class="card">
-    <div class="card-l">Doporučená velikost</div>
-    <div class="card-v big" id="positionSize">— MWh</div>
+  <div class="card" style="background:#ffebee; border-left:4px solid #c62828;">
+    <div style="font-size:13px; font-weight:700; color:#c62828; margin-bottom:8px;">▼ SHORT (EISI < 0)</div>
+    <div id="shortSizing" style="font-size:11px; font-family:'JetBrains Mono',monospace;">
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-30 až 0</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-100 až -30</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-200 až -100</b><span>4-7 MWh</span><span style="color:#999;">silný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-300 až -200</b><span>7-9 MWh</span><span style="color:#999;">v.silný</span></div>
+      <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-300+</b><span>10 MWh</span><span style="color:#999;">extrém</span></div>
+    </div>
   </div>
 </div>
 
-<h2>Posledních 8 QH</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Interval</th>
-      <th>Odch EUR</th>
-      <th>EISI</th>
-      <th>Režim</th>
-      <th>Signal</th>
-    </tr>
-  </thead>
-  <tbody id="tableBody"></tbody>
-</table>
+<h2>🎯 AKTUÁLNÍ SIGNÁL</h2>
+<div class="row">
+  <div class="card signal-card" style="grid-column: span 2;">
+    <div class="card-l">Signál pro nadcházející QH</div>
+    <div class="card-v big" id="currentSignal">—</div>
+    <div class="card-s" id="currentSignalDetail">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">EISI hodnota</div>
+    <div class="card-v" id="emaValue">—<span class="u">EUR/MWh</span></div>
+    <div class="card-s" id="emaTrend">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Poslední cena odchylky</div>
+    <div class="card-v" id="lastPrice">—<span class="u">EUR/MWh</span></div>
+    <div class="card-s" id="lastPriceInterval">—</div>
+  </div>
+</div>
+
+<h2>📐 Výpočet EISI v2 - Z-score(48) + Persistence(8)</h2>
+<div class="row" style="grid-template-columns: 1fr;">
+  <div class="card" style="padding: 0;">
+    <div style="padding:8px 12px;border-bottom:1px solid #eef0f7;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:11px;color:#666;font-weight:600;">Posledních 8 QH (EISI = z-score×30 + persistence×50):</span>
+      <span id="emaTableSummary"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Interval (QH)</th>
+          <th>Cena EUR/MWh</th>
+          <th>EISI</th>
+          <th>Váha</th>
+          <th>Graf</th>
+        </tr>
+      </thead>
+      <tbody id="emaTable">
+        <tr><td colspan="5" style="text-align:center;color:#999;padding:20px;">načítám…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<h2 id="backtestH2">📊 Backtest <span id="backtestTitleMode">@ 1 MWh (NET spread Odch−VDT)</span></h2>
+<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;align-items:center;">
+  <div style="display:flex;gap:0;background:#eef0f7;border-radius:8px;padding:3px;">
+    <button id="btn-mode-flat" onclick="setBtMode('flat')" style="padding:6px 14px;border:none;background:#1565c0;color:#fff;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">1 MWh flat</button>
+    <button id="btn-mode-pyr" onclick="setBtMode('pyr')" style="padding:6px 14px;border:none;background:transparent;color:#1a1a2e;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Pyramid 1-10 MWh</button>
+  </div>
+  <div style="display:flex;gap:0;background:#eef0f7;border-radius:8px;padding:3px;margin-left:auto;">
+    <button id="btn-period-today" onclick="setBtPeriod('today')" style="padding:6px 14px;border:none;background:#1565c0;color:#fff;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Dnes</button>
+    <button id="btn-period-30d" onclick="setBtPeriod('30d')" style="padding:6px 14px;border:none;background:transparent;color:#1a1a2e;border-radius:6px;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit;">Last 30 dní</button>
+  </div>
+</div>
+<div class="row">
+  <div class="card">
+    <div class="card-l" id="bkProfitLabel">NET Profit dnes (LAG4)</div>
+    <div class="card-v big" id="bkProfit">—<span class="u">EUR</span></div>
+    <div class="card-s" id="bkProfitKc">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Trades</div>
+    <div class="card-v" id="bkTrades">—</div>
+    <div class="card-s" id="bkTradesDetail">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Win rate</div>
+    <div class="card-v" id="bkWinrate">—<span class="u">%</span></div>
+    <div class="card-s" id="bkWinrateDetail">—</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Avg trade</div>
+    <div class="card-v" id="bkAvgTrade">—<span class="u">EUR</span></div>
+    <div class="card-s" id="bkAvgTradeDetail">historicky +24 EUR (2025-2026)</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Max Drawdown</div>
+    <div class="card-v" id="bkDD">—<span class="u">EUR</span></div>
+    <div class="card-s" id="bkDDDetail">—</div>
+  </div>
+</div>
+
+<h2>🕐 Hodinový NET profit dnes (EUR)</h2>
+<div class="row" style="grid-template-columns: 1fr;">
+  <div class="card" style="padding: 0;">
+    <table>
+      <thead>
+        <tr>
+          <th>Hodina</th>
+          <th>Trades</th>
+          <th>Win %</th>
+          <th>NET EUR</th>
+          <th>Graf</th>
+        </tr>
+      </thead>
+      <tbody id="hourlyTable">
+        <tr><td colspan="5" style="text-align:center;color:#999;padding:20px;">načítám…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<h2>📋 Všechny trades dnes (chronologicky)</h2>
+<div class="row" style="grid-template-columns: 1fr;">
+  <div class="card" style="padding: 0; overflow-x: auto;">
+    <table style="min-width: 600px;">
+      <thead>
+        <tr>
+          <th>QH</th>
+          <th>EISI</th>
+          <th>Směr</th>
+          <th>VDT</th>
+          <th>Odch</th>
+          <th>NET €</th>
+          <th>Σ NET</th>
+        </tr>
+      </thead>
+      <tbody id="tradesTable">
+        <tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">načítám…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<h2>📅 Backtest posledních 30 dnů</h2>
+<div class="row" style="grid-template-columns: 1fr;">
+  <div class="card" style="padding: 0;">
+    <table>
+      <thead>
+        <tr>
+          <th>Datum</th>
+          <th>Den</th>
+          <th>QH (s VDT)</th>
+          <th>Trades</th>
+          <th>Win %</th>
+          <th>NET EUR</th>
+          <th>Avg €/trade</th>
+          <th>Graf</th>
+        </tr>
+      </thead>
+      <tbody id="weekTable">
+        <tr><td colspan="8" style="text-align:center;color:#999;padding:20px;">načítám…</td></tr>
+      </tbody>
+      <tfoot>
+        <tr id="weekTotal" style="background:#fff8e1;font-weight:700;">
+          <td colspan="3">SUMA 30 dnů</td>
+          <td id="wkTrades">—</td>
+          <td id="wkWR">—</td>
+          <td id="wkNet">—</td>
+          <td id="wkAvg">—</td>
+          <td id="wkBar"></td>
+        </tr>
+      </tfoot>
+    </table>
+  </div>
+</div>
+
+<h2>📈 Historická referenční čísla · LAG4 · bez filtru</h2>
+<div class="row">
+  <div class="card">
+    <div class="card-l">2024 H2 (anomálie)</div>
+    <div class="card-v green">+746k<span class="u">EUR</span></div>
+    <div class="card-s">12,047 t · 77% WR · avg +62€</div>
+  </div>
+  <div class="card">
+    <div class="card-l">2025 (celý rok)</div>
+    <div class="card-v green">+786k<span class="u">EUR</span></div>
+    <div class="card-s">27,622 t · 82% WR · avg +28€</div>
+  </div>
+  <div class="card">
+    <div class="card-l">2026 YTD</div>
+    <div class="card-v green">+247k<span class="u">EUR</span></div>
+    <div class="card-s">10,231 t · 86% WR · avg +24€</div>
+  </div>
+  <div class="card">
+    <div class="card-l">Roční extrap 2026</div>
+    <div class="card-v blue">+833k<span class="u">EUR/rok</span></div>
+    <div class="card-s">@ 1 MWh · maxDD -19k €</div>
+  </div>
+</div>
 
 <script>
 const KURZ = 24.5;
-const LAG = 3;
+const SS_PERIOD = 8;  // EMA8 (Exponential Moving Average, perioda 8)
+const ALPHA_EMA = 2 / (SS_PERIOD + 1);  // = 2/9 ≈ 0.222
+// EMA: ema[i] = α × cena[i] + (1-α) × ema[i-1]
+const LAG = 1;  // EISI LAG=1 (T-15min, best na 2026)
+
+// === EISI v2 - alternativní výpočet ===
+// Místo EMA použijeme: Z-score(48) + Persistence(8)
+// Vrátí pole stejné délky jako prices
+function calcEisi(prices) {
+  const n = prices.length;
+  const out = new Array(n).fill(0);
+  
+  for (let i = 0; i < n; i++) {
+    // Z-score okno 48 QH (12 hodin)
+    const w48 = 48;
+    const startZ = Math.max(0, i - w48 + 1);
+    const sliceZ = prices.slice(startZ, i + 1);
+    let zscore = 0;
+    if (sliceZ.length >= 10) {
+      const m = sliceZ.reduce((a,b) => a+b, 0) / sliceZ.length;
+      const variance = sliceZ.reduce((a,b) => a + (b-m)**2, 0) / sliceZ.length;
+      const std = Math.sqrt(variance);
+      if (std > 1e-6) zscore = (prices[i] - m) / std;
+    }
+    
+    // Persistence (poslední 8 QH - kolik bylo stejný směr?)
+    const w8 = 8;
+    let persistence = 0;
+    if (i >= w8) {
+      let posCount = 0;
+      for (let j = i - w8 + 1; j <= i; j++) {
+        if (prices[j] > 0) posCount++;
+        else if (prices[j] < 0) posCount--;
+      }
+      persistence = posCount / w8;  // -1..+1
+    }
+    
+    // EISI = z-score × 30 (váha) + persistence × 50 (váha)
+    // → škálování podobně jako EMA hodnoty (±100-300)
+    out[i] = zscore * 30 + persistence * 50;
+  }
+  
+  return out;
+}
+
+// Backward compat - alias for old SS_ references (now means EMA)
+const ALPHA = ALPHA_EMA;
+let API_URL = window.location.origin;
+
+// === BACKTEST MODE + PERIOD ===
+let BT_MODE = 'flat';     // 'flat' (1 MWh) | 'pyr' (1-10 MWh)
+let BT_PERIOD = 'today';  // 'today' | '30d'
+let _btRowsCache = null;  // cache pro dnešní rows
+let _btRows30dCache = null;  // cache pro 30-day rows
+let _bt30dEma = null;     // ema pro 30-day
+
+function setBtMode(mode) {
+  BT_MODE = mode;
+  document.getElementById('btn-mode-flat').style.background = mode === 'flat' ? '#1565c0' : 'transparent';
+  document.getElementById('btn-mode-flat').style.color = mode === 'flat' ? '#fff' : '#1a1a2e';
+  document.getElementById('btn-mode-pyr').style.background = mode === 'pyr' ? '#1565c0' : 'transparent';
+  document.getElementById('btn-mode-pyr').style.color = mode === 'pyr' ? '#fff' : '#1a1a2e';
+  document.getElementById('backtestTitleMode').textContent = mode === 'flat' 
+    ? '@ 1 MWh (NET spread Odch−VDT)'
+    : '@ Pyramid 1-10 MWh';
+  refreshBacktest();
+}
+
+function setBtPeriod(period) {
+  BT_PERIOD = period;
+  document.getElementById('btn-period-today').style.background = period === 'today' ? '#1565c0' : 'transparent';
+  document.getElementById('btn-period-today').style.color = period === 'today' ? '#fff' : '#1a1a2e';
+  document.getElementById('btn-period-30d').style.background = period === '30d' ? '#1565c0' : 'transparent';
+  document.getElementById('btn-period-30d').style.color = period === '30d' ? '#fff' : '#1a1a2e';
+  document.getElementById('bkProfitLabel').textContent = period === 'today' ? 'NET Profit dnes (LAG4)' : 'NET Profit 30 dní (LAG4)';
+  
+  if (period === '30d' && !_btRows30dCache) {
+    load30DayBacktest();
+  } else {
+    refreshBacktest();
+  }
+}
+
+function refreshBacktest() {
+  if (BT_PERIOD === 'today') {
+    if (_btRowsCache && window._lastEma) {
+      renderBacktest(_btRowsCache, window._lastEma);
+    }
+  } else {
+    if (_btRows30dCache && _bt30dEma) {
+      renderBacktest(_btRows30dCache, _bt30dEma);
+    }
+  }
+}
+
+async function load30DayBacktest() {
+  document.getElementById('bkProfit').innerHTML = '<span style="color:#999;font-size:14px;">načítám 30 dní…</span>';
+  
+  const KURZ = 24.5;
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  
+  const dayPromises = [];
+  const daysToFetch = [];
+  for (let i = 30; i >= 1; i--) {
+    const d = new Date(now.getTime() - i*86400000);
+    const yyyy = d.getFullYear(), mm = d.getMonth()+1, dd = d.getDate();
+    const dStr = `${yyyy}-${pad(mm)}-${pad(dd)}`;
+    daysToFetch.push(dStr);
+    dayPromises.push(
+      Promise.all([
+        fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${dStr}T00:00:00&dateTo=${dStr}T23:59:59`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${API_URL}/ote/vdt?date=${dStr}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
+      ])
+    );
+  }
+  
+  const dayResults = await Promise.all(dayPromises);
+  
+  const allRows = [];
+  for (let idx = 0; idx < daysToFetch.length; idx++) {
+    const day = daysToFetch[idx];
+    const [dOdch, dVdt] = dayResults[idx];
+    if (!dOdch || !dOdch.rows) continue;
+    
+    // Build VDT map
+    const vdtMap = {};
+    const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt?.data || []);
+    for (const v of vdtList) {
+      const ts = v.timestamp || v.ts || '';
+      const m = ts.match(/T(\d{2}):(\d{2})/);
+      if (!m) continue;
+      const hh = m[1], mm = parseInt(m[2]);
+      let endMM = mm + 15, endHH = parseInt(hh);
+      if (endMM >= 60) { endMM = 0; endHH++; }
+      const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+      const priceEur = parseFloat(v.last);
+      if (!isNaN(priceEur)) vdtMap[interval] = priceEur;
+    }
+    
+    for (const row of dOdch.rows) {
+      const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+      const interval = row['Interval'] || '';
+      if (!interval) continue;
+      allRows.push({
+        interval, date: day, kc: price_kc,
+        odch: price_kc / KURZ,
+        vdt: vdtMap[interval] !== undefined ? vdtMap[interval] : null,
+        isToday: true  // pro backtest treba mit "isToday" true at se zaradi
+      });
+    }
+  }
+  
+  // Spocitej EISI pro 30-day data
+  const prices = allRows.map(r => r.odch);
+  const ema30 = calcEisi(prices);
+  
+  _btRows30dCache = allRows;
+  _bt30dEma = ema30;
+  console.log(`[30d backtest] Loaded ${allRows.length} QH, days with data: ${new Set(allRows.map(r => r.date)).size}`);
+  refreshBacktest();
+}
 
 async function loadAll() {
   try {
-    const now = new Date();
-    const today = now.toISOString().slice(0,10);
-    const yesterday = new Date(now.getTime() - 86400000).toISOString().slice(0,10);
-
-    const [odchRes] = await Promise.all([
-      fetch(`/api?method=OdhadovanaCenaOdchylky&dateFrom=\( {yesterday}T00:00:00&dateTo= \){today}T23:59:59&_=${Date.now()}`)
+    const nowLocal = new Date();
+    const today = `${nowLocal.getFullYear()}-${String(nowLocal.getMonth()+1).padStart(2,'0')}-${String(nowLocal.getDate()).padStart(2,'0')}`;
+    
+    // VČEREJŠÍ datum pro kontinuitu (EISI potřebuje historii přes půlnoc)
+    const yesterdayLocal = new Date(nowLocal.getTime() - 86400000);
+    const yesterday = `${yesterdayLocal.getFullYear()}-${String(yesterdayLocal.getMonth()+1).padStart(2,'0')}-${String(yesterdayLocal.getDate()).padStart(2,'0')}`;
+    
+    const cb = Date.now();
+    const [rOdchY, rVdtY, rOdch, rVdt] = await Promise.all([
+      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${yesterday}T00:00:00&dateTo=${yesterday}T23:59:59&_=${cb}`, { cache: 'no-store' }),
+      fetch(`${API_URL}/ote/vdt?date=${yesterday}&_=${cb}`, { cache: 'no-store' }),
+      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`, { cache: 'no-store' }),
+      fetch(`${API_URL}/ote/vdt?date=${today}&_=${cb}`, { cache: 'no-store' })
     ]);
-
-    const odch = await odchRes.json();
-    processData(odch);
+    const dOdchY = await rOdchY.json();
+    const dVdtY = await rVdtY.json();
+    const dOdch = await rOdch.json();
+    const dVdt = await rVdt.json();
+    
+    if (!dOdch.rows || dOdch.rows.length === 0) {
+      document.getElementById('metaInfo').textContent = 'Žádná data pro dnešní den';
+      return;
+    }
+    
+    // Build VDT lookup z OTE pro VČERA i DNES (s prefixem datumu)
+    const vdtMap = {};
+    const buildVdt = (data, datePrefix) => {
+      const list = Array.isArray(data) ? data : (data.data || []);
+      for (const v of list) {
+        const ts = v.timestamp || v.ts || '';
+        const m = ts.match(/T(\d{2}):(\d{2})/);
+        if (!m) continue;
+        const hh = m[1], mm = parseInt(m[2]);
+        let endMM = mm + 15, endHH = parseInt(hh);
+        if (endMM >= 60) { endMM = 0; endHH++; }
+        const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+        const priceEur = parseFloat(v.last);
+        if (!isNaN(priceEur)) vdtMap[`${datePrefix}|${interval}`] = priceEur;
+      }
+    };
+    buildVdt(dVdtY, yesterday);
+    buildVdt(dVdt, today);
+    
+    const rows = [];
+    const now = new Date();
+    const nowMin = now.getHours() * 60 + now.getMinutes();
+    
+    // VČEREJŠÍ data - vsechny QH
+    if (dOdchY.rows) {
+      for (const row of dOdchY.rows) {
+        const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+        const interval = row['Interval'] || '';
+        if (!interval) continue;
+        const vdt = vdtMap[`${yesterday}|${interval}`];
+        rows.push({
+          interval, date: yesterday, kc: price_kc,
+          odch: price_kc / KURZ,
+          vdt: (vdt !== undefined) ? vdt : null,
+          isToday: false
+        });
+      }
+    }
+    
+    // DNEŠNÍ data
+    for (const row of dOdch.rows) {
+      const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+      const interval = row['Interval'] || '';
+      const date = row['Date'] || '';
+      if (!interval) continue;
+      
+      // Parse QH start
+      const tm = interval.match(/^(\d{1,2}):(\d{2})/);
+      if (!tm) continue;
+      const qhStartMin = parseInt(tm[1]) * 60 + parseInt(tm[2]);
+      const qhEndMin = qhStartMin + 15;
+      // Skip jen FUTURE QH (ne nedávno skončené)
+      if (qhEndMin > nowMin) continue;
+      
+      const odch_eur = price_kc / KURZ;
+      const hh = tm[1].padStart(2,'0');
+      const mm = tm[2];
+      let endMM = parseInt(mm) + 15, endHH = parseInt(hh);
+      if (endMM >= 60) { endMM = 0; endHH++; }
+      const lookupKey = `${hh}:${mm}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+      const vdt_eur = vdtMap[`${today}|${lookupKey}`] !== undefined ? vdtMap[`${today}|${lookupKey}`] : 
+                      (vdtMap[`${today}|${interval}`] !== undefined ? vdtMap[`${today}|${interval}`] : null);
+      rows.push({
+        date: today, interval,
+        kc: price_kc,
+        odch: odch_eur,
+        vdt: vdt_eur,
+        spread: vdt_eur !== null ? (odch_eur - vdt_eur) : null,
+        isToday: true
+      });
+    }
+    
+    // ORIZNI TRAILING ZEROS - to jsou nezuctovane QH na konci
+    
+    if (rows.length === 0) {
+      document.getElementById('metaInfo').textContent = 'Žádná validní data';
+      return;
+    }
+    
+    const prices = rows.map(r => r.odch);
+    // EISI v2 - vypočítej rovnou pole
+    const ema = calcEisi(prices);  // 'ema' jméno zachováno pro kompatibilitu UI
+    
+    const vdtCount = rows.filter(r => r.vdt !== null).length;
+    const nowR = new Date();
+    const refreshTime = `${String(nowR.getHours()).padStart(2,'0')}:${String(nowR.getMinutes()).padStart(2,'0')}:${String(nowR.getSeconds()).padStart(2,'0')}`;
+    document.getElementById('metaInfo').textContent = 
+      `${rows.length} QH · VDT: ${vdtCount}/${rows.length} · LAG${LAG} · EISI v2 · refresh ${refreshTime}`;
+    
+    renderCurrentSignal(rows, ema);
+    renderEmaTable(rows, ema);
+    renderBacktest(rows, ema);
+    
+    // Cache pro toggle
+    _btRowsCache = rows;
+    window._lastEma = ema;
+    
   } catch(e) {
     console.error(e);
-    document.getElementById('currentSignal').innerHTML = `<span style="color:red">API CHYBA</span>`;
+    document.getElementById('metaInfo').textContent = '⚠ Chyba: ' + e.message;
   }
 }
 
-function processData(odchData) {
-  const rows = odchData.rows || [];
-  if (rows.length < 15) {
-    document.getElementById('currentSignal').innerHTML = `<span style="color:orange">NEDOSTATEK DAT (${rows.length})</span>`;
-    return;
+function renderCurrentSignal(rows, ema) {
+  const n = rows.length;
+  if (n < 8) return;
+  // Live signal: EISI v2 z VŠECH dostupných dat (poslední publikovaná)
+  // V čase tradu (T-40) bude Tom mít k dispozici stejně aktuální data
+  const sigIdx = n - 1;
+  const sigEma = ema[sigIdx];
+  
+  // T-40 RULE: nejbližší tradovatelná QH musí začínat nejméně 40 min od NOW
+  const now = new Date();
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  // Najdi první QH co startuje >= NOW+40min (zaokrouhli nahoru na 00/15/30/45)
+  const minStart = nowMin + 40;
+  let tradableStart = Math.ceil(minStart / 15) * 15;
+  if (tradableStart >= 24*60) tradableStart -= 24*60;
+  const thh = String(Math.floor(tradableStart / 60)).padStart(2,'0');
+  const tmm = String(tradableStart % 60).padStart(2,'0');
+  let endMin = tradableStart + 15;
+  if (endMin >= 24*60) endMin -= 24*60;
+  const ehh = String(Math.floor(endMin / 60)).padStart(2,'0');
+  const emm = String(endMin % 60).padStart(2,'0');
+  const tradableInterval = `${thh}:${tmm}-${ehh}:${emm}`;
+  let leadMin = tradableStart - nowMin;
+  if (leadMin < 0) leadMin += 24*60;  // přes půlnoc
+  
+  // Žádný filter - tradeu vždy
+  let direction, dirColor, dirEx;
+  if (sigEma > 0) {
+    direction = 'LONG ▲';
+    dirColor = 'green';
+    dirEx = 'Deficit → KUP na VDT, drž do odchylky (ČEPS dotuje +)';
+  } else if (sigEma < 0) {
+    direction = 'SHORT ▼';
+    dirColor = 'red';
+    dirEx = 'Přebytek → PRODEJ na VDT, dorovnej v odchylce (cena ↓)';
+  } else {
+    direction = '⏸ NEUTRAL';
+    dirColor = 'gray';
+    dirEx = 'EISI ≈ 0 → žádný směr';
   }
+  
+  document.getElementById('currentSignal').innerHTML = 
+    `<span class="${dirColor}">${direction}</span> <span style="font-size:14px;color:#666;">→ ${tradableInterval} <span style="color:#999;font-size:11px;">(T+${leadMin}min)</span></span>`;
+  document.getElementById('currentSignalDetail').innerHTML = dirEx;
+  
+  // Position sizing highlight - obarvi aktuální pásmo + ukaž doporučenou velikost
+  const absSig = Math.abs(sigEma);
+  let activeBand, recMwh;
+  if (absSig < 30) { activeBand = 0; recMwh = 1; }
+  else if (absSig < 100) { activeBand = 1; recMwh = Math.round(1 + (absSig-30)/70 * 2 * 10) / 10; }
+  else if (absSig < 200) { activeBand = 2; recMwh = Math.round((3 + (absSig-100)/100 * 4) * 10) / 10; }
+  else if (absSig < 300) { activeBand = 3; recMwh = Math.round((7 + (absSig-200)/100 * 2) * 10) / 10; }
+  else { activeBand = 4; recMwh = 10; }
+  
+  // Reset karty na původní HTML pak zvýraznit
+  const longBands = [
+    {label: '0-30', mwh: '1 MWh', desc: 'neutrální'},
+    {label: '30-100', mwh: '2-3 MWh', desc: 'mírný'},
+    {label: '100-200', mwh: '4-7 MWh', desc: 'silný'},
+    {label: '200-300', mwh: '7-9 MWh', desc: 'v.silný'},
+    {label: '300+', mwh: '10 MWh', desc: 'extrém'}
+  ];
+  const shortBands = [
+    {label: '-30 až 0', mwh: '1 MWh', desc: 'neutrální'},
+    {label: '-100 až -30', mwh: '2-3 MWh', desc: 'mírný'},
+    {label: '-200 až -100', mwh: '4-7 MWh', desc: 'silný'},
+    {label: '-300 až -200', mwh: '7-9 MWh', desc: 'v.silný'},
+    {label: '-300+', mwh: '10 MWh', desc: 'extrém'}
+  ];
+  
+  function renderSizing(boxId, isActive, accentColor, bands) {
+    let html = '';
+    bands.forEach((b, idx) => {
+      if (isActive && idx === activeBand) {
+        const shownSig = sigEma > 0 ? absSig.toFixed(0) : `-${absSig.toFixed(0)}`;
+        html += `<div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;background:${accentColor};color:#fff;"><b>${b.label}</b><span>${shownSig} → ${recMwh} MWh</span><span style="opacity:0.85;">${b.desc}</span></div>`;
+      } else {
+        html += `<div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>${b.label}</b><span>${b.mwh}</span><span style="color:#999;">${b.desc}</span></div>`;
+      }
+    });
+    document.getElementById(boxId).innerHTML = html;
+  }
+  
+  const isLong = sigEma > 0;
+  const isShort = sigEma < 0;
+  renderSizing('longSizing', isLong, '#2e7d32', longBands);
+  renderSizing('shortSizing', isShort, '#c62828', shortBands);
+  document.getElementById('emaValue').innerHTML = 
+    `<span class="${dirColor}">${sigEma >= 0 ? '+' : ''}${sigEma.toFixed(1)}</span><span class="u">EUR/MWh</span>`;
+  const prevEma = ema[sigIdx - 1] || sigEma;
+  const dEma = sigEma - prevEma;
+  document.getElementById('emaTrend').innerHTML = 
+    `Trend: ${dEma >= 0 ? '↗' : '↘'} ${dEma >= 0 ? '+' : ''}${dEma.toFixed(1)} EUR vs předch.`;
+  // Posledni PUBLIKOVANA QH = posledni s NON-ZERO cenou
+  // Nezuctovane QH maji 0. True 0 (vyrovnany trh) je vzacne -
+  // zobrazi se az dalsi QH bude zuctovana.
+  let lastPriceRow = null;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (rows[i].kc !== 0) {
+      lastPriceRow = rows[i];
+      break;
+    }
+  }
+  if (!lastPriceRow) lastPriceRow = rows[rows.length - 1];
+  
+  document.getElementById('lastPrice').innerHTML = 
+    `${lastPriceRow.odch >= 0 ? '+' : ''}${lastPriceRow.odch.toFixed(1)}<span class="u">EUR/MWh</span>`;
+  document.getElementById('lastPriceInterval').textContent = `${lastPriceRow.interval}`;
+}
 
-  const prices = rows.map(r => {
-    const kc = parseFloat(r['Zúčtovací cena odchylky (Kč/MWh)'] || 0);
-    return kc / KURZ;
-  });
+function predictNextInterval(lastInterval) {
+  const m = lastInterval.match(/^(\d+):(\d+)-(\d+):(\d+)$/);
+  if (!m) return '???';
+  let h = parseInt(m[3]), mm = parseInt(m[4]);
+  mm += 15;
+  if (mm >= 60) { mm = 0; h++; }
+  let h2 = h, mm2 = mm + 15;
+  if (mm2 >= 60) { mm2 = 0; h2++; }
+  return `${String(h).padStart(2,'0')}:${String(mm).padStart(2,'0')}-${String(h2).padStart(2,'0')}:${String(mm2).padStart(2,'0')}`;
+}
 
-  // === EISI-NEW v2 ===
-  const eisi = [];
-  const regimes = [];
-
-  for (let i = 0; i < prices.length; i++) {
-    if (i < 40) {
-      eisi.push(0);
-      regimes.push("WARMUP");
+function renderEmaTable(rows, ema) {
+  const n = rows.length;
+  if (n < 8) return;
+  const tbody = document.getElementById('emaTable');
+  const startIdx = Math.max(0, n - 8);
+  const sigIdx = n - 1;
+  
+  // Zjisti ktere radky byly REALNE pouzity v EISI (skip recent 0)
+  const nowMinE = new Date().getHours() * 60 + new Date().getMinutes();
+  const usedSet = new Set();
+  for (let i = 0; i < rows.length; i++) {
+    const tm = rows[i].interval.match(/^(\d{1,2}):(\d{2})/);
+    const qhEnd = tm ? (parseInt(tm[1])*60 + parseInt(tm[2]) + 15) : 0;
+    const isRecent = (nowMinE - qhEnd) < 30 && (nowMinE - qhEnd) >= 0;
+    if (rows[i].odch === 0 && isRecent) {
+      // 0 v RECENT QH se NEPOUZILA
       continue;
     }
-
-    const slice = prices.slice(i-36, i);
-    const mean = slice.reduce((a,b)=>a+b,0) / slice.length;
-    const std = Math.sqrt(slice.reduce((a,b)=>a+Math.pow(b-mean,2),0) / slice.length) || 1;
-    const zscore = (prices[i] - mean) / std;
-
-    let eisiVal, regime;
-    if (Math.abs(zscore) > 1.75) {
-      eisiVal = -zscore * 9.5;
-      regime = "SPIKE";
-    } else {
-      eisiVal = zscore * 7.2;
-      regime = "TREND";
-    }
-
-    eisi.push(eisiVal);
-    regimes.push(regime);
+    usedSet.add(i);
   }
-
-  const lastIdx = eisi.length - 1;
-  const lastEisi = eisi[lastIdx] || 0;
-  const isLong = lastEisi > 25;
-  const size = Math.min(12, Math.floor(Math.abs(lastEisi) / 45) + 2);
-
-  // Zobrazení
-  document.getElementById('currentSignal').innerHTML = isLong ? 
-    `<span class="green">LONG ▲</span>` : 
-    `<span class="red">SHORT ▼</span>`;
-
-  document.getElementById('eisiValue').innerHTML = 
-    `<span class="\( {isLong ? 'green' : 'red'}"> \){lastEisi.toFixed(1)}</span>`;
-
-  document.getElementById('regime').innerHTML = regimes[lastIdx];
-
-  document.getElementById('positionSize').innerHTML = 
-    `<span class="\( {isLong ? 'green' : 'red'}"> \){size} MWh</span>`;
-
-  // Tabulka
+  
   let html = '';
-  for (let i = Math.max(0, prices.length-8); i < prices.length; i++) {
-    const val = eisi[i];
-    html += `<tr>
-      <td>${rows[i]['Interval'] || '—'}</td>
-      <td>${prices[i].toFixed(1)}</td>
-      <td class="\( {val>0?'green':'red'}"> \){val.toFixed(1)}</td>
-      <td>${regimes[i]}</td>
-      <td>${val>25?'LONG':val<-25?'SHORT':'—'}</td>
+  for (let i = startIdx; i < n; i++) {
+    const r = rows[i];
+    const isLag = (i === sigIdx);
+    const isUsed = usedSet.has(i);
+    const cls = isLag ? 'signal-now' : '';
+    // Vaha = 0 pokud skipnuto, jinak relativni vaha v EISI
+    const weight = isUsed ? Math.pow(1 - ALPHA, n - 1 - i) : 0;
+    const weightPct = isUsed ? (weight * 100).toFixed(1) : '0.0';
+    const eur = r.odch;
+    const barColor = eur >= 0 ? 'bar-pos' : 'bar-neg';
+    const maxAbs = Math.max(...rows.slice(startIdx).map(x => Math.abs(x.odch)));
+    const barW = maxAbs > 0 ? Math.min(100, Math.abs(eur)/maxAbs*100) : 0;
+    
+    // Status badge - vlevo u intervalu
+    let statusBadge;
+    if (!isUsed) {
+      statusBadge = '<span style="background:#ffe7d4;color:#c0392b;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;margin-left:4px;">SKIP·0 nezúčt.</span>';
+    } else {
+      statusBadge = '<span style="background:#d4f5e0;color:#155724;padding:1px 5px;border-radius:3px;font-size:9px;font-weight:700;margin-left:4px;">✓ EISI</span>';
+    }
+    if (isLag) {
+      statusBadge += ' <span style="color:#1565c0;font-size:9px;font-weight:700;">← poslední</span>';
+    }
+    
+    const rowOpacity = isUsed ? '1' : '0.5';
+    const weightStyle = isUsed ? '' : 'color:#c0392b;';
+    html += `<tr class="${cls}" style="opacity:${rowOpacity};">
+      <td>${r.interval}${statusBadge}</td>
+      <td class="${eur >= 0 ? 'green' : 'red'}">${eur >= 0 ? '+' : ''}${eur.toFixed(1)}</td>
+      <td class="${ema[i] >= 0 ? 'green' : 'red'}">${ema[i] >= 0 ? '+' : ''}${ema[i].toFixed(1)}</td>
+      <td style="${weightStyle}">${weightPct}%</td>
+      <td><div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div></td>
     </tr>`;
   }
-  document.getElementById('tableBody').innerHTML = html;
+  
+  // Header summary nad tabulkou - kolik bylo SKIP
+  const skippedInWindow = 8 - usedSet.size > 0 ? Array.from({length: 8}).filter((_, idx) => !usedSet.has(startIdx + idx)).length : 0;
+  const usedInWindow = 8 - skippedInWindow;
+  const summary = document.getElementById('emaTableSummary');
+  if (summary) {
+    summary.innerHTML = `<span style="background:#d4f5e0;color:#155724;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;">✓ ${usedInWindow}× použito</span>` +
+      (skippedInWindow > 0 ? ` <span style="background:#ffe7d4;color:#c0392b;padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;">⊘ ${skippedInWindow}× skip (recent 0)</span>` : '');
+  }
+  
+  tbody.innerHTML = html;
+}
 
-  document.getElementById('metaInfo').textContent = `\( {rows.length} QH · EISI-NEW v2 · LAG \){LAG}`;
+function renderBacktest(rows, ema) {
+  const n = rows.length;
+  if (n < LAG + 1) return;
+  
+  let netProfit = 0, wins = 0, losses = 0, trades = 0, skipNoVdt = 0;
+  let totalMwh = 0;
+  let peakEquity = 0;
+  let maxDD = 0;
+  let maxDDPct = 0;
+  const hourly = {};
+  const tradeList = [];
+  
+  const nowMinBT = new Date().getHours() * 60 + new Date().getMinutes();
+  for (let i = LAG; i < n; i++) {
+    const sig = ema[i - LAG];
+    const actual = rows[i].odch;
+    const vdt = rows[i].vdt;
+    const kc = rows[i].kc;
+    
+    // Pro DNES: skip vcerejsi QH (jen warmup)
+    // Pro 30d: ber vsechno (isToday je vsude true v 30d datech)
+    if (BT_PERIOD === 'today' && !rows[i].isToday) continue;
+    
+    let skipReason = null;
+    let direction = 0;
+    let net = 0;
+    let mwh = 1;  // default 1 MWh
+    
+    const tmBT = rows[i].interval.match(/^(\d{1,2}):(\d{2})/);
+    const qhEndMinBT = tmBT ? (parseInt(tmBT[1])*60 + parseInt(tmBT[2]) + 15) : 0;
+    const isRecent = BT_PERIOD === 'today' && (nowMinBT - qhEndMinBT) < 30 && (nowMinBT - qhEndMinBT) >= 0;
+    
+    if (vdt === null || vdt === undefined) {
+      skipReason = '⏸ chybí VDT';
+      skipNoVdt++;
+    } else if (kc === 0) {
+      // SKIP všechny QH s cenou = 0 (nezúčtováno, ne jen recent)
+      skipReason = '⏸ Odch=0 nezúčt.';
+    } else if (Math.abs(sig) < 20) {
+      // EISI threshold 20 (best WR na 2026 backtestu)
+      skipReason = '⏸ |EISI|<20';
+    } else {
+      direction = sig > 0 ? -1 : +1;  // EISI = MEAN REVERSION (reverse)
+      const rawSpread = actual - vdt;
+      
+      if (BT_MODE === 'pyr') {
+        // POZICE SIZING podle síly signálu
+        const absSig = Math.abs(sig);
+        if (absSig < 30) mwh = 1;
+        else if (absSig < 100) mwh = 3;
+        else if (absSig < 200) mwh = 7;
+        else mwh = 10;
+        
+        // Pyramid bez hedge - plná ztráta i zisk
+        net = direction * rawSpread * mwh;
+      } else {
+        // FLAT 1 MWh
+        net = direction * rawSpread;
+      }
+      
+      netProfit += net;
+      totalMwh += mwh;
+      trades++;
+      if (net > 0) wins++;
+      else if (net < 0) losses++;
+      
+      // Track equity curve + DD
+      if (netProfit > peakEquity) peakEquity = netProfit;
+      const dd = netProfit - peakEquity;  // záporné = drawdown
+      if (dd < maxDD) {
+        maxDD = dd;
+        maxDDPct = peakEquity > 0 ? (dd / peakEquity * 100) : 0;
+      }
+      
+      const h = parseInt(rows[i].interval.split(':')[0]);
+      if (!hourly[h]) hourly[h] = { pnl: 0, n: 0, w: 0 };
+      hourly[h].pnl += net;
+      hourly[h].n++;
+      if (net > 0) hourly[h].w++;
+    }
+    
+    tradeList.push({
+      interval: rows[i].interval,
+      date: rows[i].date,
+      sig, direction, vdt, actual, net, mwh,
+      cumProfit: netProfit,
+      skipReason
+    });
+  }
+  
+  const wr = trades > 0 ? wins/trades*100 : 0;
+  const avg = trades > 0 ? netProfit/trades : 0;
+  const zeros = trades - wins - losses;
+  
+  // Debug log pro check čísel
+  console.log(`[BACKTEST ${BT_PERIOD} ${BT_MODE}] rows=${n} | trades=${trades} | skipVDT=${skipNoVdt} | wins=${wins} | losses=${losses} | profit=${netProfit.toFixed(0)} | peak=${peakEquity.toFixed(0)} | DD=${maxDD.toFixed(0)} | mwh=${totalMwh}`);
+  
+  document.getElementById('bkProfit').innerHTML = 
+    `<span class="${netProfit >= 0 ? 'green' : 'red'}">${netProfit >= 0 ? '+' : ''}${netProfit.toFixed(0)}</span><span class="u">EUR</span>`;
+  
+  const periodTxt = BT_PERIOD === 'today' ? 'dnes' : `30 dní`;
+  const modeTxt = BT_MODE === 'flat' ? '@ 1 MWh' : `Ø ${(totalMwh/trades||0).toFixed(1)} MWh/trade`;
+  document.getElementById('bkProfitKc').textContent = `${periodTxt} · ${modeTxt}` + (skipNoVdt > 0 ? ` · ${skipNoVdt} skip VDT` : '');
+  
+  document.getElementById('bkTrades').textContent = trades;
+  document.getElementById('bkTradesDetail').textContent = 
+    BT_MODE === 'pyr' ? `Σ ${totalMwh.toFixed(0)} MWh · ${periodTxt}` : `${trades} × 1 MWh · ${periodTxt}`;
+  
+  document.getElementById('bkWinrate').innerHTML = 
+    `<span class="${wr >= 50 ? 'green' : 'red'}">${wr.toFixed(0)}</span><span class="u">%</span>`;
+  document.getElementById('bkWinrateDetail').textContent = 
+    `${wins} W · ${losses} L · ${zeros} zero`;
+  
+  document.getElementById('bkAvgTrade').innerHTML = 
+    `<span class="${avg >= 0 ? 'green' : 'red'}">${avg >= 0 ? '+' : ''}${avg.toFixed(1)}</span><span class="u">EUR</span>`;
+  const avgDetail = document.getElementById('bkAvgTradeDetail');
+  if (avgDetail) {
+    avgDetail.textContent = BT_MODE === 'pyr' 
+      ? `EUR/trade · ${(netProfit/totalMwh||0).toFixed(1)} EUR/MWh`
+      : `historicky +24 EUR (2025-2026)`;
+  }
+  
+  // DD render
+  const ddEl = document.getElementById('bkDD');
+  const ddDetailEl = document.getElementById('bkDDDetail');
+  if (ddEl) {
+    ddEl.innerHTML = `<span class="red">${maxDD.toFixed(0)}</span><span class="u">EUR</span>`;
+  }
+  if (ddDetailEl) {
+    const pctTxt = maxDDPct < 0 ? `${maxDDPct.toFixed(1)}% z peak` : '—';
+    ddDetailEl.textContent = `peak ${peakEquity.toFixed(0)} EUR · ${pctTxt}`;
+  }
+  
+  // Hourly - ZAHRNUJ VŠECHNY hodiny dne (i bez tradů)
+  // Najdi range hodin v rows[]
+  const hoursInDay = new Set();
+  for (const r of rows) {
+    const h = parseInt(r.interval.split(':')[0]);
+    if (!isNaN(h)) hoursInDay.add(h);
+  }
+  
+  const maxAbs = Math.max(...Object.values(hourly).map(s => Math.abs(s.pnl)), 1);
+  let hHtml = '';
+  for (const h of [...hoursInDay].sort((a,b)=>a-b)) {
+    const s = hourly[h] || { pnl: 0, n: 0, w: 0 };
+    const wRate = s.n > 0 ? (s.w/s.n*100).toFixed(0) + '%' : '—';
+    const barColor = s.pnl >= 0 ? 'bar-pos' : 'bar-neg';
+    const barW = s.n > 0 ? Math.min(100, Math.abs(s.pnl)/maxAbs*100) : 0;
+    const rowStyle = s.n === 0 ? 'opacity:0.5;background:#f8f8f8;' : '';
+    const pnlClass = s.n === 0 ? 'gray' : (s.pnl >= 0 ? 'green' : 'red');
+    const pnlStr = s.n === 0 ? '—' : `${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(0)}`;
+    hHtml += `<tr style="${rowStyle}">
+      <td><b>H${String(h).padStart(2,'0')}</b></td>
+      <td>${s.n}</td>
+      <td>${wRate}</td>
+      <td class="${pnlClass}">${pnlStr}</td>
+      <td>${s.n > 0 ? `<div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div>` : ''}</td>
+    </tr>`;
+  }
+  document.getElementById('hourlyTable').innerHTML = hHtml || '<tr><td colspan="5" style="text-align:center;color:#999;">Žádné trades</td></tr>';
+  
+  // Trades list
+  let tHtml = '';
+  for (const t of tradeList) {
+    if (t.skipReason) {
+      // SKIP řádek - grey, žádný trade
+      const vdtStr = (t.vdt === null || t.vdt === undefined) ? '—' : t.vdt.toFixed(1);
+      tHtml += `<tr style="opacity:0.5;background:#f8f8f8;">
+        <td>${t.interval}</td>
+        <td>${t.sig >= 0 ? '+' : ''}${t.sig.toFixed(1)}</td>
+        <td class="gray" style="font-size:10px;">${t.skipReason}</td>
+        <td>${vdtStr}</td>
+        <td>${t.actual >= 0 ? '+' : ''}${t.actual.toFixed(1)}</td>
+        <td class="gray">—</td>
+        <td class="${t.cumProfit >= 0 ? 'green' : 'red'}">${t.cumProfit >= 0 ? '+' : ''}${t.cumProfit.toFixed(0)}</td>
+      </tr>`;
+    } else {
+      const dirIcon = t.direction > 0 ? '▲ LONG' : '▼ SHORT';
+      const dirClass = t.direction > 0 ? 'green' : 'red';
+      tHtml += `<tr>
+        <td>${t.interval}</td>
+        <td class="${t.sig >= 0 ? 'green' : 'red'}">${t.sig >= 0 ? '+' : ''}${t.sig.toFixed(1)}</td>
+        <td class="${dirClass}">${dirIcon}</td>
+        <td>${t.vdt.toFixed(1)}</td>
+        <td class="${t.actual >= 0 ? 'green' : 'red'}">${t.actual >= 0 ? '+' : ''}${t.actual.toFixed(1)}</td>
+        <td class="${t.net >= 0 ? 'green' : 'red'}"><b>${t.net >= 0 ? '+' : ''}${t.net.toFixed(1)}</b></td>
+        <td class="${t.cumProfit >= 0 ? 'green' : 'red'}">${t.cumProfit >= 0 ? '+' : ''}${t.cumProfit.toFixed(0)}</td>
+      </tr>`;
+    }
+  }
+  document.getElementById('tradesTable').innerHTML = tHtml || '<tr><td colspan="7" style="text-align:center;color:#999;">Žádné trades</td></tr>';
 }
 
 loadAll();
-setInterval(loadAll, 45000);
+loadWeekBacktest();
+setInterval(loadAll, 60000);
+setInterval(loadWeekBacktest, 30 * 60000);  // refresh week kazdych 30 min
+
+async function loadWeekBacktest() {
+  const tbody = document.getElementById('weekTable');
+  if (!tbody) return;
+  
+  // Posledních 7 dní + dnes (8 dní celkem, ale dnes je incomplete)
+  const days = [];
+  for (let d = 30; d >= 1; d--) {
+    const dt = new Date(Date.now() - d * 86400000);
+    const dStr = `${dt.getFullYear()}-${String(dt.getMonth()+1).padStart(2,'0')}-${String(dt.getDate()).padStart(2,'0')}`;
+    days.push(dStr);
+  }
+  
+  // Fetch po batch 5 (30 dnů = 6 batch) aby Render-server nezahlcen
+  const results = [];
+  const BATCH = 5;
+  for (let bi = 0; bi < days.length; bi += BATCH) {
+    const batch = days.slice(bi, bi + BATCH);
+    const batchResults = await Promise.all(batch.map(async (date) => {
+      try {
+        const [rO, rV] = await Promise.all([
+          fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }),
+          fetch(`${API_URL}/ote/vdt?date=${date}`, { cache: 'no-store' })
+        ]);
+        if (!rO.ok || !rV.ok) {
+          return { date, error: `HTTP ${rO.status}/${rV.status}`, trades: 0, wins: 0, net: 0, qhWithVdt: 0 };
+        }
+        // Safe JSON parse
+        const txtO = await rO.text();
+        const txtV = await rV.text();
+        let dO, dV;
+        try { dO = JSON.parse(txtO); } catch(e) { return { date, error: 'API odpověděl HTML místo JSON', trades: 0, wins: 0, net: 0, qhWithVdt: 0 }; }
+        try { dV = JSON.parse(txtV); } catch(e) { dV = { data: [] }; }
+        return computeDayBacktest(date, dO, dV);
+      } catch(e) {
+        return { date, error: e.message, trades: 0, wins: 0, net: 0, qhWithVdt: 0 };
+      }
+    }));
+    results.push(...batchResults);
+  }
+  
+  // Render
+  let totalTrades = 0, totalWins = 0, totalNet = 0;
+  let maxAbs = Math.max(...results.map(r => Math.abs(r.net || 0)), 1);
+  
+  let html = '';
+  const dnyNames = ['Ne','Po','Út','St','Čt','Pá','So'];
+  for (const r of results) {
+    if (r.error) {
+      html += `<tr><td>${r.date}</td><td colspan="7" style="color:#c62828;">${r.error}</td></tr>`;
+      continue;
+    }
+    const dt = new Date(r.date);
+    const denName = dnyNames[dt.getDay()];
+    const wr = r.trades > 0 ? (r.wins / r.trades * 100).toFixed(0) : 0;
+    const avg = r.trades > 0 ? (r.net / r.trades).toFixed(1) : 0;
+    const barColor = r.net >= 0 ? 'bar-pos' : 'bar-neg';
+    const barW = Math.min(100, Math.abs(r.net) / maxAbs * 100);
+    
+    html += `<tr>
+      <td>${r.date}</td>
+      <td><b>${denName}</b></td>
+      <td>${r.qhWithVdt}</td>
+      <td>${r.trades}</td>
+      <td>${wr}%</td>
+      <td class="${r.net >= 0 ? 'green' : 'red'}"><b>${r.net >= 0 ? '+' : ''}${r.net.toFixed(0)}</b></td>
+      <td class="${avg >= 0 ? 'green' : 'red'}">${avg >= 0 ? '+' : ''}${avg}</td>
+      <td><div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div></td>
+    </tr>`;
+    
+    totalTrades += r.trades;
+    totalWins += r.wins;
+    totalNet += r.net;
+  }
+  tbody.innerHTML = html;
+  
+  // Footer
+  const wkWR = totalTrades > 0 ? (totalWins / totalTrades * 100).toFixed(0) + '%' : '—';
+  const wkAvg = totalTrades > 0 ? (totalNet / totalTrades).toFixed(1) : '0';
+  document.getElementById('wkTrades').textContent = totalTrades;
+  document.getElementById('wkWR').textContent = wkWR;
+  document.getElementById('wkNet').innerHTML = `<span class="${totalNet >= 0 ? 'green' : 'red'}">${totalNet >= 0 ? '+' : ''}${totalNet.toFixed(0)} EUR</span>`;
+  document.getElementById('wkAvg').innerHTML = `<span class="${wkAvg >= 0 ? 'green' : 'red'}">${wkAvg >= 0 ? '+' : ''}${wkAvg} €</span>`;
+}
+
+function computeDayBacktest(date, dOdch, dVdt) {
+  const result = { date, trades: 0, wins: 0, losses: 0, net: 0, qhWithVdt: 0 };
+  
+  if (!dOdch.rows || dOdch.rows.length === 0) return result;
+  
+  // VDT lookup
+  const vdtMap = {};
+  const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt.data || []);
+  for (const v of vdtList) {
+    const ts = v.timestamp || v.ts || '';
+    const m = ts.match(/T(\d{2}):(\d{2})/);
+    if (!m) continue;
+    const hh = m[1], mm = parseInt(m[2]);
+    let endMM = mm + 15, endHH = parseInt(hh);
+    if (endMM >= 60) { endMM = 0; endHH++; }
+    const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+    const priceEur = parseFloat(v.last);
+    if (!isNaN(priceEur)) vdtMap[interval] = priceEur;
+  }
+  
+  // Parse Odch rows
+  const rows = [];
+  for (const row of dOdch.rows) {
+    const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+    const interval = row['Interval'] || '';
+    if (!interval) continue;
+    const odch_eur = price_kc / KURZ;
+    const m = interval.match(/^(\d{1,2}):(\d{2})/);
+    let lookupKey = interval;
+    if (m) {
+      const hh = m[1].padStart(2,'0');
+      const mm = m[2];
+      let endMM = parseInt(mm) + 15, endHH = parseInt(hh);
+      if (endMM >= 60) { endMM = 0; endHH++; }
+      lookupKey = `${hh}:${mm}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+    }
+    const vdt_eur = vdtMap[lookupKey] !== undefined ? vdtMap[lookupKey] : null;
+    rows.push({ interval, odch: odch_eur, vdt: vdt_eur, kc: price_kc });
+    if (vdt_eur !== null) result.qhWithVdt++;
+  }
+  
+  // Orizni trailing zeros (nezuctovane na konci)
+  
+  if (rows.length < 12) return result;  // potřebujeme warmup + LAG
+  
+  // EISI v2
+  const prices = rows.map(r => r.odch);
+  const ema = calcEisi(prices);
+  
+  // Backtest - SKIP prvních 8 QH (warm-up period)
+  const startIdx = Math.max(LAG, 8);
+  for (let i = startIdx; i < rows.length; i++) {
+    const sig = ema[i - LAG];
+    const actual = rows[i].odch;
+    const vdt = rows[i].vdt;
+    if (vdt === null || vdt === undefined) continue;
+    if (sig === 0) continue;  // EMA=0 = neutral
+    
+    const direction = sig > 0 ? -1 : +1;  // EISI = MEAN REVERSION (reverse)
+    const net = direction * (actual - vdt);
+    result.net += net;
+    result.trades++;
+    if (net > 0) result.wins++;
+    else if (net < 0) result.losses++;
+  }
+  
+  return result;
+}
 </script>
 </body>
 </html>
