@@ -59,14 +59,14 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 </header>
 
 <div class="formula">
-<b>STRATEGIE:</b> EISI v2 signál → směr · Koupíš/prodáš MWh na VDT (OTE) · Pozici necháš do ČEPS odchylky · <b>NET = Odch − VDT</b> (LONG) nebo <b>VDT − Odch</b> (SHORT)<br>
-<b>Příklad:</b> Soustava v deficitu (EISI>0). Kupuješ na VDT za 100 €/MWh, ČEPS dotuje odchylku 150 €/MWh → <b>NET +50 €</b>
+<b>STRATEGIE:</b> EISI v2 signál → <b>OPAČNÝ směr</b> (MEAN REVERSION) · Když EISI vysoké → cena spadne k průměru → SHORT · Když EISI nízké → cena vyroste → LONG<br>
+<b>Příklad:</b> EISI = +80 (vysoké, cena nad průměrem) → SHORT (čekáš pokles). Cena spadne ze 150 € na 100 €. <b>NET +50 €</b>
 </div>
 
 <h2>📊 Position Sizing</h2>
 <div class="row" style="grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));">
   <div class="card" style="background:#e8f5e9; border-left:4px solid #2e7d32;">
-    <div style="font-size:13px; font-weight:700; color:#2e7d32; margin-bottom:8px;">▲ LONG (EISI > 0)</div>
+    <div style="font-size:13px; font-weight:700; color:#2e7d32; margin-bottom:8px;">▲ LONG (EISI < -20)</div>
     <div id="longSizing" style="font-size:11px; font-family:'JetBrains Mono',monospace;">
       <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>0-30</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
       <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>30-100</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
@@ -76,7 +76,7 @@ header { display: flex; justify-content: space-between; align-items: center; mar
     </div>
   </div>
   <div class="card" style="background:#ffebee; border-left:4px solid #c62828;">
-    <div style="font-size:13px; font-weight:700; color:#c62828; margin-bottom:8px;">▼ SHORT (EISI < 0)</div>
+    <div style="font-size:13px; font-weight:700; color:#c62828; margin-bottom:8px;">▼ SHORT (EISI > +20)</div>
     <div id="shortSizing" style="font-size:11px; font-family:'JetBrains Mono',monospace;">
       <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-30 až 0</b><span>1 MWh</span><span style="color:#999;">neutrální</span></div>
       <div style="display:grid;grid-template-columns:80px 120px 1fr;padding:3px 0;white-space:nowrap;"><b>-100 až -30</b><span>2-3 MWh</span><span style="color:#999;">mírný</span></div>
@@ -587,49 +587,53 @@ function renderCurrentSignal(rows, ema) {
   let leadMin = tradableStart - nowMin;
   if (leadMin < 0) leadMin += 24*60;  // přes půlnoc
   
-  // Žádný filter - tradeu vždy
+  // EISI = MEAN REVERSION (reverse direction)
+  // EISI > 0 → cena nad mean → očekávám pokles → SHORT
+  // EISI < 0 → cena pod mean → očekávám růst → LONG
   let direction, dirColor, dirEx;
-  if (sigEma > 0) {
-    direction = 'LONG ▲';
-    dirColor = 'green';
-    dirEx = 'Deficit → KUP na VDT, drž do odchylky (ČEPS dotuje +)';
-  } else if (sigEma < 0) {
+  if (sigEma > 20) {
     direction = 'SHORT ▼';
     dirColor = 'red';
-    dirEx = 'Přebytek → PRODEJ na VDT, dorovnej v odchylce (cena ↓)';
+    dirEx = 'EISI > 0 (cena nad mean) → PRODEJ na VDT, kup zpět při poklesu';
+  } else if (sigEma < -20) {
+    direction = 'LONG ▲';
+    dirColor = 'green';
+    dirEx = 'EISI < 0 (cena pod mean) → KUP na VDT, drž do růstu';
   } else {
     direction = '⏸ NEUTRAL';
     dirColor = 'gray';
-    dirEx = 'EISI ≈ 0 → žádný směr';
+    dirEx = '|EISI| < 20 → pod prahem, neobchoduj';
   }
   
   document.getElementById('currentSignal').innerHTML = 
     `<span class="${dirColor}">${direction}</span> <span style="font-size:14px;color:#666;">→ ${tradableInterval} <span style="color:#999;font-size:11px;">(T+${leadMin}min)</span></span>`;
   document.getElementById('currentSignalDetail').innerHTML = dirEx;
   
-  // Position sizing highlight - obarvi aktuální pásmo + ukaž doporučenou velikost
+  // EISI Position sizing (REVERSE logic: vysoké EISI → SHORT)
   const absSig = Math.abs(sigEma);
   let activeBand, recMwh;
-  if (absSig < 30) { activeBand = 0; recMwh = 1; }
-  else if (absSig < 100) { activeBand = 1; recMwh = Math.round(1 + (absSig-30)/70 * 2 * 10) / 10; }
-  else if (absSig < 200) { activeBand = 2; recMwh = Math.round((3 + (absSig-100)/100 * 4) * 10) / 10; }
-  else if (absSig < 300) { activeBand = 3; recMwh = Math.round((7 + (absSig-200)/100 * 2) * 10) / 10; }
-  else { activeBand = 4; recMwh = 10; }
+  if (absSig < 20) { activeBand = 0; recMwh = 0; }      // SKIP - pod prahem
+  else if (absSig < 50) { activeBand = 1; recMwh = 1; } // 1 MWh
+  else if (absSig < 100) { activeBand = 2; recMwh = 3; } // 3 MWh
+  else if (absSig < 150) { activeBand = 3; recMwh = 5; } // 5 MWh
+  else { activeBand = 4; recMwh = 7; }                   // 7 MWh extrém
   
-  // Reset karty na původní HTML pak zvýraznit
+  // EISI bands - POZOR: REVERSE logic
+  // EISI > 0 = cena nad mean → očekávám pokles → SHORT
+  // EISI < 0 = cena pod mean → očekávám růst → LONG
   const longBands = [
-    {label: '0-30', mwh: '1 MWh', desc: 'neutrální'},
-    {label: '30-100', mwh: '2-3 MWh', desc: 'mírný'},
-    {label: '100-200', mwh: '4-7 MWh', desc: 'silný'},
-    {label: '200-300', mwh: '7-9 MWh', desc: 'v.silný'},
-    {label: '300+', mwh: '10 MWh', desc: 'extrém'}
+    {label: '0 až -20', mwh: 'SKIP', desc: 'pod prahem'},
+    {label: '-20 až -50', mwh: '1 MWh', desc: 'mírný LONG'},
+    {label: '-50 až -100', mwh: '3 MWh', desc: 'střední LONG'},
+    {label: '-100 až -150', mwh: '5 MWh', desc: 'silný LONG'},
+    {label: '-150+', mwh: '7 MWh', desc: 'extrémní LONG'}
   ];
   const shortBands = [
-    {label: '-30 až 0', mwh: '1 MWh', desc: 'neutrální'},
-    {label: '-100 až -30', mwh: '2-3 MWh', desc: 'mírný'},
-    {label: '-200 až -100', mwh: '4-7 MWh', desc: 'silný'},
-    {label: '-300 až -200', mwh: '7-9 MWh', desc: 'v.silný'},
-    {label: '-300+', mwh: '10 MWh', desc: 'extrém'}
+    {label: '0 až 20', mwh: 'SKIP', desc: 'pod prahem'},
+    {label: '20 až 50', mwh: '1 MWh', desc: 'mírný SHORT'},
+    {label: '50 až 100', mwh: '3 MWh', desc: 'střední SHORT'},
+    {label: '100 až 150', mwh: '5 MWh', desc: 'silný SHORT'},
+    {label: '150+', mwh: '7 MWh', desc: 'extrémní SHORT'}
   ];
   
   function renderSizing(boxId, isActive, accentColor, bands) {
@@ -645,8 +649,9 @@ function renderCurrentSignal(rows, ema) {
     document.getElementById(boxId).innerHTML = html;
   }
   
-  const isLong = sigEma > 0;
-  const isShort = sigEma < 0;
+  // REVERSE: EISI > 0 → SHORT (cena spadne), EISI < 0 → LONG (cena vyroste)
+  const isLong = sigEma < 0 && absSig >= 20;
+  const isShort = sigEma > 0 && absSig >= 20;
   renderSizing('longSizing', isLong, '#2e7d32', longBands);
   renderSizing('shortSizing', isShort, '#c62828', shortBands);
   document.getElementById('emaValue').innerHTML = 
@@ -798,12 +803,12 @@ function renderBacktest(rows, ema) {
       const rawSpread = actual - vdt;
       
       if (BT_MODE === 'pyr') {
-        // POZICE SIZING podle síly signálu
+        // POZICE SIZING podle |EISI| (rozsah typicky 20-150)
         const absSig = Math.abs(sig);
-        if (absSig < 30) mwh = 1;
+        if (absSig < 50) mwh = 1;
         else if (absSig < 100) mwh = 3;
-        else if (absSig < 200) mwh = 7;
-        else mwh = 10;
+        else if (absSig < 150) mwh = 5;
+        else mwh = 7;
         
         // Pyramid bez hedge - plná ztráta i zisk
         net = direction * rawSpread * mwh;
@@ -1083,14 +1088,14 @@ function computeDayBacktest(date, dOdch, dVdt) {
   const prices = rows.map(r => r.odch);
   const ema = calcEisi(prices);
   
-  // Backtest - SKIP prvních 8 QH (warm-up period)
-  const startIdx = Math.max(LAG, 8);
+  // Backtest - SKIP prvních 48 QH (warm-up pro Z-score)
+  const startIdx = Math.max(LAG, 48);
   for (let i = startIdx; i < rows.length; i++) {
     const sig = ema[i - LAG];
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
     if (vdt === null || vdt === undefined) continue;
-    if (sig === 0) continue;  // EMA=0 = neutral
+    if (Math.abs(sig) < 20) continue;  // EISI threshold
     
     const direction = sig > 0 ? -1 : +1;  // EISI = MEAN REVERSION (reverse)
     const net = direction * (actual - vdt);
