@@ -349,13 +349,16 @@ async function load30DayBacktest() {
   
   const dayResults = await Promise.all(dayPromises);
   
+  // KAŽDÝ DEN ZVLÁŠŤ - vlastní EMA8 reset (jako spodní tabulka)
   const allRows = [];
+  const allEma = [];
+  
   for (let idx = 0; idx < daysToFetch.length; idx++) {
     const day = daysToFetch[idx];
     const [dOdch, dVdt] = dayResults[idx];
     if (!dOdch || !dOdch.rows) continue;
     
-    // Build VDT map
+    // Build VDT map per day
     const vdtMap = {};
     const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt?.data || []);
     for (const v of vdtList) {
@@ -370,30 +373,36 @@ async function load30DayBacktest() {
       if (!isNaN(priceEur)) vdtMap[interval] = priceEur;
     }
     
+    // Day rows
+    const dayRows = [];
     for (const row of dOdch.rows) {
       const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
       const interval = row['Interval'] || '';
       if (!interval) continue;
-      allRows.push({
+      dayRows.push({
         interval, date: day, kc: price_kc,
         odch: price_kc / KURZ,
         vdt: vdtMap[interval] !== undefined ? vdtMap[interval] : null,
-        isToday: true  // pro backtest treba mit "isToday" true at se zaradi
+        isToday: true  // pro backtest filter zafunguje
       });
     }
-  }
-  
-  // Spocitej EMA8 pro 30-day data
-  const prices = allRows.map(r => r.odch);
-  const ema30 = [];
-  for (let i = 0; i < prices.length; i++) {
-    if (i === 0) ema30.push(prices[i]);
-    else ema30.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema30[i-1]);
+    
+    // EMA8 PER DAY (reset každý den - jako spodní tabulka)
+    const dayPrices = dayRows.map(r => r.odch);
+    const dayEma = [];
+    for (let i = 0; i < dayPrices.length; i++) {
+      if (i === 0) dayEma.push(dayPrices[i]);
+      else dayEma.push(ALPHA_EMA * dayPrices[i] + (1 - ALPHA_EMA) * dayEma[i-1]);
+    }
+    
+    // Append to combined arrays
+    allRows.push(...dayRows);
+    allEma.push(...dayEma);
   }
   
   _btRows30dCache = allRows;
-  _bt30dEma = ema30;
-  console.log(`[30d backtest] Loaded ${allRows.length} QH, days with data: ${new Set(allRows.map(r => r.date)).size}`);
+  _bt30dEma = allEma;
+  console.log(`[30d backtest] Loaded ${allRows.length} QH from ${new Set(allRows.map(r => r.date)).size} days, EMA per-day reset`);
   refreshBacktest();
 }
 
