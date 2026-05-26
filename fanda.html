@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fanda data · Ingest viewer</title>
+<style>
+body, * { font-variant-numeric: lining-nums tabular-nums; font-feature-settings: "zero" 0, "ss01" 0; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: 'Inter', -apple-system, sans-serif; background: #f4f5f9; color: #1a1a2e; padding: 14px; max-width: 1400px; margin: 0 auto; }
+h1 { font-size: 22px; margin-bottom: 4px; color: #0d47a1; font-weight: 700; }
+h1 small { font-size: 11px; color: #888; font-weight: 400; font-family: 'JetBrains Mono', monospace; }
+h2 { font-size: 14px; color: #555; margin: 16px 0 8px; font-weight: 600; }
+.row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.card { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.card-l { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; font-weight: 600; }
+.card-v { font-size: 20px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1.2; }
+.card-s { font-size: 10px; color: #666; font-family: 'JetBrains Mono', monospace; margin-top: 4px; }
+.green { color: #2e7d32; }
+.red { color: #c62828; }
+.gray { color: #888; }
+.blue { color: #1565c0; }
+table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; overflow: hidden; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+th { background: #f4f5f9; padding: 6px 8px; text-align: right; font-weight: 600; color: #555; font-size: 10px; text-transform: uppercase; letter-spacing: .02em; }
+th:first-child, td:first-child { text-align: left; }
+td { padding: 5px 8px; border-top: 1px solid #f0f1f4; text-align: right; }
+header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid #e0e4ef; flex-wrap: wrap; gap: 10px; }
+.controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.refresh { background: #1565c0; color: white; border: none; padding: 6px 14px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.refresh:hover { background: #0d47a1; }
+select { padding: 6px 10px; border-radius: 5px; border: 1px solid #ccc; font-size: 11px; font-family: inherit; }
+.meta { font-size: 10px; color: #888; font-family: 'JetBrains Mono', monospace; }
+.empty { text-align: center; color: #999; padding: 40px 20px; font-size: 12px; }
+.json-preview { background: #1a1a2e; color: #a5d6a7; padding: 12px; border-radius: 8px; font-family: 'JetBrains Mono', monospace; font-size: 10px; overflow-x: auto; max-height: 200px; line-height: 1.5; }
+@media (max-width: 600px) {
+  body { padding: 8px; }
+  h1 { font-size: 18px; }
+  .card-v { font-size: 16px; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>📥 Fanda data <small>· /ingest endpoint</small></h1>
+    <div class="meta" id="metaInfo">načítám…</div>
+  </div>
+  <div class="controls">
+    <label style="font-size:11px;color:#666;">Source:</label>
+    <select id="sourceSelect" onchange="loadData()">
+      <option value="">-- vyberte --</option>
+    </select>
+    <label style="font-size:11px;color:#666;">Type:</label>
+    <select id="typeSelect" onchange="loadData()">
+      <option value="">všechny</option>
+    </select>
+    <button class="refresh" onclick="loadList(); loadData();">↺ Refresh</button>
+  </div>
+</header>
+
+<h2>📊 Přehled zdrojů</h2>
+<div class="row" id="summaryRow">
+  <div class="card"><div class="card-l">načítám…</div></div>
+</div>
+
+<h2>📋 Data (poslední zprávy)</h2>
+<div class="card" style="padding:0;" id="dataContainer">
+  <div class="empty">Vyberte source nahoře…</div>
+</div>
+
+<h2>🔍 RAW JSON (poslední zpráva)</h2>
+<div class="card" id="rawContainer">
+  <div class="empty">Vyberte source nahoře…</div>
+</div>
+
+<script>
+const API_URL = window.location.origin;
+let _lastList = null;
+
+async function loadList() {
+  try {
+    const r = await fetch(`${API_URL}/ingest/list?_=${Date.now()}`, { cache: 'no-store' });
+    const d = await r.json();
+    _lastList = d;
+    
+    // Update meta
+    document.getElementById('metaInfo').textContent = 
+      `${d.total_sources || 0} zdrojů · refresh ${new Date().toLocaleTimeString('cs-CZ')}`;
+    
+    // Update source dropdown
+    const sourceSel = document.getElementById('sourceSelect');
+    const currentSrc = sourceSel.value;
+    sourceSel.innerHTML = '<option value="">-- vyberte --</option>';
+    if (d.sources) {
+      for (const src of Object.keys(d.sources).sort()) {
+        const info = d.sources[src];
+        const opt = document.createElement('option');
+        opt.value = src;
+        opt.textContent = `${src} (${info.count} zpráv)`;
+        sourceSel.appendChild(opt);
+      }
+      if (currentSrc && d.sources[currentSrc]) sourceSel.value = currentSrc;
+    }
+    
+    // Update summary cards
+    const summaryRow = document.getElementById('summaryRow');
+    if (!d.sources || Object.keys(d.sources).length === 0) {
+      summaryRow.innerHTML = '<div class="card"><div class="card-l">žádné zdroje</div><div class="card-s">Nikdo zatím neposlal data. Endpoint: POST /ingest</div></div>';
+    } else {
+      let html = '';
+      for (const src of Object.keys(d.sources).sort()) {
+        const info = d.sources[src];
+        const ts = info.latest_ts || '—';
+        const tsFmt = ts === '—' ? '—' : ts.replace(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/, '$1-$2-$3 $4:$5:$6');
+        html += `<div class="card" style="cursor:pointer;" onclick="document.getElementById('sourceSelect').value='${src}';loadData();">
+          <div class="card-l">${src}</div>
+          <div class="card-v blue">${info.count}<span style="font-size:11px;color:#888;margin-left:4px;">zpráv</span></div>
+          <div class="card-s">Posl: ${tsFmt}</div>
+          <div class="card-s gray">Types: ${info.types.join(', ')}</div>
+        </div>`;
+      }
+      summaryRow.innerHTML = html;
+    }
+    
+    // Update type dropdown (na základě selectu)
+    updateTypeDropdown();
+  } catch(e) {
+    console.error('loadList error:', e);
+    document.getElementById('metaInfo').textContent = '⚠ Chyba: ' + e.message;
+  }
+}
+
+function updateTypeDropdown() {
+  const typeSel = document.getElementById('typeSelect');
+  const src = document.getElementById('sourceSelect').value;
+  const currentType = typeSel.value;
+  typeSel.innerHTML = '<option value="">všechny</option>';
+  if (src && _lastList && _lastList.sources && _lastList.sources[src]) {
+    for (const t of _lastList.sources[src].types) {
+      const opt = document.createElement('option');
+      opt.value = t;
+      opt.textContent = t;
+      typeSel.appendChild(opt);
+    }
+    if (currentType) typeSel.value = currentType;
+  }
+}
+
+async function loadData() {
+  const src = document.getElementById('sourceSelect').value;
+  if (!src) {
+    document.getElementById('dataContainer').innerHTML = '<div class="empty">Vyberte source nahoře…</div>';
+    document.getElementById('rawContainer').innerHTML = '<div class="empty">Vyberte source nahoře…</div>';
+    return;
+  }
+  
+  updateTypeDropdown();
+  const type = document.getElementById('typeSelect').value;
+  
+  try {
+    let url = `${API_URL}/ingest/data?source=${encodeURIComponent(src)}&limit=20&_=${Date.now()}`;
+    if (type) url += `&type=${encodeURIComponent(type)}`;
+    const r = await fetch(url, { cache: 'no-store' });
+    const d = await r.json();
+    
+    if (!d.records || d.records.length === 0) {
+      document.getElementById('dataContainer').innerHTML = '<div class="empty">Žádná data pro tento source/type</div>';
+      document.getElementById('rawContainer').innerHTML = '<div class="empty">Žádná data</div>';
+      return;
+    }
+    
+    // RAW poslední zpráva
+    const lastRec = d.records[d.records.length - 1];
+    document.getElementById('rawContainer').innerHTML = 
+      `<div class="card-l">${lastRec.source} · ${lastRec.type} · ${lastRec.ts}</div>` +
+      `<div class="json-preview">${escapeHtml(JSON.stringify(lastRec.data, null, 2))}</div>`;
+    
+    // Render data table - PŘÍCHÁZÍ jako poslední zpráva
+    renderDataTable(lastRec, d.records);
+  } catch(e) {
+    console.error('loadData error:', e);
+    document.getElementById('dataContainer').innerHTML = `<div class="empty">⚠ Chyba: ${e.message}</div>`;
+  }
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function renderDataTable(lastRec, allRecords) {
+  const container = document.getElementById('dataContainer');
+  const data = lastRec.data;
+  
+  // Detect format
+  let rows = null;
+  let formatHint = '';
+  
+  if (Array.isArray(data)) {
+    // Format A: array of objects/values
+    if (data.length > 0 && typeof data[0] === 'object' && data[0] !== null) {
+      rows = data;
+      formatHint = `Array of ${data.length} objects`;
+    } else {
+      // Array of primitives
+      rows = data.map((v, i) => ({ index: i, value: v }));
+      formatHint = `Array of ${data.length} hodnot`;
+    }
+  } else if (data && typeof data === 'object') {
+    // Format B: object with "rows" key
+    if (Array.isArray(data.rows)) {
+      rows = data.rows;
+      formatHint = `Object.rows array (${data.rows.length})`;
+    } else if (Array.isArray(data.data)) {
+      rows = data.data;
+      formatHint = `Object.data array (${data.data.length})`;
+    } else {
+      // Format D: pivot - keys as rows
+      const keys = Object.keys(data);
+      const allValuesAreObjects = keys.every(k => typeof data[k] === 'object' && data[k] !== null);
+      if (allValuesAreObjects && keys.length > 1) {
+        rows = keys.map(k => ({ key: k, ...data[k] }));
+        formatHint = `Pivot object (${keys.length} klíčů)`;
+      } else {
+        // Single object - show as key/value pairs
+        rows = keys.map(k => ({ key: k, value: JSON.stringify(data[k]) }));
+        formatHint = `Single object (${keys.length} polí)`;
+      }
+    }
+  } else {
+    container.innerHTML = `<div class="empty">Data: <code>${escapeHtml(String(data))}</code> (nejde do tabulky)</div>`;
+    return;
+  }
+  
+  if (!rows || rows.length === 0) {
+    container.innerHTML = '<div class="empty">Prázdná tabulka</div>';
+    return;
+  }
+  
+  // Collect all columns
+  const cols = new Set();
+  for (const row of rows) {
+    if (typeof row === 'object' && row !== null) {
+      Object.keys(row).forEach(k => cols.add(k));
+    }
+  }
+  const colsArr = Array.from(cols);
+  
+  // Build HTML
+  let html = `<div style="padding:8px 12px;font-size:11px;color:#666;display:flex;justify-content:space-between;align-items:center;">
+    <span><b>${lastRec.source}</b> · ${lastRec.type} · ${lastRec.ts}</span>
+    <span style="color:#999;">${formatHint}</span>
+  </div>`;
+  
+  html += '<table><thead><tr>';
+  for (const c of colsArr) html += `<th>${escapeHtml(c)}</th>`;
+  html += '</tr></thead><tbody>';
+  
+  for (const row of rows) {
+    html += '<tr>';
+    for (const c of colsArr) {
+      const v = row[c];
+      let cellHtml = '';
+      let cls = '';
+      if (v === null || v === undefined) {
+        cellHtml = '<span class="gray">—</span>';
+      } else if (typeof v === 'number') {
+        if (v > 0) cls = 'green';
+        else if (v < 0) cls = 'red';
+        cellHtml = v.toFixed(Number.isInteger(v) ? 0 : 2);
+      } else if (typeof v === 'object') {
+        cellHtml = escapeHtml(JSON.stringify(v));
+      } else {
+        cellHtml = escapeHtml(String(v));
+      }
+      html += `<td class="${cls}">${cellHtml}</td>`;
+    }
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  
+  // History dropdown (other timestamps for this source/type)
+  if (allRecords.length > 1) {
+    html += '<div style="padding:8px 12px;font-size:10px;color:#888;border-top:1px solid #eef0f7;">';
+    html += `${allRecords.length} zpráv celkem · zobrazena POSLEDNÍ.`;
+    html += '</div>';
+  }
+  
+  container.innerHTML = html;
+}
+
+// Init
+loadList();
+setInterval(loadList, 30000);  // refresh seznam každých 30s
+setInterval(loadData, 30000);   // refresh data každých 30s
+</script>
+</body>
+</html>
