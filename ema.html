@@ -306,7 +306,10 @@ function setBtPeriod(period) {
   document.getElementById('btn-period-30d').style.color = period === '30d' ? '#fff' : '#1a1a2e';
   document.getElementById('bkProfitLabel').textContent = period === 'today' ? 'NET Profit dnes (LAG4)' : 'NET Profit 30 dní (LAG4)';
   
-  if (period === '30d' && !_btRows30dCache) {
+  if (period === '30d') {
+    // VŽDY znovu načti (i kdyby cache existovala) - aby data byla čerstvá
+    _btRows30dCache = null;
+    _bt30dEma = null;
     load30DayBacktest();
   } else {
     refreshBacktest();
@@ -326,7 +329,12 @@ function refreshBacktest() {
 }
 
 async function load30DayBacktest() {
-  document.getElementById('bkProfit').innerHTML = '<span style="color:#999;font-size:14px;">načítám 30 dní…</span>';
+  document.getElementById('bkProfit').innerHTML = '<span style="color:#1565c0;font-size:14px;">načítám 30 dní…</span>';
+  document.getElementById('bkTrades').textContent = '…';
+  document.getElementById('bkWinrate').innerHTML = '—<span class="u">%</span>';
+  document.getElementById('bkAvgTrade').innerHTML = '—<span class="u">EUR</span>';
+  
+  try {
   
   const KURZ = 24.5;
   const now = new Date();
@@ -403,7 +411,19 @@ async function load30DayBacktest() {
   _btRows30dCache = allRows;
   _bt30dEma = allEma;
   console.log(`[30d backtest] Loaded ${allRows.length} QH from ${new Set(allRows.map(r => r.date)).size} days, EMA per-day reset`);
+  
+  if (allRows.length === 0) {
+    document.getElementById('bkProfit').innerHTML = '<span style="color:#c62828;font-size:13px;">⚠ Žádná data 30d</span>';
+    document.getElementById('bkProfitKc').textContent = 'API nevrátil žádné rows';
+    return;
+  }
+  
   refreshBacktest();
+  } catch(e) {
+    console.error('[30d backtest] ERROR:', e);
+    document.getElementById('bkProfit').innerHTML = '<span style="color:#c62828;font-size:13px;">⚠ Chyba</span>';
+    document.getElementById('bkProfitKc').textContent = e.message;
+  }
 }
 
 async function loadAll() {
