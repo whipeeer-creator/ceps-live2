@@ -654,7 +654,10 @@ async function loadAll() {
     
     renderCurrentSignal(rows, ema);
     renderEmaTable(rows, ema);
-    renderBacktest(rows, ema);
+    // Nezápisuj backtest pokud uživatel je na 30d view
+    if (BT_PERIOD === 'today') {
+      renderBacktest(rows, ema);
+    }
     
     // Cache pro toggle
     _btRowsCache = rows;
