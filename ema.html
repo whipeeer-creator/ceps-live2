@@ -353,9 +353,22 @@ async function load30DayBacktest() {
     
     const results = await Promise.all(dayPromises);
     
+    // Diagnostika
+    let totalDays = 0, totalRows = 0, daysWithVdt = 0;
+    for (const [dOdch, dVdt] of results) {
+      if (dOdch && dOdch.rows) {
+        totalDays++;
+        totalRows += dOdch.rows.length;
+        const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt?.data || []);
+        if (vdtList.length > 0) daysWithVdt++;
+      }
+    }
+    console.log(`[30d DIAG] days=${totalDays}/30, rows=${totalRows}, daysWithVDT=${daysWithVdt}`);
+    
     // BACKTEST per day, sum up
     let netProfit = 0, wins = 0, losses = 0, trades = 0;
     let totalMwh = 0, peakEquity = 0, maxDD = 0;
+    let skipVdt = 0, skipZero = 0, skipSig = 0;
     const hourly = {};
     const tradeList = [];
     
@@ -385,10 +398,22 @@ async function load30DayBacktest() {
         const kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
         const interval = row['Interval'] || '';
         if (!interval) continue;
+        
+        // Reformat interval to match VDT map key (00:00-00:15 format)
+        const m = interval.match(/^(\d{1,2}):(\d{2})/);
+        let lookupKey = interval;
+        if (m) {
+          const hh = m[1].padStart(2,'0');
+          const mm = m[2];
+          let endMM = parseInt(mm) + 15, endHH = parseInt(hh);
+          if (endMM >= 60) { endMM = 0; endHH++; }
+          lookupKey = `${hh}:${mm}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+        }
+        
         dayRows.push({
           interval, date: day, kc,
           odch: kc / KURZ,
-          vdt: vdtMap[interval] !== undefined ? vdtMap[interval] : null
+          vdt: vdtMap[lookupKey] !== undefined ? vdtMap[lookupKey] : null
         });
       }
       if (dayRows.length < LAG + 1) continue;
@@ -405,9 +430,9 @@ async function load30DayBacktest() {
       for (let i = LAG; i < dayRows.length; i++) {
         const sig = ema[i - LAG];
         const r = dayRows[i];
-        if (r.vdt === null || r.vdt === undefined) continue;
-        if (r.kc === 0) continue;
-        if (Math.abs(sig) < 1) continue;
+        if (r.vdt === null || r.vdt === undefined) { skipVdt++; continue; }
+        if (r.kc === 0) { skipZero++; continue; }
+        if (Math.abs(sig) < 1) { skipSig++; continue; }
         
         const direction = sig > 0 ? +1 : -1;
         const rawSpread = r.odch - r.vdt;
@@ -450,7 +475,7 @@ async function load30DayBacktest() {
     document.getElementById('bkProfit').innerHTML = 
       `<span class="${netProfit >= 0 ? 'green' : 'red'}">${netProfit >= 0 ? '+' : ''}${netProfit.toFixed(0)}</span><span class="u">EUR</span>`;
     document.getElementById('bkProfitKc').textContent = 
-      `30 dní · ${BT_MODE === 'pyr' ? 'pyramid Ø '+(totalMwh/trades||0).toFixed(1)+' MWh/trade' : '@ 1 MWh'}`;
+      `30 dní · ${BT_MODE === 'pyr' ? 'pyramid Ø '+(totalMwh/trades||0).toFixed(1)+' MWh' : '@ 1 MWh'} · skip: VDT=${skipVdt}, 0=${skipZero}, sig=${skipSig}`;
     document.getElementById('bkTrades').textContent = trades;
     document.getElementById('bkTradesDetail').textContent = 
       BT_MODE === 'pyr' ? `Σ ${totalMwh.toFixed(0)} MWh` : `${trades} × 1 MWh`;
