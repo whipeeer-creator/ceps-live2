@@ -572,8 +572,134 @@ class Handler(BaseHTTPRequestHandler):
 
     def _cors(self):
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET,OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type,X-API-Key")
+
+    def do_POST(self):
+        """Přijímá data od externích zdrojů (kamarád, partner, atd.)
+        
+        POST /ingest
+        Header: X-API-Key: <secret>  (nebo ?key=secret v URL)
+        Body: JSON s libovolnými daty
+        
+        Data uloží do /tmp/ingest_<timestamp>_<source>.json
+        Volitelně: nastav INGEST_KEY env var pro ochranu
+        Volitelně: nastav INGEST_WEBHOOK env var pro forward (Discord/Slack)
+        """
+        try:
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query)
+            
+            if parsed.path != "/ingest":
+                self._json({"error": "POST only supported on /ingest"}, 404)
+                return
+            
+            # API Key check (header or query param)
+            expected_key = os.environ.get("INGEST_KEY", "")
+            if expected_key:
+                provided = self.headers.get("X-API-Key", "") or qs.get("key", [""])[0]
+                if provided != expected_key:
+                    self._json({"error": "invalid API key"}, 401)
+                    return
+            
+            # Read body
+            content_length = int(self.headers.get("Content-Length", 0))
+            if content_length > 50 * 1024 * 1024:  # 50 MB max
+                self._json({"error": "body too large (max 50MB)"}, 413)
+                return
+            
+            body = self.rfile.read(content_length) if content_length > 0 else b"{}"
+            content_type = self.headers.get("Content-Type", "").lower()
+            
+            # Parse podle Content-Type
+            source = qs.get("source", ["unknown"])[0]
+            data_type = qs.get("type", ["data"])[0]
+            
+            parsed_data = None
+            raw_text = None
+            
+            if "application/json" in content_type:
+                try:
+                    parsed_data = json.loads(body.decode("utf-8"))
+                except json.JSONDecodeError as e:
+                    self._json({"error": f"invalid JSON: {e}"}, 400)
+                    return
+            elif "text/csv" in content_type or "text/plain" in content_type:
+                raw_text = body.decode("utf-8", errors="replace")
+            else:
+                # Binary (XLSX, PDF, atd.) - uloží raw
+                pass
+            
+            # Save to disk + memory store
+            ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+            safe_source = "".join(c for c in source if c.isalnum() or c in "._-")[:50]
+            
+            # Memory store (last 100 messages per source)
+            if "_INGEST_STORE" not in globals():
+                globals()["_INGEST_STORE"] = {}
+            store = globals()["_INGEST_STORE"]
+            if safe_source not in store:
+                store[safe_source] = []
+            
+            record = {
+                "ts": ts,
+                "source": safe_source,
+                "type": data_type,
+                "content_type": content_type,
+                "size": len(body),
+                "data": parsed_data if parsed_data is not None else (raw_text[:1000] if raw_text else "<binary>"),
+            }
+            store[safe_source].append(record)
+            if len(store[safe_source]) > 100:
+                store[safe_source] = store[safe_source][-100:]  # keep last 100
+            
+            # File save (optional - /tmp survives only restart)
+            try:
+                file_ext = ".json" if parsed_data else (".csv" if raw_text else ".bin")
+                fpath = f"/tmp/ingest_{ts}_{safe_source}_{data_type}{file_ext}"
+                if parsed_data is not None:
+                    with open(fpath, "w") as f:
+                        json.dump(parsed_data, f, ensure_ascii=False, indent=2)
+                elif raw_text is not None:
+                    with open(fpath, "w") as f:
+                        f.write(raw_text)
+                else:
+                    with open(fpath, "wb") as f:
+                        f.write(body)
+                print(f"[INGEST] saved {len(body)} bytes from '{safe_source}' to {fpath}", flush=True)
+            except Exception as e:
+                print(f"[INGEST] file save error: {e}", flush=True)
+            
+            # Optional webhook forward (Discord/Slack)
+            webhook_url = os.environ.get("INGEST_WEBHOOK", "")
+            if webhook_url:
+                try:
+                    summary = f"📥 Ingest from '{safe_source}' ({data_type}): {len(body)} bytes"
+                    if parsed_data and isinstance(parsed_data, dict):
+                        keys = list(parsed_data.keys())[:5]
+                        summary += f"\nKeys: {', '.join(keys)}"
+                    requests.post(webhook_url, json={"content": summary}, timeout=5)
+                except Exception as e:
+                    print(f"[INGEST] webhook fail: {e}", flush=True)
+            
+            self._json({
+                "status": "ok",
+                "ts": ts,
+                "source": safe_source,
+                "type": data_type,
+                "size": len(body),
+                "parsed": parsed_data is not None
+            })
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+        except Exception as e:
+            print(f"!!! UNCAUGHT do_POST ERROR: {self.path} - {e}", flush=True)
+            import traceback
+            traceback.print_exc()
+            try:
+                self._json({"error": "internal error", "detail": str(e)}, 500)
+            except Exception:
+                pass
 
     def do_GET(self):
         try:
@@ -597,6 +723,33 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/health":
             self._json({"status": "ok", "time": datetime.now().isoformat(),
                         "version": "v42-vdt-range"}); return
+        
+        # Ingest read endpoints
+        if parsed.path == "/ingest/list":
+            store = globals().get("_INGEST_STORE", {})
+            summary = {}
+            for src, records in store.items():
+                summary[src] = {
+                    "count": len(records),
+                    "latest_ts": records[-1]["ts"] if records else None,
+                    "types": list(set(r["type"] for r in records))
+                }
+            self._json({"sources": summary, "total_sources": len(store)})
+            return
+        
+        if parsed.path == "/ingest/data":
+            source = qs.get("source", [None])[0]
+            data_type = qs.get("type", [None])[0]
+            limit = int(qs.get("limit", ["10"])[0])
+            store = globals().get("_INGEST_STORE", {})
+            if source and source in store:
+                records = store[source]
+                if data_type:
+                    records = [r for r in records if r["type"] == data_type]
+                self._json({"source": source, "records": records[-limit:]})
+            else:
+                self._json({"error": "source not found", "available": list(store.keys())}, 404)
+            return
 
         if parsed.path in ("/", "/index.html", "/hory.html"):
             # NEW landing: hory.html (cista verze bez Systemove soustavy)
@@ -623,6 +776,9 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/entsoe/residual-load" or parsed.path == "/entsoe/residual":
             self._entsoe_residual_load(qs); return
+        
+        if parsed.path == "/entsoe/afrr-cz":
+            self._entsoe_afrr_cz(qs); return
         
         if parsed.path == "/smard/residual-load":
             self._smard_residual_load(qs); return
@@ -922,6 +1078,220 @@ class Handler(BaseHTTPRequestHandler):
             })
         except Exception as e:
             print(f"  -> ENTSO-E Solar ERROR: {e}", flush=True)
+            self._json({"error": str(e)}, 502)
+
+    def _entsoe_afrr_cz(self, qs):
+        """Vraci aFRR PICASSO ceny pro CZ.
+        
+        ENTSO-E documentType=A88 (Imbalance volume) / A85 (Imbalance prices)
+        Granularita: 4 sek (ale ENTSO-E publikuje typicky 15min agregat)
+        
+        Query: ?date=YYYY-MM-DD (default dnes)
+        Vraci: {date, qh: [{interval, hour, minute, price_pos, price_neg, vol_pos, vol_neg}, ...]}
+        
+        Cache 5 min.
+        """
+        try:
+            date_str = qs.get("date", [None])[0]
+            if not date_str:
+                now_utc = datetime.now(timezone.utc)
+                month = now_utc.month
+                berlin_offset = 2 if 4 <= month <= 10 else 1
+                berlin_now = now_utc + timedelta(hours=berlin_offset)
+                date_str = berlin_now.strftime("%Y-%m-%d")
+            
+            try:
+                target_date = datetime.strptime(date_str, "%Y-%m-%d")
+            except ValueError:
+                self._json({"error": f"Invalid date: {date_str}"}, 400); return
+            
+            nocache = qs.get("nocache", ["0"])[0] in ("1", "true", "yes")
+            
+            # Cache
+            cache_key = f"_AFRR_CZ_CACHE_{date_str}"
+            if cache_key not in globals():
+                globals()[cache_key] = {"ts": 0, "data": None}
+            cache = globals()[cache_key]
+            now_ts = time.time()
+            if not nocache and cache["data"] and (now_ts - cache["ts"]) < 300:
+                out = dict(cache["data"]); out["_cache"] = "hit"
+                self._json(out); return
+            
+            # ENTSO-E period - cely den (UTC) - posun pro Berlin TZ
+            month = target_date.month
+            berlin_offset = 2 if 4 <= month <= 10 else 1
+            
+            day_start_local = target_date.replace(hour=0, minute=0, second=0)
+            day_end_local = day_start_local + timedelta(hours=24)
+            # Konverze na UTC pro ENTSO-E (které chce UTC)
+            ps = day_start_local - timedelta(hours=berlin_offset)
+            pe = day_end_local - timedelta(hours=berlin_offset)
+            
+            period_start = fmt_entsoe_period(ps)
+            period_end = fmt_entsoe_period(pe)
+            
+            # ENTSO-E documentType: PICASSO aFRR Imbalance Prices
+            # CZ je v PICASSO od 1.6.2022
+            # 
+            # documentType options pro balancing:
+            #   A85 - Imbalance settlement (CENA)  
+            #   A86 - Imbalance volume
+            #   A89 - Cross-border marginal price (XBMP)
+            #
+            # Pro národní imbalance prices: 
+            #   documentType=A85, controlArea_Domain=10YCZ-CEPS-----N
+            
+            params_price = {
+                "documentType": "A85",
+                "controlArea_Domain": CZ_DOMAIN,
+                "periodStart": period_start,
+                "periodEnd": period_end,
+            }
+            
+            print(f"  -> /entsoe/afrr-cz: fetching A85 for {date_str}", flush=True)
+            try:
+                price_xml, price_st = call_entsoe(params_price)
+            except Exception as e:
+                print(f"  -> /entsoe/afrr-cz A85 fetch FAIL: {e}", flush=True)
+                self._json({"error": f"ENTSO-E A85 fetch failed: {e}"}, 502); return
+            
+            if price_st != 200:
+                # Try alternate documentType
+                print(f"  -> A85 returned {price_st}, trying A89 (XBMP)...", flush=True)
+                params_xbmp = {
+                    "documentType": "A89",
+                    "controlArea_Domain": CZ_DOMAIN,
+                    "periodStart": period_start,
+                    "periodEnd": period_end,
+                }
+                try:
+                    price_xml, price_st = call_entsoe(params_xbmp)
+                except Exception as e:
+                    self._json({"error": f"ENTSO-E A85+A89 both failed: {e}"}, 502); return
+                
+                if price_st != 200:
+                    self._json({
+                        "error": f"ENTSO-E both A85 and A89 returned non-200",
+                        "status_A85": price_st,
+                        "response_preview": price_xml[:500] if price_xml else None
+                    }, 502); return
+            
+            # Parse XML response
+            import re as _re
+            import xml.etree.ElementTree as ET
+            body_no_ns = _re.sub(r'\sxmlns="[^"]+"', '', price_xml, count=1)
+            try:
+                root = ET.fromstring(body_no_ns)
+            except ET.ParseError as e:
+                self._json({"error": f"XML parse: {e}", "preview": price_xml[:500]}, 502); return
+            
+            # Parse TimeSeries
+            qh_data = []  # list of {ts, value, direction}
+            
+            for ts_node in root.findall(".//TimeSeries"):
+                # Smer (POS / NEG / flow)
+                direction = None
+                flow_dir = ts_node.find("flowDirection.direction")
+                if flow_dir is not None and flow_dir.text:
+                    direction = flow_dir.text  # "A01"=up, "A02"=down
+                else:
+                    # try businessType
+                    bt = ts_node.find("businessType")
+                    if bt is not None: direction = bt.text
+                
+                # Period
+                period = ts_node.find("Period")
+                if period is None: continue
+                ti = period.find("timeInterval")
+                if ti is None: continue
+                start_el = ti.find("start")
+                if start_el is None: continue
+                
+                try:
+                    period_start_dt = datetime.strptime(start_el.text.replace("Z",""), "%Y-%m-%dT%H:%M")
+                except ValueError:
+                    continue
+                
+                res_el = period.find("resolution")
+                res_min = 15  # default
+                if res_el is not None:
+                    m = _re.match(r"PT(\d+)([MS])", res_el.text)
+                    if m:
+                        v, unit = int(m.group(1)), m.group(2)
+                        if unit == "S": res_min = v / 60.0
+                        else: res_min = v
+                
+                for pt in period.findall("Point"):
+                    pos_el = pt.find("position")
+                    price_el = pt.find("price.amount")
+                    qty_el = pt.find("quantity")
+                    
+                    if pos_el is None: continue
+                    try:
+                        pos = int(pos_el.text)
+                    except: continue
+                    
+                    value = None
+                    if price_el is not None and price_el.text:
+                        try: value = float(price_el.text)
+                        except: pass
+                    elif qty_el is not None and qty_el.text:
+                        try: value = float(qty_el.text)
+                        except: pass
+                    
+                    if value is None: continue
+                    
+                    ts_dt = period_start_dt + timedelta(minutes=(pos-1) * res_min)
+                    # Konverze na Berlin TZ
+                    ts_berlin = ts_dt + timedelta(hours=berlin_offset)
+                    
+                    qh_data.append({
+                        "ts": ts_dt.strftime("%Y-%m-%dT%H:%MZ"),
+                        "berlin_time": ts_berlin.strftime("%Y-%m-%dT%H:%M"),
+                        "hour": ts_berlin.hour,
+                        "minute": ts_berlin.minute,
+                        "value": value,
+                        "direction": direction,
+                    })
+            
+            # Group by QH and direction
+            from collections import defaultdict
+            qh_grouped = defaultdict(lambda: {"price_pos": None, "price_neg": None, "vol_pos": None, "vol_neg": None})
+            for d in qh_data:
+                qh_key = (d["hour"], (d["minute"] // 15) * 15)
+                # A01 = up/POS, A02 = down/NEG
+                if d["direction"] == "A01":
+                    qh_grouped[qh_key]["price_pos"] = d["value"]
+                elif d["direction"] == "A02":
+                    qh_grouped[qh_key]["price_neg"] = d["value"]
+            
+            qh_list = []
+            for (h, m), vals in sorted(qh_grouped.items()):
+                qh_list.append({
+                    "hour": h,
+                    "minute": m,
+                    "interval": f"{h:02d}:{m:02d}-{(h + (1 if m==45 else 0)):02d}:{(m+15)%60:02d}",
+                    "price_pos_eur": vals["price_pos"],
+                    "price_neg_eur": vals["price_neg"],
+                })
+            
+            out = {
+                "date": date_str,
+                "source": "ENTSO-E Transparency Platform A85",
+                "qh": qh_list,
+                "count": len(qh_list),
+                "raw_points": len(qh_data),
+                "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss",
+            }
+            cache["ts"] = now_ts
+            cache["data"] = {k: v for k, v in out.items() if k != "_cache"}
+            print(f"  -> /entsoe/afrr-cz: {len(qh_list)} QH, {len(qh_data)} raw points", flush=True)
+            self._json(out)
+        except Exception as e:
+            print(f"  -> /entsoe/afrr-cz ERROR: {e}", flush=True)
+            import traceback
+            traceback.print_exc()
             self._json({"error": str(e)}, 502)
 
     def _entsoe_residual_load(self, qs):
