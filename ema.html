@@ -307,10 +307,7 @@ function setBtPeriod(period) {
   document.getElementById('bkProfitLabel').textContent = period === 'today' ? 'NET Profit dnes (LAG4)' : 'NET Profit 30 dní (LAG4)';
   
   if (period === '30d') {
-    // VŽDY znovu načti (i kdyby cache existovala) - aby data byla čerstvá
-    _btRows30dCache = null;
-    _bt30dEma = null;
-    load30DayBacktest();
+    load30DayBacktest();  // vždy
   } else {
     refreshBacktest();
   }
@@ -333,83 +330,162 @@ async function load30DayBacktest() {
   document.getElementById('bkTrades').textContent = '…';
   document.getElementById('bkWinrate').innerHTML = '—<span class="u">%</span>';
   document.getElementById('bkAvgTrade').innerHTML = '—<span class="u">EUR</span>';
+  document.getElementById('bkDD').innerHTML = '—<span class="u">EUR</span>';
+  document.getElementById('tradesTable').innerHTML = '<tr><td colspan="7" style="text-align:center;color:#999;">načítám 30 dní…</td></tr>';
+  document.getElementById('hourlyTable').innerHTML = '<tr><td colspan="5" style="text-align:center;color:#999;">načítám 30 dní…</td></tr>';
   
   try {
-  
-  const KURZ = 24.5;
-  const now = new Date();
-  const pad = n => String(n).padStart(2,'0');
-  
-  const dayPromises = [];
-  const daysToFetch = [];
-  for (let i = 30; i >= 1; i--) {
-    const d = new Date(now.getTime() - i*86400000);
-    const yyyy = d.getFullYear(), mm = d.getMonth()+1, dd = d.getDate();
-    const dStr = `${yyyy}-${pad(mm)}-${pad(dd)}`;
-    daysToFetch.push(dStr);
-    dayPromises.push(
-      Promise.all([
+    const pad = n => String(n).padStart(2,'0');
+    const now = new Date();
+    
+    // Fetch 30 dní paralelně
+    const dayPromises = [];
+    const days = [];
+    for (let i = 30; i >= 1; i--) {
+      const d = new Date(now.getTime() - i*86400000);
+      const dStr = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+      days.push(dStr);
+      dayPromises.push(Promise.all([
         fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${dStr}T00:00:00&dateTo=${dStr}T23:59:59`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`${API_URL}/ote/vdt?date=${dStr}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
-      ])
-    );
-  }
-  
-  const dayResults = await Promise.all(dayPromises);
-  
-  const allRows = [];
-  
-  for (let idx = 0; idx < daysToFetch.length; idx++) {
-    const day = daysToFetch[idx];
-    const [dOdch, dVdt] = dayResults[idx];
-    if (!dOdch || !dOdch.rows) continue;
-    
-    // Build VDT map per day
-    const vdtMap = {};
-    const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt?.data || []);
-    for (const v of vdtList) {
-      const ts = v.timestamp || v.ts || '';
-      const m = ts.match(/T(\d{2}):(\d{2})/);
-      if (!m) continue;
-      const hh = m[1], mm = parseInt(m[2]);
-      let endMM = mm + 15, endHH = parseInt(hh);
-      if (endMM >= 60) { endMM = 0; endHH++; }
-      const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
-      const priceEur = parseFloat(v.last);
-      if (!isNaN(priceEur)) vdtMap[interval] = priceEur;
+      ]));
     }
     
-    for (const row of dOdch.rows) {
-      const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
-      const interval = row['Interval'] || '';
-      if (!interval) continue;
-      allRows.push({
-        interval, date: day, kc: price_kc,
-        odch: price_kc / KURZ,
-        vdt: vdtMap[interval] !== undefined ? vdtMap[interval] : null,
-        isToday: true
-      });
+    const results = await Promise.all(dayPromises);
+    
+    // BACKTEST per day, sum up
+    let netProfit = 0, wins = 0, losses = 0, trades = 0;
+    let totalMwh = 0, peakEquity = 0, maxDD = 0;
+    const hourly = {};
+    const tradeList = [];
+    
+    for (let idx = 0; idx < days.length; idx++) {
+      const day = days[idx];
+      const [dOdch, dVdt] = results[idx];
+      if (!dOdch || !dOdch.rows) continue;
+      
+      // VDT map per den
+      const vdtMap = {};
+      const vdtList = Array.isArray(dVdt) ? dVdt : (dVdt?.data || []);
+      for (const v of vdtList) {
+        const ts = v.timestamp || v.ts || '';
+        const m = ts.match(/T(\d{2}):(\d{2})/);
+        if (!m) continue;
+        const hh = m[1], mm = parseInt(m[2]);
+        let endMM = mm + 15, endHH = parseInt(hh);
+        if (endMM >= 60) { endMM = 0; endHH++; }
+        const interval = `${hh}:${String(mm).padStart(2,'0')}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
+        const p = parseFloat(v.last);
+        if (!isNaN(p)) vdtMap[interval] = p;
+      }
+      
+      // Rows pro den
+      const dayRows = [];
+      for (const row of dOdch.rows) {
+        const kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+        const interval = row['Interval'] || '';
+        if (!interval) continue;
+        dayRows.push({
+          interval, date: day, kc,
+          odch: kc / KURZ,
+          vdt: vdtMap[interval] !== undefined ? vdtMap[interval] : null
+        });
+      }
+      if (dayRows.length < LAG + 1) continue;
+      
+      // EMA8 per day (warm-up reset)
+      const prices = dayRows.map(r => r.odch);
+      const ema = [];
+      for (let i = 0; i < prices.length; i++) {
+        if (i === 0) ema.push(prices[i]);
+        else ema.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema[i-1]);
+      }
+      
+      // Backtest
+      for (let i = LAG; i < dayRows.length; i++) {
+        const sig = ema[i - LAG];
+        const r = dayRows[i];
+        if (r.vdt === null || r.vdt === undefined) continue;
+        if (r.kc === 0) continue;
+        if (Math.abs(sig) < 1) continue;
+        
+        const direction = sig > 0 ? +1 : -1;
+        const rawSpread = r.odch - r.vdt;
+        let mwh = 1;
+        
+        if (BT_MODE === 'pyr') {
+          const absSig = Math.abs(sig);
+          if (absSig < 30) mwh = 1;
+          else if (absSig < 100) mwh = 3;
+          else if (absSig < 200) mwh = 7;
+          else mwh = 10;
+        }
+        
+        const net = direction * rawSpread * mwh;
+        netProfit += net;
+        totalMwh += mwh;
+        trades++;
+        if (net > 0) wins++;
+        else if (net < 0) losses++;
+        
+        if (netProfit > peakEquity) peakEquity = netProfit;
+        const dd = netProfit - peakEquity;
+        if (dd < maxDD) maxDD = dd;
+        
+        // Hourly stats
+        const h = parseInt(r.interval.split(':')[0]);
+        if (!hourly[h]) hourly[h] = { pnl: 0, n: 0, w: 0 };
+        hourly[h].pnl += net;
+        hourly[h].n++;
+        if (net > 0) hourly[h].w++;
+      }
     }
-  }
-  
-  // Kontinuální EMA8 přes všechny dny (jako v původní verzi)
-  const prices = allRows.map(r => r.odch);
-  const ema30 = [];
-  for (let i = 0; i < prices.length; i++) {
-    if (i === 0) ema30.push(prices[i]);
-    else ema30.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema30[i-1]);
-  }
-  
-  _btRows30dCache = allRows;
-  _bt30dEma = ema30;
-  console.log(`[30d backtest] Loaded ${allRows.length} QH from ${new Set(allRows.map(r => r.date)).size} days`);
-  
-  if (allRows.length === 0) {
-    document.getElementById('bkProfit').innerHTML = '<span style="color:#c62828;font-size:13px;">⚠ Žádná data</span>';
-    return;
-  }
-  
-  refreshBacktest();
+    
+    // Render
+    const wr = trades > 0 ? wins/trades*100 : 0;
+    const avg = trades > 0 ? netProfit/trades : 0;
+    const peakStr = peakEquity > 0 ? peakEquity.toFixed(0) : '0';
+    const maxDDPct = peakEquity > 0 ? (maxDD/peakEquity*100) : 0;
+    
+    document.getElementById('bkProfit').innerHTML = 
+      `<span class="${netProfit >= 0 ? 'green' : 'red'}">${netProfit >= 0 ? '+' : ''}${netProfit.toFixed(0)}</span><span class="u">EUR</span>`;
+    document.getElementById('bkProfitKc').textContent = 
+      `30 dní · ${BT_MODE === 'pyr' ? 'pyramid Ø '+(totalMwh/trades||0).toFixed(1)+' MWh/trade' : '@ 1 MWh'}`;
+    document.getElementById('bkTrades').textContent = trades;
+    document.getElementById('bkTradesDetail').textContent = 
+      BT_MODE === 'pyr' ? `Σ ${totalMwh.toFixed(0)} MWh` : `${trades} × 1 MWh`;
+    document.getElementById('bkWinrate').innerHTML = 
+      `<span class="${wr >= 50 ? 'green' : 'red'}">${wr.toFixed(0)}</span><span class="u">%</span>`;
+    document.getElementById('bkWinrateDetail').textContent = `${wins} W · ${losses} L`;
+    document.getElementById('bkAvgTrade').innerHTML = 
+      `<span class="${avg >= 0 ? 'green' : 'red'}">${avg >= 0 ? '+' : ''}${avg.toFixed(1)}</span><span class="u">EUR</span>`;
+    document.getElementById('bkAvgTradeDetail').textContent = 
+      BT_MODE === 'pyr' ? `${(netProfit/totalMwh||0).toFixed(1)} EUR/MWh` : `EUR/trade`;
+    document.getElementById('bkDD').innerHTML = 
+      `<span class="red">${maxDD.toFixed(0)}</span><span class="u">EUR</span>`;
+    document.getElementById('bkDDDetail').textContent = 
+      `peak ${peakStr} EUR · ${maxDDPct.toFixed(1)}% z peak`;
+    
+    // Hourly table
+    let hHtml = '';
+    const maxAbs = Math.max(...Object.values(hourly).map(s => Math.abs(s.pnl)), 1);
+    for (let h = 0; h < 24; h++) {
+      const s = hourly[h] || { pnl: 0, n: 0, w: 0 };
+      const wRate = s.n > 0 ? (s.w/s.n*100).toFixed(0) + '%' : '—';
+      const barColor = s.pnl >= 0 ? 'bar-pos' : 'bar-neg';
+      const barW = s.n > 0 ? Math.min(100, Math.abs(s.pnl)/maxAbs*100) : 0;
+      const rowStyle = s.n === 0 ? 'opacity:0.5;background:#f8f8f8;' : '';
+      const pnlClass = s.n === 0 ? 'gray' : (s.pnl >= 0 ? 'green' : 'red');
+      const pnlStr = s.n === 0 ? '—' : `${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(0)}`;
+      hHtml += `<tr style="${rowStyle}"><td><b>H${pad(h)}</b></td><td>${s.n}</td><td>${wRate}</td><td class="${pnlClass}">${pnlStr}</td><td>${s.n > 0 ? `<div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div>` : ''}</td></tr>`;
+    }
+    document.getElementById('hourlyTable').innerHTML = hHtml;
+    
+    // Trades table - just empty for 30d (too many)
+    document.getElementById('tradesTable').innerHTML = 
+      `<tr><td colspan="7" style="text-align:center;color:#999;padding:20px;">30 dní · ${trades} trades · zobrazení v "Backtest posledních 30 dnů" tabulce níže</td></tr>`;
+    
+    console.log(`[30d] Done. Trades=${trades}, P&L=${netProfit.toFixed(0)} EUR, MWh=${totalMwh}`);
   } catch(e) {
     console.error('[30d backtest] ERROR:', e);
     document.getElementById('bkProfit').innerHTML = '<span style="color:#c62828;font-size:13px;">⚠ Chyba</span>';
