@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CZ DT 15min</title>
+<title>CZ Ceny</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -13,10 +13,38 @@
   button { background: #1a1a2e; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-family: inherit; font-size: 12px; cursor: pointer; }
   
   .row { display: grid; grid-template-columns: 1fr 100px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #e8e8ec; font-family: 'JetBrains Mono', monospace; }
-  .row.current { background: #1a1a2e; color: #fff; font-weight: 700; }
   .row .time { font-size: 14px; font-weight: 600; }
   .row .price { text-align: right; font-weight: 700; font-size: 16px; }
-  .row.hour-start { border-top: 2px solid #1a1a2e; }
+  
+  /* Hodinový řádek */
+  .row.hour {
+    background: #1a1a2e;
+    color: #fff;
+    border-top: 3px solid #1a1a2e;
+    padding: 10px 12px;
+  }
+  .row.hour .time { font-size: 15px; font-weight: 700; }
+  .row.hour .price { font-size: 18px; }
+  
+  /* 15min sub-řádek */
+  .row.qh {
+    background: #fff;
+    padding: 6px 12px 6px 28px;
+    border-bottom: 1px solid #f0f1f4;
+  }
+  .row.qh .time { font-size: 12px; color: #666; font-weight: 500; }
+  .row.qh .price { font-size: 14px; color: #1a1a2e; }
+  
+  /* Aktuální */
+  .row.current-hour {
+    background: #c62828;
+    color: #fff;
+  }
+  .row.current-qh {
+    background: #fff3e0;
+    border-left: 3px solid #c62828;
+    padding-left: 25px;
+  }
   
   .err { background: #ffebee; color: #c62828; padding: 10px; border-radius: 4px; margin: 10px 0; font-size: 12px; display: none; }
   .err.show { display: block; }
@@ -46,56 +74,87 @@ async function loadPrices() {
     const pad = n => String(n).padStart(2,'0');
     const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
     
-    // 15min DT data
-    const r = await fetch(`${API_URL}/spot/prices?country=CZ&date=${today}`, { cache: 'no-store' });
-    if (!r.ok) {
-      errEl.textContent = `HTTP ${r.status}`;
-      errEl.classList.add('show');
-      return;
-    }
-    const d = await r.json();
-    if (d.error || !d.data || !d.data.length) {
+    let dataHourly = null;
+    let dataQh = null;
+    
+    // Hodinová z OTE
+    try {
+      const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
+      if (r.ok) {
+        const d = await r.json();
+        const ht = d.hours_today || d.hoursToday || [];
+        dataHourly = ht.map(p => ({ 
+          hour: p.hour, 
+          price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
+        })).filter(p => Number.isFinite(p.price_eur));
+      }
+    } catch(e) { console.warn('hourly:', e); }
+    
+    // 15min
+    try {
+      const r2 = await fetch(`${API_URL}/spot/prices?country=CZ&date=${today}`, { cache: 'no-store' });
+      if (r2.ok) {
+        const d2 = await r2.json();
+        if (d2.data && d2.data.length) {
+          dataQh = d2.data;
+          if (!dataHourly || !dataHourly.length) {
+            dataHourly = d2.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+          }
+        }
+      }
+    } catch(e) { console.warn('qh:', e); }
+    
+    if ((!dataHourly || !dataHourly.length) && (!dataQh || !dataQh.length)) {
       errEl.textContent = 'Žádná data pro dnešní den';
       errEl.classList.add('show');
       document.getElementById('rows').innerHTML = '';
       return;
     }
     
-    // Build map: priceByQH[hour][minute] = price
+    const priceByHour = {};
+    if (dataHourly) for (const r of dataHourly) priceByHour[r.hour] = r.price_eur;
+    
     const priceByQH = {};
-    for (const p of d.data) {
-      if (!(p.hour in priceByQH)) priceByQH[p.hour] = {};
-      priceByQH[p.hour][p.minute] = p.price_eur;
+    if (dataQh) {
+      for (const p of dataQh) {
+        if (!(p.hour in priceByQH)) priceByQH[p.hour] = {};
+        priceByQH[p.hour][p.minute] = p.price_eur;
+      }
     }
     
     const curHour = now.getHours();
     const curMin = Math.floor(now.getMinutes() / 15) * 15;
-    
-    let html = '';
     const minutes = [0, 15, 30, 45];
     
+    let html = '';
     for (let h = 0; h < 24; h++) {
+      // Hodinový řádek
+      const isCurHour = h === curHour;
+      const hourCls = isCurHour ? 'row hour current-hour' : 'row hour';
+      const hourTime = `${pad(h)}:00 - ${pad((h+1) % 24)}:00`;
+      let hourPrice = '—';
+      if (h in priceByHour) {
+        hourPrice = (Math.round(priceByHour[h] * 10) / 10).toFixed(1);
+      }
+      html += `<div class="${hourCls}">
+        <span class="time">H${pad(h+1)} · ${hourTime}</span>
+        <span class="price">${hourPrice}</span>
+      </div>`;
+      
+      // 4 × 15min sub-řádky pod
       for (const mm of minutes) {
-        const isCur = (h === curHour && mm === curMin);
-        const isHourStart = (mm === 0);
-        let cls = 'row';
-        if (isCur) cls += ' current';
-        if (isHourStart) cls += ' hour-start';
-        
+        const isCurQH = (h === curHour && mm === curMin);
+        const qhCls = isCurQH ? 'row qh current-qh' : 'row qh';
         const startStr = `${pad(h)}:${pad(mm)}`;
         const endMM = mm + 15;
         const endH = endMM >= 60 ? h + 1 : h;
         const endStr = `${pad(endH % 24)}:${pad(endMM % 60)}`;
-        const timeStr = `${startStr} - ${endStr}`;
-        
         let priceStr = '—';
         if (priceByQH[h] && priceByQH[h][mm] !== undefined && Number.isFinite(priceByQH[h][mm])) {
-          const v = priceByQH[h][mm];
-          priceStr = (Math.round(v * 10) / 10).toFixed(1);
+          priceStr = (Math.round(priceByQH[h][mm] * 10) / 10).toFixed(1);
         }
-        
-        html += `<div class="${cls}">
-          <span class="time">${timeStr}</span>
+        html += `<div class="${qhCls}">
+          <span class="time">└ ${startStr} - ${endStr}</span>
           <span class="price">${priceStr}</span>
         </div>`;
       }
@@ -103,11 +162,12 @@ async function loadPrices() {
     document.getElementById('rows').innerHTML = html;
     
     const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-    document.getElementById('meta').textContent = `${today} · ${nowStr} · ${d.data.length} QH`;
+    const hCount = (dataHourly && dataHourly.length) || 0;
+    const qhCount = (dataQh && dataQh.length) || 0;
+    document.getElementById('meta').textContent = `${today} · ${nowStr} · ${hCount}h · ${qhCount} QH`;
     
-    // Scroll k aktuální QH
     setTimeout(() => {
-      const curEl = document.querySelector('.row.current');
+      const curEl = document.querySelector('.current-qh') || document.querySelector('.current-hour');
       if (curEl) curEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
     }, 100);
     
