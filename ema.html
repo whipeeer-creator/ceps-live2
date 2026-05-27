@@ -395,7 +395,8 @@ async function load30DayBacktest() {
       // Rows pro den
       const dayRows = [];
       for (const row of dOdch.rows) {
-        const kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+        const rawPrice = row['Estimated price [Kč/MWh]'];
+        const kc = rawPrice == null || rawPrice === '' ? NaN : parseFloat(String(rawPrice).replace(',', '.'));
         const interval = row['Interval'] || '';
         if (!interval) continue;
         
@@ -411,8 +412,9 @@ async function load30DayBacktest() {
         }
         
         dayRows.push({
-          interval, date: day, kc,
-          odch: kc / KURZ,
+          interval, date: day,
+          kc: isNaN(kc) ? null : kc,
+          odch: isNaN(kc) ? 0 : kc / KURZ,
           vdt: vdtMap[lookupKey] !== undefined ? vdtMap[lookupKey] : null
         });
       }
@@ -431,7 +433,7 @@ async function load30DayBacktest() {
         const sig = ema[i - LAG];
         const r = dayRows[i];
         if (r.vdt === null || r.vdt === undefined) { skipVdt++; continue; }
-        if (r.kc === 0) { skipZero++; continue; }
+        if (r.kc === null) { skipZero++; continue; }  // null = nezúčtováno; 0 nebo záporné = OK
         if (Math.abs(sig) < 1) { skipSig++; continue; }
         
         const direction = sig > 0 ? +1 : -1;
@@ -591,13 +593,15 @@ async function loadAll() {
     // VČEREJŠÍ data - vsechny QH
     if (dOdchY.rows) {
       for (const row of dOdchY.rows) {
-        const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+        const rawPrice = row['Estimated price [Kč/MWh]'];
+        const price_kc = rawPrice == null || rawPrice === '' ? NaN : parseFloat(String(rawPrice).replace(',', '.'));
         const interval = row['Interval'] || '';
         if (!interval) continue;
         const vdt = vdtMap[`${yesterday}|${interval}`];
         rows.push({
-          interval, date: yesterday, kc: price_kc,
-          odch: price_kc / KURZ,
+          interval, date: yesterday,
+          kc: isNaN(price_kc) ? null : price_kc,
+          odch: isNaN(price_kc) ? 0 : price_kc / KURZ,
           vdt: (vdt !== undefined) ? vdt : null,
           isToday: false
         });
@@ -606,7 +610,9 @@ async function loadAll() {
     
     // DNEŠNÍ data
     for (const row of dOdch.rows) {
-      const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+      const rawPrice = row['Estimated price [Kč/MWh]'];
+      // Handle Czech decimal comma + null/empty fallback to NaN (not 0!)
+      const price_kc = rawPrice == null || rawPrice === '' ? NaN : parseFloat(String(rawPrice).replace(',', '.'));
       const interval = row['Interval'] || '';
       const date = row['Date'] || '';
       if (!interval) continue;
@@ -619,7 +625,7 @@ async function loadAll() {
       // Skip jen FUTURE QH (ne nedávno skončené)
       if (qhEndMin > nowMin) continue;
       
-      const odch_eur = price_kc / KURZ;
+      const odch_eur = isNaN(price_kc) ? 0 : price_kc / KURZ;
       const hh = tm[1].padStart(2,'0');
       const mm = tm[2];
       let endMM = parseInt(mm) + 15, endHH = parseInt(hh);
@@ -629,7 +635,7 @@ async function loadAll() {
                       (vdtMap[`${today}|${interval}`] !== undefined ? vdtMap[`${today}|${interval}`] : null);
       rows.push({
         date: today, interval,
-        kc: price_kc,
+        kc: isNaN(price_kc) ? null : price_kc,  // null = nezúčtováno, ne 0!
         odch: odch_eur,
         vdt: vdt_eur,
         spread: vdt_eur !== null ? (odch_eur - vdt_eur) : null,
@@ -915,9 +921,9 @@ function renderBacktest(rows, ema) {
     if (vdt === null || vdt === undefined) {
       skipReason = '⏸ chybí VDT';
       skipNoVdt++;
-    } else if (kc === 0) {
-      // SKIP všechny QH s cenou = 0 (nezúčtováno, ne jen recent)
-      skipReason = '⏸ Odch=0 nezúčt.';
+    } else if (kc === null) {
+      // SKIP jen QH s null cenou (nezúčtováno); 0 nebo záporné = legitimní
+      skipReason = '⏸ Odch=null nezúčt.';
     } else if (Math.abs(sig) < 1) {
       // Skip velmi slabé signály (|sig| < 1 EUR)
       skipReason = '⏸ |sig|<1';
@@ -1202,10 +1208,11 @@ function computeDayBacktest(date, dOdch, dVdt) {
   // Parse Odch rows
   const rows = [];
   for (const row of dOdch.rows) {
-    const price_kc = parseFloat(row['Estimated price [Kč/MWh]'] || 0);
+    const rawPrice = row['Estimated price [Kč/MWh]'];
+    const price_kc = rawPrice == null || rawPrice === '' ? NaN : parseFloat(String(rawPrice).replace(',', '.'));
     const interval = row['Interval'] || '';
     if (!interval) continue;
-    const odch_eur = price_kc / KURZ;
+    const odch_eur = isNaN(price_kc) ? 0 : price_kc / KURZ;
     const m = interval.match(/^(\d{1,2}):(\d{2})/);
     let lookupKey = interval;
     if (m) {
@@ -1216,7 +1223,7 @@ function computeDayBacktest(date, dOdch, dVdt) {
       lookupKey = `${hh}:${mm}-${String(endHH).padStart(2,'0')}:${String(endMM).padStart(2,'0')}`;
     }
     const vdt_eur = vdtMap[lookupKey] !== undefined ? vdtMap[lookupKey] : null;
-    rows.push({ interval, odch: odch_eur, vdt: vdt_eur, kc: price_kc });
+    rows.push({ interval, odch: odch_eur, vdt: vdt_eur, kc: isNaN(price_kc) ? null : price_kc });
     if (vdt_eur !== null) result.qhWithVdt++;
   }
   
