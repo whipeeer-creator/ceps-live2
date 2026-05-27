@@ -167,8 +167,8 @@ async function loadPrices() {
     document.getElementById('meta').textContent = `${today} · ${nowStr} · ${hCount}h · ${qhCount} QH`;
     
     setTimeout(() => {
-      const curEl = document.querySelector('.current-qh') || document.querySelector('.current-hour');
-      if (curEl) curEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      const curEl = document.querySelector('.current-hour');
+      if (curEl) curEl.scrollIntoView({ block: 'start', behavior: 'smooth' });
     }, 100);
     
   } catch (e) {
