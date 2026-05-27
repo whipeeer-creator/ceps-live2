@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ČEPS API · Test metod</title>
+<style>
+body { font-family: 'Inter', -apple-system, sans-serif; background: #f4f5f9; color: #1a1a2e; padding: 14px; max-width: 1200px; margin: 0 auto; }
+h1 { color: #0d47a1; font-size: 22px; margin-bottom: 10px; }
+h2 { font-size: 14px; color: #555; margin: 16px 0 8px; }
+.card { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; padding: 12px; margin-bottom: 10px; }
+button { background: #1565c0; color: white; border: none; padding: 8px 14px; border-radius: 5px; font-size: 12px; cursor: pointer; margin: 4px; }
+button:hover { background: #0d47a1; }
+button.tested { background: #4caf50; }
+input, select { padding: 6px; border: 1px solid #ccc; border-radius: 4px; font-size: 12px; margin: 4px; }
+table { width: 100%; border-collapse: collapse; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
+th { background: #f4f5f9; padding: 6px; text-align: right; font-size: 10px; }
+th:first-child, td:first-child { text-align: left; }
+td { padding: 4px 6px; border-top: 1px solid #f0f1f4; text-align: right; }
+.green { color: #2e7d32; }
+.red { color: #c62828; }
+.gray { color: #888; }
+pre { background: #1a1a2e; color: #a5d6a7; padding: 10px; border-radius: 4px; font-size: 10px; overflow-x: auto; max-height: 150px; line-height: 1.4; }
+.note { background: #fff8e1; padding: 8px 12px; border-left: 3px solid #f57c00; font-size: 11px; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+
+<h1>🔬 ČEPS API · Test metod</h1>
+
+<div class="note">
+<b>Účel:</b> Najít kterou metodu vrací <b>skutečnou zúčtovací cenu</b> (záporné při přebytku, např. -578 EUR/MWh).<br>
+<b>OdhadovanaCenaOdchylky</b> = předběžný odhad (může být +120 i když realita je -578).
+</div>
+
+<div class="card">
+<label>Datum: <input type="date" id="testDate" value="2026-05-24"></label>
+<label>QH: <input type="text" id="testInterval" value="17:00" placeholder="17:00"></label>
+</div>
+
+<h2>📋 Testovat metody</h2>
+<div class="card">
+<div style="margin-bottom:8px;color:#666;font-size:11px;">Klikni na metodu - vyzkouší dotaz na ČEPS API</div>
+<div id="methodButtons">
+<button onclick="testMethod('OdhadovanaCenaOdchylky')">OdhadovanaCenaOdchylky</button>
+<button onclick="testMethod('ZuctovaciCenaOdchylky')">ZuctovaciCenaOdchylky</button>
+<button onclick="testMethod('ZuctovaniOdchylek')">ZuctovaniOdchylek</button>
+<button onclick="testMethod('VyporadaniOdchylek')">VyporadaniOdchylek</button>
+<button onclick="testMethod('SystemovaOdchylka')">SystemovaOdchylka</button>
+<button onclick="testMethod('AktualniSystemovaOdchylkaCR')">AktualniSystemovaOdchylkaCR</button>
+<button onclick="testMethod('AktualniCenaRE')">AktualniCenaRE</button>
+<button onclick="testMethod('CenaRE')">CenaRE</button>
+<button onclick="testMethod('CenaVDT')">CenaVDT</button>
+<button onclick="testMethod('CenaSO')">CenaSO</button>
+<button onclick="testMethod('RegulationEnergy')">RegulationEnergy</button>
+<button onclick="testMethod('AktivaceSVRvCR')">AktivaceSVRvCR</button>
+</div>
+<input type="text" id="customMethod" placeholder="Vlastní název metody" style="width:300px;">
+<button onclick="testMethod(document.getElementById('customMethod').value)">Test vlastní</button>
+</div>
+
+<h2>📊 Výsledky</h2>
+<div id="results"></div>
+
+<script>
+const API_URL = window.location.origin;
+
+async function testMethod(method) {
+  if (!method) return;
+  const date = document.getElementById('testDate').value;
+  const interval = document.getElementById('testInterval').value;
+  
+  const resDiv = document.createElement('div');
+  resDiv.className = 'card';
+  resDiv.innerHTML = `<div style="font-weight:700;color:#1565c0;">⏳ Testing: <b>${method}</b> (${date})</div>`;
+  document.getElementById('results').insertBefore(resDiv, document.getElementById('results').firstChild);
+  
+  try {
+    const url = `${API_URL}/api?method=${encodeURIComponent(method)}&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`;
+    const r = await fetch(url, { cache: 'no-store' });
+    const status = r.status;
+    const text = await r.text();
+    
+    let data;
+    try { data = JSON.parse(text); }
+    catch(e) {
+      resDiv.innerHTML = `<div style="color:#c62828;font-weight:700;">❌ ${method}: HTTP ${status} - neJSON odpověď</div><pre>${text.substring(0, 500)}</pre>`;
+      return;
+    }
+    
+    if (data.error) {
+      resDiv.innerHTML = `<div style="color:#c62828;font-weight:700;">❌ ${method}: ${data.error}</div><pre>${JSON.stringify(data, null, 2).substring(0, 800)}</pre>`;
+      return;
+    }
+    
+    const rows = data.rows || [];
+    const cols = data.columns || [];
+    
+    // Najdi specifické QH
+    let targetRow = null;
+    for (const row of rows) {
+      const ri = row['Interval'] || row['interval'] || row['cas'] || '';
+      if (ri.startsWith(interval) || ri.includes(interval)) {
+        targetRow = row;
+        break;
+      }
+    }
+    
+    let html = `<div style="color:#2e7d32;font-weight:700;">✅ ${method}: ${rows.length} řádků, sloupce:</div>`;
+    html += `<div style="font-size:10px;color:#666;margin:4px 0;font-family:monospace;">${cols.join(' | ')}</div>`;
+    
+    if (targetRow) {
+      html += `<div style="margin-top:8px;font-weight:700;color:#0d47a1;">🎯 QH ${interval}-???:</div>`;
+      html += '<table style="margin-top:4px;"><tbody>';
+      for (const [k, v] of Object.entries(targetRow)) {
+        const isNum = !isNaN(parseFloat(v));
+        const num = parseFloat(v);
+        const cls = isNum ? (num < 0 ? 'red' : (num > 0 ? 'green' : 'gray')) : 'gray';
+        html += `<tr><td><b>${k}</b></td><td class="${cls}">${v}</td></tr>`;
+      }
+      html += '</tbody></table>';
+    } else if (rows.length > 0) {
+      // Ukaž první 3 rows
+      html += `<div style="margin-top:8px;font-weight:700;color:#888;">První 3 řádky:</div>`;
+      html += `<pre>${JSON.stringify(rows.slice(0, 3), null, 2)}</pre>`;
+    }
+    
+    resDiv.innerHTML = html;
+    
+    // Vyhledat záporné hodnoty
+    let negCount = 0;
+    let allNumericFields = new Set();
+    for (const row of rows) {
+      for (const [k, v] of Object.entries(row)) {
+        const num = parseFloat(v);
+        if (!isNaN(num)) {
+          allNumericFields.add(k);
+          if (num < 0) negCount++;
+        }
+      }
+    }
+    if (negCount > 0) {
+      resDiv.innerHTML += `<div style="margin-top:6px;color:#c62828;font-weight:700;">🔥 OBSAHUJE ZÁPORNÉ HODNOTY (${negCount}× v rows!)</div>`;
+    }
+    
+  } catch(e) {
+    resDiv.innerHTML = `<div style="color:#c62828;font-weight:700;">❌ ${method}: ${e.message}</div>`;
+  }
+}
+</script>
+</body>
+</html>
