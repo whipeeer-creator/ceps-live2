@@ -346,7 +346,7 @@ async function load30DayBacktest() {
       const dStr = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
       days.push(dStr);
       dayPromises.push(Promise.all([
-        fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&agregation=QH&function=AVG&dateFrom=${dStr}T00:00:00&dateTo=${dStr}T23:59:59`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${dStr}T00:00:00&dateTo=${dStr}T23:59:59`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`${API_URL}/ote/vdt?date=${dStr}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
       ]));
     }
@@ -420,21 +420,27 @@ async function load30DayBacktest() {
       }
       if (dayRows.length < LAG + 1) continue;
       
-      // EMA8 per day (warm-up reset)
+      // EMA8 per day (warm-up reset) - skip nezúčtované, počítej se zápornými
       const prices = dayRows.map(r => r.odch);
       const ema = [];
       for (let i = 0; i < prices.length; i++) {
-        if (i === 0) ema.push(prices[i]);
-        else ema.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema[i-1]);
+        const isUnsettled = dayRows[i].kc === null || dayRows[i].kc === 0;
+        if (isUnsettled) {
+          ema.push(ema.length > 0 ? ema[ema.length-1] : 0);
+        } else {
+          if (ema.length === 0) ema.push(prices[i]);
+          else ema.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema[ema.length-1]);
+        }
       }
       
       // Backtest
       for (let i = LAG; i < dayRows.length; i++) {
         const sig = ema[i - LAG];
         const r = dayRows[i];
+        // ESSENTIAL SKIPS ONLY
         if (r.vdt === null || r.vdt === undefined) { skipVdt++; continue; }
-        if (r.kc === null) { skipZero++; continue; }  // null = nezúčtováno; 0 nebo záporné = OK
-        if (Math.abs(sig) < 1) { skipSig++; continue; }
+        if (r.kc === null || r.kc === 0) { skipZero++; continue; }  // null/0 = nezúčtováno; záporné = legit spike
+        // Žádný filtr na |sig| - Tom tradeu vždy
         
         const direction = sig > 0 ? +1 : -1;
         const rawSpread = r.odch - r.vdt;
@@ -552,9 +558,9 @@ async function loadAll() {
     
     const cb = Date.now();
     const [rOdchY, rVdtY, rOdch, rVdt] = await Promise.all([
-      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&agregation=QH&function=AVG&dateFrom=${yesterday}T00:00:00&dateTo=${yesterday}T23:59:59&_=${cb}`, { cache: 'no-store' }),
+      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${yesterday}T00:00:00&dateTo=${yesterday}T23:59:59&_=${cb}`, { cache: 'no-store' }),
       fetch(`${API_URL}/ote/vdt?date=${yesterday}&_=${cb}`, { cache: 'no-store' }),
-      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&agregation=QH&function=AVG&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`, { cache: 'no-store' }),
+      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`, { cache: 'no-store' }),
       fetch(`${API_URL}/ote/vdt?date=${today}&_=${cb}`, { cache: 'no-store' })
     ]);
     const dOdchY = await rOdchY.json();
@@ -651,23 +657,20 @@ async function loadAll() {
     }
     
     const prices = rows.map(r => r.odch);
-    // EMA8 - SKIP 0 jen pro RECENT QH (<30 min po skončení = pravděpodobně nezúčtováno)
-    const nowMinEma = new Date().getHours() * 60 + new Date().getMinutes();
-    const ema = [];  // obsahuje EMA8 hodnoty
+    // EMA8 - skip JEN nezúčtované (kc = null/0); záporné spike POČÍTAT
+    const ema = [];
     
     for (let i = 0; i < prices.length; i++) {
-      const tmE = rows[i].interval.match(/^(\d{1,2}):(\d{2})/);
-      const qhEndE = tmE ? (parseInt(tmE[1])*60 + parseInt(tmE[2]) + 15) : 0;
-      const isRecentE = (nowMinEma - qhEndE) < 30 && (nowMinEma - qhEndE) >= 0;
+      const isUnsettled = rows[i].kc === null || rows[i].kc === 0;
       
-      if (prices[i] === 0 && isRecentE) {
-        // Recent 0 = nezúčtováno, zachovej poslední
+      if (isUnsettled) {
+        // Nezúčtováno → zachovej poslední EMA hodnotu (žádný update)
         ema.push(ema.length > 0 ? ema[ema.length-1] : 0);
       } else {
+        // Legit cena (včetně záporné -578) → updátni EMA
         if (ema.length === 0) {
           ema.push(prices[i]);
         } else {
-          // EMA8: ema[i] = α × p[i] + (1-α) × ema[i-1]
           ema.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema[ema.length-1]);
         }
       }
@@ -919,15 +922,16 @@ function renderBacktest(rows, ema) {
     const isRecent = BT_PERIOD === 'today' && (nowMinBT - qhEndMinBT) < 30 && (nowMinBT - qhEndMinBT) >= 0;
     
     if (vdt === null || vdt === undefined) {
+      // Skip: chybí VDT cena pro tu QH (nelze vyhodnotit reálný spread)
       skipReason = '⏸ chybí VDT';
       skipNoVdt++;
-    } else if (kc === null) {
-      // SKIP jen QH s null cenou (nezúčtováno); 0 nebo záporné = legitimní
-      skipReason = '⏸ Odch=null nezúčt.';
-    } else if (Math.abs(sig) < 1) {
-      // Skip velmi slabé signály (|sig| < 1 EUR)
-      skipReason = '⏸ |sig|<1';
+    } else if (kc === null || kc === 0) {
+      // Skip: cena_odchylky nezúčtována (null nebo 0 = nemáme data)
+      // Záporné/spike ceny PROJDOU (jsou legit)
+      skipReason = '⏸ nezúčtováno';
     } else {
+      // VŠECHNY ostatní QH trade-uj
+      // Žádný filtr na |sig| < X - Tom by stejně tradoval
       direction = sig > 0 ? +1 : -1;
       const rawSpread = actual - vdt;
       
@@ -1121,7 +1125,7 @@ async function loadWeekBacktest() {
     const batchResults = await Promise.all(batch.map(async (date) => {
       try {
         const [rO, rV] = await Promise.all([
-          fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&agregation=QH&function=AVG&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }),
+          fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }),
           fetch(`${API_URL}/ote/vdt?date=${date}`, { cache: 'no-store' })
         ]);
         if (!rO.ok || !rV.ok) {
@@ -1231,14 +1235,16 @@ function computeDayBacktest(date, dOdch, dVdt) {
   
   if (rows.length < 12) return result;  // potřebujeme warmup + LAG
   
-  // EMA8 - warm-up first 8 QH
+  // EMA8 - warm-up first 8 QH; skip nezúčtované (kc null/0); záporné OK
   const prices = rows.map(r => r.odch);
   const ema = [];
   for (let i = 0; i < prices.length; i++) {
-    if (i === 0) {
-      ema.push(prices[i]);
+    const isUnsettled = rows[i].kc === null || rows[i].kc === 0;
+    if (isUnsettled) {
+      ema.push(ema.length > 0 ? ema[ema.length-1] : 0);
     } else {
-      ema.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema[i-1]);
+      if (ema.length === 0) ema.push(prices[i]);
+      else ema.push(ALPHA_EMA * prices[i] + (1 - ALPHA_EMA) * ema[ema.length-1]);
     }
   }
   
@@ -1248,8 +1254,11 @@ function computeDayBacktest(date, dOdch, dVdt) {
     const sig = ema[i - LAG];
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
+    const kc = rows[i].kc;
+    // ESSENTIAL SKIPS ONLY
     if (vdt === null || vdt === undefined) continue;
-    if (sig === 0) continue;  // EMA=0 = neutral
+    if (kc === null || kc === 0) continue;  // nezúčtováno
+    // Žádný filter na sig - tradeu vždy
     
     const direction = sig > 0 ? +1 : -1;
     const net = direction * (actual - vdt);
