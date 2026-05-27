@@ -974,6 +974,10 @@ class Handler(BaseHTTPRequestHandler):
             # Aktualni cena regulacni energie (aFRR, mFRR+, mFRR-)
             # agregation: MI (minuta) / QH / HR
             params.update({"agregation": agr, "function": fn})
+        elif method == "OdhadovanaCenaOdchylky":
+            # Odhadovaná cena odchylky - DŮLEŽITÉ: posílat agregation+function
+            # jinak může vrátit zprůměrované hodnoty které "vynulují" záporné spike
+            params.update({"agregation": agr, "function": fn})
         elif method in ["Load","Generation","GenerationRES","CrossborderPowerFlows"]:
             params.update({"agregation": agr, "function": fn, "version": ver})
             if para1: params["para1"] = para1

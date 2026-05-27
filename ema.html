@@ -346,7 +346,7 @@ async function load30DayBacktest() {
       const dStr = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
       days.push(dStr);
       dayPromises.push(Promise.all([
-        fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${dStr}T00:00:00&dateTo=${dStr}T23:59:59`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&agregation=QH&function=AVG&dateFrom=${dStr}T00:00:00&dateTo=${dStr}T23:59:59`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`${API_URL}/ote/vdt?date=${dStr}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
       ]));
     }
@@ -552,9 +552,9 @@ async function loadAll() {
     
     const cb = Date.now();
     const [rOdchY, rVdtY, rOdch, rVdt] = await Promise.all([
-      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${yesterday}T00:00:00&dateTo=${yesterday}T23:59:59&_=${cb}`, { cache: 'no-store' }),
+      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&agregation=QH&function=AVG&dateFrom=${yesterday}T00:00:00&dateTo=${yesterday}T23:59:59&_=${cb}`, { cache: 'no-store' }),
       fetch(`${API_URL}/ote/vdt?date=${yesterday}&_=${cb}`, { cache: 'no-store' }),
-      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`, { cache: 'no-store' }),
+      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&agregation=QH&function=AVG&dateFrom=${today}T00:00:00&dateTo=${today}T23:59:59&_=${cb}`, { cache: 'no-store' }),
       fetch(`${API_URL}/ote/vdt?date=${today}&_=${cb}`, { cache: 'no-store' })
     ]);
     const dOdchY = await rOdchY.json();
@@ -1121,7 +1121,7 @@ async function loadWeekBacktest() {
     const batchResults = await Promise.all(batch.map(async (date) => {
       try {
         const [rO, rV] = await Promise.all([
-          fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }),
+          fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&agregation=QH&function=AVG&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }),
           fetch(`${API_URL}/ote/vdt?date=${date}`, { cache: 'no-store' })
         ]);
         if (!rO.ok || !rV.ok) {
