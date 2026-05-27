@@ -137,7 +137,7 @@ async function loadPrices() {
         hourPrice = (Math.round(priceByHour[h] * 10) / 10).toFixed(1);
       }
       html += `<div class="${hourCls}">
-        <span class="time">H${pad(h+1)} · ${hourTime}</span>
+        <span class="time">${hourTime} · H${pad(h+1)}</span>
         <span class="price">${hourPrice}</span>
       </div>`;
       
