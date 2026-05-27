@@ -3,26 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>🇨🇿 CZ Spot Ceny</title>
+<title>CZ DT 15min</title>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Inter', sans-serif; background: #fff; color: #1a1a2e; padding: 16px; max-width: 480px; margin: 0 auto; }
-  h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
-  .subtitle { font-size: 12px; color: #666; margin-bottom: 16px; font-family: 'JetBrains Mono', monospace; }
-  .refresh { margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; }
+  body { font-family: 'Inter', sans-serif; background: #fff; color: #1a1a2e; padding: 12px; max-width: 480px; margin: 0 auto; }
+  
+  .refresh { margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
   button { background: #1a1a2e; color: white; border: none; padding: 6px 12px; border-radius: 4px; font-family: inherit; font-size: 12px; cursor: pointer; }
   
-  .row { display: grid; grid-template-columns: 50px 1fr 100px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #1a1a2e; font-family: 'JetBrains Mono', monospace; }
+  .row { display: grid; grid-template-columns: 1fr 100px; align-items: center; padding: 8px 12px; border-bottom: 1px solid #e8e8ec; font-family: 'JetBrains Mono', monospace; }
   .row.current { background: #1a1a2e; color: #fff; font-weight: 700; }
-  .row .label { font-weight: 700; font-size: 15px; }
-  .row .time { font-size: 13px; color: #666; text-align: center; }
-  .row.current .time { color: #d0d0d8; }
-  .row .price { text-align: right; font-weight: 700; font-size: 18px; }
-  
-  .header-row { display: grid; grid-template-columns: 50px 1fr 100px; padding: 8px 12px; border-bottom: 2px solid #1a1a2e; font-size: 11px; text-transform: uppercase; color: #666; font-weight: 600; font-family: 'JetBrains Mono', monospace; }
-  .header-row .price-label { text-align: right; }
-  .header-row .time-label { text-align: center; }
+  .row .time { font-size: 14px; font-weight: 600; }
+  .row .price { text-align: right; font-weight: 700; font-size: 16px; }
+  .row.hour-start { border-top: 2px solid #1a1a2e; }
   
   .err { background: #ffebee; color: #c62828; padding: 10px; border-radius: 4px; margin: 10px 0; font-size: 12px; display: none; }
   .err.show { display: block; }
@@ -31,28 +25,18 @@
 </head>
 <body>
 
-<h1>🇨🇿 CZ Spot Ceny</h1>
-<div class="subtitle">Day-Ahead trh · EUR/MWh · OTE</div>
-
 <div class="refresh">
   <span id="meta" style="font-size:11px;color:#999;font-family:'JetBrains Mono',monospace;"></span>
-  <button onclick="loadPrices()">↻ Aktualizovat</button>
+  <button onclick="loadPrices()">↻</button>
 </div>
 
 <div id="err" class="err"></div>
-
-<div class="header-row">
-  <span>H</span>
-  <span class="time-label">Čas</span>
-  <span class="price-label">€/MWh</span>
-</div>
 
 <div id="rows"><div class="loading">Načítám ceny…</div></div>
 
 <script>
 const API_URL = window.location.origin;
 
-// === IDENTICKÁ logika z live_odchylky.html ===
 async function loadPrices() {
   const errEl = document.getElementById('err');
   errEl.classList.remove('show');
@@ -62,65 +46,70 @@ async function loadPrices() {
     const pad = n => String(n).padStart(2,'0');
     const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
     
-    let rows = [];
-    
-    // CZ - OTE primary
-    const r = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
-    if (r.ok) {
-      const d = await r.json();
-      const ht = d.hours_today || d.hoursToday || [];
-      rows = ht.map(p => ({ 
-        hour: p.hour, 
-        price_eur: p.priceEur ?? p.priceEUR ?? p.price_eur 
-      })).filter(p => Number.isFinite(p.price_eur));
+    // 15min DT data
+    const r = await fetch(`${API_URL}/spot/prices?country=CZ&date=${today}`, { cache: 'no-store' });
+    if (!r.ok) {
+      errEl.textContent = `HTTP ${r.status}`;
+      errEl.classList.add('show');
+      return;
     }
-    
-    // Fallback: pokud OTE selhal
-    if (!rows.length) {
-      const r2 = await fetch(`${API_URL}/spot/prices?country=CZ&date=${today}`, { cache: 'no-store' });
-      if (r2.ok) {
-        const d2 = await r2.json();
-        if (d2.data) rows = d2.data.filter(p => p.minute === 0).map(p => ({hour: p.hour, price_eur: p.price_eur}));
-      }
-    }
-    
-    if (!rows.length) {
+    const d = await r.json();
+    if (d.error || !d.data || !d.data.length) {
       errEl.textContent = 'Žádná data pro dnešní den';
       errEl.classList.add('show');
       document.getElementById('rows').innerHTML = '';
       return;
     }
     
-    const priceByHour = {};
-    for (const row of rows) priceByHour[row.hour] = row.price_eur;
+    // Build map: priceByQH[hour][minute] = price
+    const priceByQH = {};
+    for (const p of d.data) {
+      if (!(p.hour in priceByQH)) priceByQH[p.hour] = {};
+      priceByQH[p.hour][p.minute] = p.price_eur;
+    }
     
-    const curHour = now.getHours() + 1;
+    const curHour = now.getHours();
+    const curMin = Math.floor(now.getMinutes() / 15) * 15;
     
     let html = '';
-    for (let h = 1; h <= 24; h++) {
-      const dataH = h - 1;
-      const isCur = h === curHour;
-      const rowClass = isCur ? 'row current' : 'row';
-      
-      const startH = String(h - 1).padStart(2, '0');
-      const endH = String(h).padStart(2, '0');
-      const timeStr = `${startH}:00–${endH}:00`;
-      
-      let priceStr = '—';
-      if (dataH in priceByHour) {
-        priceStr = (Math.round(priceByHour[dataH] * 10) / 10).toFixed(1);
+    const minutes = [0, 15, 30, 45];
+    
+    for (let h = 0; h < 24; h++) {
+      for (const mm of minutes) {
+        const isCur = (h === curHour && mm === curMin);
+        const isHourStart = (mm === 0);
+        let cls = 'row';
+        if (isCur) cls += ' current';
+        if (isHourStart) cls += ' hour-start';
+        
+        const startStr = `${pad(h)}:${pad(mm)}`;
+        const endMM = mm + 15;
+        const endH = endMM >= 60 ? h + 1 : h;
+        const endStr = `${pad(endH % 24)}:${pad(endMM % 60)}`;
+        const timeStr = `${startStr} - ${endStr}`;
+        
+        let priceStr = '—';
+        if (priceByQH[h] && priceByQH[h][mm] !== undefined && Number.isFinite(priceByQH[h][mm])) {
+          const v = priceByQH[h][mm];
+          priceStr = (Math.round(v * 10) / 10).toFixed(1);
+        }
+        
+        html += `<div class="${cls}">
+          <span class="time">${timeStr}</span>
+          <span class="price">${priceStr}</span>
+        </div>`;
       }
-      
-      html += `<div class="${rowClass}">
-        <span class="label">H${String(h).padStart(2, '0')}</span>
-        <span class="time">${timeStr}</span>
-        <span class="price">${priceStr}</span>
-      </div>`;
     }
     document.getElementById('rows').innerHTML = html;
     
     const nowStr = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
-    document.getElementById('meta').textContent = `${today} · ${nowStr} · ${rows.length}h`;
+    document.getElementById('meta').textContent = `${today} · ${nowStr} · ${d.data.length} QH`;
+    
+    // Scroll k aktuální QH
+    setTimeout(() => {
+      const curEl = document.querySelector('.row.current');
+      if (curEl) curEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    }, 100);
     
   } catch (e) {
     console.error(e);
