@@ -491,8 +491,19 @@ async function load30DayBacktest() {
     document.getElementById('bkDDDetail').textContent = 
       `peak ${peakStr} EUR · ${maxDDPct.toFixed(1)}% z peak`;
     
-    // Hourly table
+    // Hourly table - pro 30d = avg EUR/den a celkem trades
+    // (NE dnešní hodiny ale 30d statistika per hodina)
     let hHtml = '';
+    // Aktualizuj header pro 30d
+    const hourlyTableHead = document.querySelector('#hourlyTable').closest('table').querySelector('thead tr');
+    if (hourlyTableHead) {
+      hourlyTableHead.innerHTML = `
+        <th>Hodina</th>
+        <th>Trades 30d</th>
+        <th>Win %</th>
+        <th>Σ NET 30d</th>
+        <th>Graf</th>`;
+    }
     const maxAbs = Math.max(...Object.values(hourly).map(s => Math.abs(s.pnl)), 1);
     for (let h = 0; h < 24; h++) {
       const s = hourly[h] || { pnl: 0, n: 0, w: 0 };
@@ -503,6 +514,16 @@ async function load30DayBacktest() {
       const pnlClass = s.n === 0 ? 'gray' : (s.pnl >= 0 ? 'green' : 'red');
       const pnlStr = s.n === 0 ? '—' : `${s.pnl >= 0 ? '+' : ''}${s.pnl.toFixed(0)}`;
       hHtml += `<tr style="${rowStyle}"><td><b>H${pad(h)}</b></td><td>${s.n}</td><td>${wRate}</td><td class="${pnlClass}">${pnlStr}</td><td>${s.n > 0 ? `<div class="bar-bg"><div class="${barColor}" style="width:${barW}%;"></div></div>` : ''}</td></tr>`;
+    }
+    // Update h2 title + header for 30d
+    document.querySelectorAll('h2').forEach(h2 => {
+      if (h2.textContent.includes('Hodinový NET profit')) {
+        h2.innerHTML = '🕐 Hodinový NET profit za 30 dní (Σ EUR per hodina)';
+      }
+    });
+    const hourlyHead30 = document.querySelector('#hourlyTable').closest('table').querySelector('thead tr');
+    if (hourlyHead30) {
+      hourlyHead30.innerHTML = '<th>Hodina</th><th>Trades 30d</th><th>Win %</th><th>Σ NET 30d</th><th>Graf</th>';
     }
     document.getElementById('hourlyTable').innerHTML = hHtml;
     
@@ -993,6 +1014,23 @@ function renderBacktest(rows, ema) {
   }
   
   // Hourly - ZAHRNUJ VŠECHNY hodiny dne (i bez tradů)
+  // Update title pro today/30d
+  document.querySelectorAll('h2').forEach(h2 => {
+    if (h2.textContent.includes('Hodinový NET profit')) {
+      h2.innerHTML = BT_PERIOD === '30d' 
+        ? '🕐 Hodinový NET profit za 30 dní (Σ EUR per hodina)'
+        : '🕐 Hodinový NET profit dnes (EUR)';
+    }
+  });
+  
+  // Update header for today vs 30d
+  const hourlyTableHead = document.querySelector('#hourlyTable').closest('table').querySelector('thead tr');
+  if (hourlyTableHead) {
+    hourlyTableHead.innerHTML = BT_PERIOD === '30d'
+      ? '<th>Hodina</th><th>Trades 30d</th><th>Win %</th><th>Σ NET 30d</th><th>Graf</th>'
+      : '<th>Hodina</th><th>Trades</th><th>Win %</th><th>NET EUR</th><th>Graf</th>';
+  }
+  
   // Najdi range hodin v rows[]
   const hoursInDay = new Set();
   for (const r of rows) {
