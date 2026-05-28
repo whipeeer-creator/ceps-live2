@@ -192,16 +192,10 @@ canvas { max-width: 100%; display: block; }
       </div>
       <div onclick="toggleYestReg(this)" title="Zobrazit včerejší regulaci v nadcházejících časech" style="cursor:pointer;user-select:none;font-size:16px;font-weight:700;color:#1565c0;padding:2px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;letter-spacing:1px;" id="yestRegToggle">&raquo;&raquo;&raquo;</div>
     </div>
-    <div style="display:flex;gap:0;width:100%;">
-      <div style="background:#dce8f5; position:relative; overflow:hidden; flex:1;" id="topWrap">
-        <canvas id="topCanvas" height="260" style="width:100%;height:260px;display:block;"></canvas>
-        <div id="topTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);"></div>
-        <div id="topLine" style="position:absolute;display:none;pointer-events:none;width:1px;background:rgba(26,26,46,0.3);top:0;bottom:0;z-index:9;"></div>
-      </div>
-      <div id="yestRegWrap" style="display:none;background:#f0ece5;position:relative;overflow:hidden;flex:1;border-left:2px dashed #b0a090;">
-        <div style="position:absolute;top:4px;left:8px;font-size:10px;color:#806040;font-family:'JetBrains Mono',monospace;font-weight:600;z-index:5;" id="yestRegLabel">včera</div>
-        <canvas id="yestRegCanvas" height="260" style="width:100%;height:260px;display:block;"></canvas>
-      </div>
+    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;" id="topWrap">
+      <canvas id="topCanvas" height="260" style="width:100%;height:260px;display:block;"></canvas>
+      <div id="topTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);"></div>
+      <div id="topLine" style="position:absolute;display:none;pointer-events:none;width:1px;background:rgba(26,26,46,0.3);top:0;bottom:0;z-index:9;"></div>
     </div>
     <div class="panel-legend">
       <span class="pleg"><span class="pleg-sq" style="background:#4caf50;opacity:.8"></span>mFRR− [MW]</span>
@@ -656,6 +650,25 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
 
   ctx.fillStyle = '#dce8f5';
   ctx.fillRect(PAD.left, PAD.top, cW, cH);
+  
+  // Včerejší prodloužení - béžový overlay napravo od split idx
+  const splitIdx = window._topSplitIdx;
+  if (splitIdx > 0 && splitIdx < n) {
+    const xSplit = xP(splitIdx);
+    ctx.fillStyle = '#f0ece5';
+    ctx.fillRect(xSplit, PAD.top, PAD.left + cW - xSplit, cH);
+    // Label "včera" nad pravou částí
+    ctx.fillStyle = '#a08060';
+    ctx.font = 'bold 11px JetBrains Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText('včera', xSplit + 6, PAD.top + 14);
+    // Vertikální dělící čára (přerušovaná)
+    ctx.strokeStyle = '#b0a090';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(xSplit, PAD.top); ctx.lineTo(xSplit, PAD.top + cH); ctx.stroke();
+    ctx.setLineDash([]);
+  }
 
   ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
   const ySteps = 8;
@@ -931,7 +944,44 @@ async function loadMain() {
   setKPI('S', lAp||lAm, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
     {greenBelow: 30, redAbove: 100});
 
-  drawTopChart(document.getElementById('topCanvas'), dO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
+  // Včerejší prodloužení - když je toggle aktivní
+  let topRows = dO.rows;
+  let topSvr = svrSync;
+  let splitIdx = -1;  // kde končí dnešek a začíná včerejšek
+  
+  if (_yestRegExtended) {
+    try {
+      const now = new Date();
+      const pad = n => String(n).padStart(2,'0');
+      const yest = new Date(now.getTime() - 24*60*60*1000);
+      const yStart = new Date(yest.getFullYear(), yest.getMonth(), yest.getDate(), now.getHours(), now.getMinutes(), 0);
+      const yEnd = new Date(yStart.getTime() + 5*60*60*1000);
+      const df = `${yStart.getFullYear()}-${pad(yStart.getMonth()+1)}-${pad(yStart.getDate())}T${pad(yStart.getHours())}:${pad(yStart.getMinutes())}:00`;
+      const dt = `${yEnd.getFullYear()}-${pad(yEnd.getMonth()+1)}-${pad(yEnd.getDate())}T${pad(yEnd.getHours())}:${pad(yEnd.getMinutes())}:00`;
+      
+      const pO = new URLSearchParams({ method:'AktualniSystemovaOdchylkaCR', dateFrom:df, dateTo:dt, agregation:'MI', function:'AVG' });
+      const pS = new URLSearchParams({ method:'AktivaceSVRvCR', dateFrom:df, dateTo:dt, agregation:'MI', function:'AVG', para1:'all' });
+      const [rO, rS] = await Promise.all([
+        fetch(`${API_URL}/api?${pO}`).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${API_URL}/api?${pS}`).then(r => r.ok ? r.json() : null).catch(() => null)
+      ]);
+      
+      if (rO && rO.rows && rO.rows.length) {
+        splitIdx = dO.rows.length;
+        // Připojit včerejší rows (s vlastním colO - mělo by být stejné)
+        const yColO = rO.columns[0];
+        // Připojit přejmenovanou kolonku pokud se liší (typicky stejná: "Aktuální odchylka [MW]")
+        const yRows = rO.rows.map(r => ({ ...r, [colO]: r[yColO] }));
+        topRows = [...dO.rows, ...yRows];
+        // Připojit svr data
+        const ySvrSync = rO.rows.map((_, i) => (rS && rS.rows[i]) || {});
+        topSvr = [...svrSync, ...ySvrSync];
+      }
+    } catch(e) { console.warn('yest extend:', e); }
+  }
+  window._topSplitIdx = splitIdx;
+
+  drawTopChart(document.getElementById('topCanvas'), topRows, colO, topSvr, colAp, colAm, colMp, colMm);
 
   const odch15 = agg15(dO.rows, colO);
   const ap15   = colAp ? agg15(dS.rows, colAp) : odch15.map(b=>({lbl:b.lbl,v:0}));
@@ -953,63 +1003,23 @@ async function loadMain() {
   });
 }
 
+let _yestRegExtended = false;
+
 function toggleYestReg(el) {
-  const wrap = document.getElementById('yestRegWrap');
-  if (!wrap) return;
-  if (wrap.style.display === 'none') {
-    wrap.style.display = 'block';
+  _yestRegExtended = !_yestRegExtended;
+  if (_yestRegExtended) {
     el.style.background = '#1565c0';
     el.style.color = '#fff';
-    loadYestReg();
+    el.textContent = '\u00AB\u00AB\u00AB';  // «««
+    el.title = 'Vrátit zpět (skrýt včerejší prodloužení)';
   } else {
-    wrap.style.display = 'none';
     el.style.background = '#eef2f8';
     el.style.color = '#1565c0';
+    el.innerHTML = '&raquo;&raquo;&raquo;';
+    el.title = 'Prodloužit graf doprava o včerejší regulaci v nadcházejících časech';
   }
+  loadMain();  // re-render s/bez prodloužení
 }
-
-async function loadYestReg() {
-  try {
-    const now = new Date();
-    const pad = n => String(n).padStart(2,'0');
-    // Včerejší den, okno [teď čas → teď+5h], ale včera
-    const yest = new Date(now.getTime() - 24*60*60*1000);
-    const yStart = new Date(yest.getFullYear(), yest.getMonth(), yest.getDate(), now.getHours(), now.getMinutes(), 0);
-    const yEnd = new Date(yStart.getTime() + 5*60*60*1000);  // +5h
-    
-    const df = `${yStart.getFullYear()}-${pad(yStart.getMonth()+1)}-${pad(yStart.getDate())}T${pad(yStart.getHours())}:${pad(yStart.getMinutes())}:00`;
-    const dt = `${yEnd.getFullYear()}-${pad(yEnd.getMonth()+1)}-${pad(yEnd.getDate())}T${pad(yEnd.getHours())}:${pad(yEnd.getMinutes())}:00`;
-    
-    // Label
-    const lbl = document.getElementById('yestRegLabel');
-    if (lbl) lbl.textContent = `včera ${pad(yStart.getHours())}:${pad(yStart.getMinutes())}–${pad(yEnd.getHours())}:${pad(yEnd.getMinutes())}`;
-    
-    // Fetch včerejší odchylka + aktivace
-    const pO = new URLSearchParams({ method:'AktualniSystemovaOdchylkaCR', dateFrom:df, dateTo:dt, agregation:'MI', function:'AVG' });
-    const pS = new URLSearchParams({ method:'AktivaceSVRvCR', dateFrom:df, dateTo:dt, agregation:'MI', function:'AVG', para1:'all' });
-    
-    const [rO, rS] = await Promise.all([
-      fetch(`${API_URL}/api?${pO}`).then(r => r.ok ? r.json() : null),
-      fetch(`${API_URL}/api?${pS}`).then(r => r.ok ? r.json() : null)
-    ]);
-    
-    if (!rO || !rO.rows || !rO.rows.length) {
-      const c = document.getElementById('yestRegCanvas');
-      if (c) { const ctx = c.getContext('2d'); ctx.clearRect(0,0,c.width,c.height); ctx.fillStyle='#999'; ctx.font='13px monospace'; ctx.fillText('Včerejší data nejsou', 20, 40); }
-      return;
-    }
-    
-    const colO = rO.columns[0];
-    const gc = kw => rS && rS.columns ? rS.columns.find(c => c.includes(kw)) || null : null;
-    const colAp = gc('aFRR+'), colAm = gc('aFRR-'), colMp = gc('mFRR+'), colMm = gc('mFRR-');
-    const svrSync = rO.rows.map((r, i) => (rS && rS.rows[i]) || {});
-    
-    drawTopChart(document.getElementById('yestRegCanvas'), rO.rows, colO, svrSync, colAp, colAm, colMp, colMm);
-  } catch(e) {
-    console.warn('yestReg:', e);
-  }
-}
-
 const RES_COLOR_MAP = [
   { match: /VTE|vetrn|wind/i,        color: '#BF2837' },
   { match: /FVE|fotovolt|solar|pv/i, color: '#5b8fc9' },
@@ -4079,10 +4089,6 @@ async function loadAll() {
   updateDateLabels();
   try {
     const tasks = [loadMain(), loadFreq(), loadCena(), loadOteSpot(), loadQh()];
-    // Včerejší regulace overlay - refresh když otevřené
-    if (document.getElementById('yestRegWrap')?.style.display !== 'none') {
-      tasks.push(loadYestReg());
-    }
 
     const now = Date.now();
     // Pocasi a vitr DE - throttle 1 hodina (cache 3h na backendu)
