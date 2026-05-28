@@ -212,9 +212,9 @@ canvas { max-width: 100%; display: block; }
       <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · 15min QH <span class="todayDateLabel" style="color:#888;font-weight:400;"></span></div>
       <table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div onclick="var w=document.getElementById('tbl-spot-cz-tom-wrap');var a=this.querySelector('.tom-arrow');if(w.style.display==='none'){w.style.display='block';a.textContent='▾';if(typeof loadSpotTomorrow==='function'){loadSpotTomorrow();}}else{w.style.display='none';a.textContent='▸';}" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:10px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:6px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="tom-arrow">▸</span> 📅 Zítřejší ceny <span id="tomDateLabel" style="color:#888;font-weight:400;"></span> (rozkliknout)</div>
+      <div onclick="var w=document.getElementById('tbl-spot-cz-tom-wrap');var a=this.querySelector('.tom-arrow');if(w.style.display==='none'){w.style.display='block';a.textContent='▾';if(typeof loadSpotTomorrow==='function'){loadSpotTomorrow();}}else{w.style.display='none';a.textContent='▸';}" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:10px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:6px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="tom-arrow">▸</span> 📅 🇨🇿 Zítřejší ceny <span id="tomDateLabel" style="color:#888;font-weight:400;"></span> (rozkliknout)</div>
       <div id="tbl-spot-cz-tom-wrap" style="display:none;margin-top:6px;">
-        <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · hodinové · zítra</div>
+        <div style="font-size:12px;color:#000;font-weight:700;margin:4px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · hodinové · zítra</div>
         <table id="tbl-spot-cz-tom" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
         <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · 15min QH · zítra</div>
         <table id="tbl-spot-cz-qh-tom" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
@@ -4301,8 +4301,11 @@ async function loadSpotTomorrow() {
     
     // Update label
     const dnyTydne = ['neděle', 'pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota'];
+    const lblText = `· ${dnyTydne[tom.getDay()]} ${tom.getDate()}.${tom.getMonth()+1}.${tom.getFullYear()}`;
     const lbl = document.getElementById('tomDateLabel');
-    if (lbl) lbl.textContent = `· ${dnyTydne[tom.getDay()]} ${tom.getDate()}.${tom.getMonth()+1}.${tom.getFullYear()}`;
+    if (lbl) lbl.textContent = lblText;
+    const lbl2 = document.getElementById('tomDateLabel2');
+    if (lbl2) lbl2.textContent = lblText;
     
     const tblH = document.getElementById('tbl-spot-cz-tom');
     const tblQH = document.getElementById('tbl-spot-cz-qh-tom');
