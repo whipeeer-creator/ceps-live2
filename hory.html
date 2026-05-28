@@ -1630,6 +1630,126 @@ function drawYearlyProfile(canvas, profile, stats) {
   canvas.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
 })();
 
+async function loadMagma() {
+  try {
+    const canvas = document.getElementById('magmaCanvas');
+    if (!canvas) return;
+    
+    // Fetch solar + wind paralelně
+    const [solRes, wndRes] = await Promise.allSettled([
+      fetch(`${API_URL}/metdesk/magma?model=magma&country=CZ&generation_type=solar`).then(r => r.ok ? r.json() : null),
+      fetch(`${API_URL}/metdesk/magma?model=magma&country=CZ&generation_type=wind`).then(r => r.ok ? r.json() : null)
+    ]);
+    
+    const sol = solRes.status === 'fulfilled' ? solRes.value : null;
+    const wnd = wndRes.status === 'fulfilled' ? wndRes.value : null;
+    
+    const solPoints = (sol && sol.points) || [];
+    const wndPoints = (wnd && wnd.points) || [];
+    
+    const meta = document.getElementById('magmaMeta');
+    if (sol && sol.error) {
+      if (meta) meta.textContent = '⚠ ' + (sol.error === 'METDESK_API_KEY not configured' ? 'MetDesk API klíč není nastaven' : sol.error);
+      return;
+    }
+    if (!solPoints.length && !wndPoints.length) {
+      if (meta) meta.textContent = '⚠ Žádná MAGMA data';
+      return;
+    }
+    
+    drawMagmaChart(canvas, solPoints, wndPoints);
+    
+    // Meta + legend
+    if (meta) {
+      const issue = (sol && sol.issue) || (wnd && wnd.issue) || '';
+      meta.textContent = `issue ${issue} · solar ${solPoints.length}b · wind ${wndPoints.length}b`;
+    }
+    const leg = document.getElementById('magmaLegend');
+    if (leg) {
+      leg.innerHTML = `
+        <span class="pleg"><span class="pleg-sq" style="display:inline-block;width:12px;height:12px;background:#f39c12;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>Solar [MW]</span>
+        <span class="pleg"><span class="pleg-sq" style="display:inline-block;width:12px;height:12px;background:#2980b9;border-radius:2px;vertical-align:middle;margin-right:4px;"></span>Wind [MW]</span>`;
+    }
+  } catch(e) { console.warn('MAGMA:', e); }
+}
+
+function drawMagmaChart(canvas, solPoints, wndPoints) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth || canvas.parentElement.clientWidth || 800;
+  const H = 380;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+  
+  const padL = 50, padR = 20, padT = 20, padB = 40;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  
+  // Sjednotit časovou osu
+  const allTs = [...solPoints.map(p => p.ts), ...wndPoints.map(p => p.ts)];
+  if (!allTs.length) return;
+  const times = allTs.map(t => new Date(t).getTime());
+  const tMin = Math.min(...times), tMax = Math.max(...times);
+  const tRange = Math.max(1, tMax - tMin);
+  
+  const allVals = [...solPoints.map(p => p.value), ...wndPoints.map(p => p.value)];
+  const vMax = Math.max(1, ...allVals);
+  
+  const xOf = t => padL + ((new Date(t).getTime() - tMin) / tRange) * plotW;
+  const yOf = v => padT + plotH - (v / vMax) * plotH;
+  
+  // Grid + Y labels
+  ctx.strokeStyle = '#e1e5ec';
+  ctx.fillStyle = '#888';
+  ctx.font = '10px JetBrains Mono, monospace';
+  ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const v = (vMax / 4) * i;
+    const y = yOf(v);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    ctx.fillText(Math.round(v) + '', 4, y + 3);
+  }
+  
+  // X labels (každých 6h)
+  const dayMs = 6 * 3600 * 1000;
+  ctx.fillStyle = '#888';
+  for (let t = Math.ceil(tMin / dayMs) * dayMs; t <= tMax; t += dayMs) {
+    const x = xOf(new Date(t).toISOString());
+    const dt = new Date(t);
+    ctx.beginPath(); ctx.moveTo(x, padT); ctx.lineTo(x, padT + plotH); ctx.strokeStyle = '#f0f0f0'; ctx.stroke();
+    ctx.fillText(`${String(dt.getHours()).padStart(2,'0')}:00`, x - 14, H - padB + 14);
+    ctx.fillText(`${dt.getDate()}.${dt.getMonth()+1}.`, x - 14, H - padB + 26);
+  }
+  
+  // "teď" čára
+  const nowT = Date.now();
+  if (nowT >= tMin && nowT <= tMax) {
+    const xNow = xOf(new Date(nowT).toISOString());
+    ctx.beginPath(); ctx.moveTo(xNow, padT); ctx.lineTo(xNow, padT + plotH);
+    ctx.strokeStyle = '#c62828'; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]); ctx.stroke(); ctx.setLineDash([]);
+  }
+  
+  function drawLine(points, color) {
+    if (!points.length) return;
+    ctx.beginPath();
+    points.forEach((p, i) => {
+      const x = xOf(p.ts), y = yOf(p.value);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+    // fill pod čárou
+    ctx.lineTo(xOf(points[points.length-1].ts), yOf(0));
+    ctx.lineTo(xOf(points[0].ts), yOf(0));
+    ctx.closePath();
+    ctx.fillStyle = color + '22';
+    ctx.fill();
+  }
+  
+  drawLine(solPoints, '#f39c12');
+  drawLine(wndPoints, '#2980b9');
+}
+
 async function loadGenerationRES() {
   try {
     const now = new Date();
