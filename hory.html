@@ -3724,6 +3724,7 @@ async function loadCenaTable() {
     });
     html += '</tbody>';
     tbl.innerHTML = html;
+    scrollToCurrentHourOnce();
   } catch(e) {}
 }
 
@@ -4178,7 +4179,7 @@ function setRefresh(sec) {
   refreshTimer   = setInterval(()=>{ loadAll(); rem=sec; }, sec*1000);
 }
 
-window.addEventListener('resize', ()=>{ if(API_URL) loadAll(); });
+window.addEventListener('resize', ()=>{ _spotScrolled = false; if(API_URL) loadAll(); });
 window.addEventListener('orientationchange', ()=>{ setTimeout(()=>{ if(API_URL) loadAll(); }, 200); });
 
 
@@ -4379,6 +4380,26 @@ async function loadSpotTableQH() {
   } catch (e) {
     console.warn('spot CZ QH:', e);
   }
+}
+
+function scrollToCurrentHour() {
+  // Scroll spotTablesWrap horizontálně tak aby aktuální hodina byla viditelná
+  const wrap = document.getElementById('spotTablesWrap');
+  if (!wrap) return;
+  const curHour = new Date().getHours() + 1;  // H01-H24
+  // Šířky: první sloupec 40px + 24× 52px (H01-H24)
+  // X pozice levé hrany aktuální hodiny v tabulce
+  const xPos = 40 + (curHour - 1) * 52;
+  // Wrap má padding 12px vlevo, takže reálná pozice v scrollWidth = xPos + 12
+  const targetScroll = xPos + 12 - wrap.clientWidth * 0.15;  // 15% zleva = ne úplně na okraji
+  wrap.scrollTo({ left: Math.max(0, targetScroll), behavior: 'smooth' });
+}
+
+let _spotScrolled = false;  // scrollnout jen jednou per page load (aby uživatel mohl scrollnout ručně)
+function scrollToCurrentHourOnce() {
+  if (_spotScrolled) return;
+  _spotScrolled = true;
+  setTimeout(scrollToCurrentHour, 200);
 }
 
 async function loadSpotTomorrow() {
