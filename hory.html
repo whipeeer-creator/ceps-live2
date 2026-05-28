@@ -205,15 +205,23 @@ canvas { max-width: 100%; display: block; }
   </div>
 
   <div class="chart-panel">
-    <div class="panel-hdr"><div class="panel-title">ČEPS - CENY</div></div>
+    <div class="panel-hdr"><div class="panel-title">ČEPS - CENY <span id="cepsDateLabel" style="font-weight:400;color:#8590a0;font-size:12px;"></span></div></div>
     <div id="spotTablesWrap" style="overflow-x:auto;padding:8px 12px;">
       <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · hodinové</div>
+      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · hodinové <span class="todayDateLabel" style="color:#888;font-weight:400;"></span></div>
       <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · 15min QH</div>
+      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · 15min QH <span class="todayDateLabel" style="color:#888;font-weight:400;"></span></div>
       <table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+      <div onclick="var w=document.getElementById('tbl-spot-cz-tom-wrap');var a=this.querySelector('.tom-arrow');if(w.style.display==='none'){w.style.display='block';a.textContent='▾';if(typeof loadSpotTomorrow==='function'){loadSpotTomorrow();}}else{w.style.display='none';a.textContent='▸';}" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:10px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:6px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="tom-arrow">▸</span> 📅 Zítřejší ceny <span id="tomDateLabel" style="color:#888;font-weight:400;"></span> (rozkliknout)</div>
+      <div id="tbl-spot-cz-tom-wrap" style="display:none;margin-top:6px;">
+        <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · hodinové · zítra</div>
+        <table id="tbl-spot-cz-tom" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+        <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · 15min QH · zítra</div>
+        <table id="tbl-spot-cz-qh-tom" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+      </div>
       <div onclick="var w=document.getElementById('tbl-spot-de-wrap');var a=this.querySelector('.de-arrow');if(w.style.display==='none'){w.style.display='block';a.textContent='▾';if(typeof loadSpotTable==='function'){loadSpotTable('DE','tbl-spot-de');}}else{w.style.display='none';a.textContent='▸';}" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:10px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:6px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="de-arrow">▸</span> 🇩🇪 DE DT spot ceny (rozkliknout)</div>
       <div id="tbl-spot-de-wrap" style="display:none;margin-top:6px;">
+        <div style="font-size:12px;color:#000;font-weight:700;margin:4px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE DT <span class="todayDateLabel" style="color:#888;font-weight:400;"></span></div>
         <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       </div>
       <div onclick="var w=document.getElementById('tbl-hist-spread-wrap');var a=this.querySelector('.histspread-arrow');if(w.style.display==='none'){w.style.display='block';a.textContent='▾';if(typeof loadHistSpreadTable==='function'){loadHistSpreadTable();}}else{w.style.display='none';a.textContent='▸';}" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:10px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:6px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="histspread-arrow">▸</span> 📊 Historický spread (odchylka − VDT) · last 30 days · EUR/MWh</div>
@@ -3868,10 +3876,23 @@ async function loadWindDe() {
   } catch (e) { console.warn('wind-de:', e); }
 }
 
+function updateDateLabels() {
+  const dnyTydne = ['neděle', 'pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota'];
+  const now = new Date();
+  const dayName = dnyTydne[now.getDay()];
+  const todayStr = `${dayName} ${now.getDate()}.${now.getMonth()+1}.${now.getFullYear()}`;
+  // Dnešní labely (CZ DT hodinové, QH, DE)
+  document.querySelectorAll('.todayDateLabel').forEach(el => { el.textContent = '· ' + todayStr; });
+  // ČEPS panel
+  const ceps = document.getElementById('cepsDateLabel');
+  if (ceps) ceps.textContent = '· ' + todayStr;
+}
+
 async function loadAll() {
   if (!API_URL) return;
   setDot('idle', 'Načítám…');
   document.getElementById('err').style.display = 'none';
+  updateDateLabels();
   try {
     const tasks = [loadMain(), loadFreq(), loadCena(), loadOteSpot(), loadQh()];
 
@@ -3888,6 +3909,10 @@ async function loadAll() {
       tasks.push(loadCenaRE());  // Cena RE - minutova granularita, throttle 60s
       tasks.push(loadSpotTable('CZ', 'tbl-spot-cz'));
       tasks.push(loadSpotTableQH());
+      // Zítřejší ceny jen pokud rozkliknuté
+      if (document.getElementById('tbl-spot-cz-tom-wrap')?.style.display !== 'none') {
+        tasks.push(loadSpotTomorrow());
+      }
       // DE jen pokud rozkliknuté
       if (document.getElementById('tbl-spot-de-wrap')?.style.display !== 'none') {
         tasks.push(loadSpotTable('DE', 'tbl-spot-de'));
@@ -4143,6 +4168,108 @@ async function loadSpotTableQH() {
     tbl.innerHTML = html;
   } catch (e) {
     console.warn('spot CZ QH:', e);
+  }
+}
+
+async function loadSpotTomorrow() {
+  // Zítřejší CZ DT - hodinové + 15min QH (stejná struktura jako dnešní)
+  try {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const tom = new Date(now.getTime() + 86400000);
+    const tomorrow = `${tom.getFullYear()}-${pad(tom.getMonth()+1)}-${pad(tom.getDate())}`;
+    
+    // Update label
+    const dnyTydne = ['neděle', 'pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota'];
+    const lbl = document.getElementById('tomDateLabel');
+    if (lbl) lbl.textContent = `· ${dnyTydne[tom.getDay()]} ${tom.getDate()}.${tom.getMonth()+1}.${tom.getFullYear()}`;
+    
+    const tblH = document.getElementById('tbl-spot-cz-tom');
+    const tblQH = document.getElementById('tbl-spot-cz-qh-tom');
+    if (!tblH || !tblQH) return;
+    
+    // Fetch zítřejší 15min data
+    const r = await fetch(`${API_URL}/spot/prices?country=CZ&date=${tomorrow}`, { cache: 'no-store' });
+    if (!r.ok) {
+      tblH.innerHTML = '<tr><td style="padding:8px;color:#888;">Zítřejší ceny nejsou k dispozici (DA aukce ~14:00)</td></tr>';
+      tblQH.innerHTML = '';
+      return;
+    }
+    const d = await r.json();
+    if (d.error || !d.data || !d.data.length) {
+      tblH.innerHTML = '<tr><td style="padding:8px;color:#888;">Zítřejší ceny nejsou k dispozici (DA aukce ~14:00)</td></tr>';
+      tblQH.innerHTML = '';
+      return;
+    }
+    
+    // priceByQH[hour][minute]
+    const priceByQH = {};
+    for (const p of d.data) {
+      if (!(p.hour in priceByQH)) priceByQH[p.hour] = {};
+      priceByQH[p.hour][p.minute] = p.price_eur;
+    }
+    // hodinové = minute 0
+    const priceByHour = {};
+    for (const p of d.data) if (p.minute === 0) priceByHour[p.hour] = p.price_eur;
+    
+    const allVals = d.data.map(p => p.price_eur).filter(v => Number.isFinite(v));
+    if (!allVals.length) return;
+    const vMin = Math.min(...allVals), vMax = Math.max(...allVals);
+    const vRange = Math.max(1, vMax - vMin);
+    function cellColor(v) {
+      const ratio = (v - vMin) / vRange;
+      if (ratio < 0.33) return `rgb(${Math.round(120-ratio*99)},${Math.round(160-ratio*59)},${Math.round(210-ratio*18)})`;
+      else if (ratio > 0.66) { const t=(ratio-0.66)/0.34; return `rgb(${Math.round(180+t*60)},${Math.round(80-t*60)},${Math.round(80-t*60)})`; }
+      else return '#e67e22';
+    }
+    
+    // Header builder
+    function buildHeader() {
+      let h = '<colgroup><col style="width:40px;">';
+      for (let i = 1; i <= 24; i++) h += '<col style="width:52px;">';
+      h += '</colgroup><thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
+      for (let i = 1; i <= 24; i++) {
+        const fromHr = String(i-1).padStart(2,'0'), toHr = String(i).padStart(2,'0');
+        h += `<th style="padding:4px 6px;background:#f4f5f9;color:#666;border:1px solid #dde;text-align:center;width:52px !important;">H${pad(i)}<div style="font-size:8px;font-weight:400;color:#666;opacity:0.85;">${fromHr}:00-${toHr}:00</div></th>`;
+      }
+      return h + '</tr></thead><tbody>';
+    }
+    
+    // Hodinová tabulka
+    let htmlH = buildHeader();
+    htmlH += '<tr><td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;font-weight:600;">€/MWh</td>';
+    for (let i = 1; i <= 24; i++) {
+      const dataH = i - 1;
+      if (!(dataH in priceByHour)) {
+        htmlH += `<td style="padding:3px 6px;background:#c8d8e8;border:1px solid #dde;text-align:center;color:#888;">—</td>`;
+        continue;
+      }
+      const v = priceByHour[dataH];
+      htmlH += `<td style="padding:3px 6px;background:${cellColor(v)};border:1px solid #dde;text-align:center;color:#fff;font-weight:600;">${Math.round(v)}</td>`;
+    }
+    htmlH += '</tr></tbody>';
+    tblH.innerHTML = htmlH;
+    
+    // QH tabulka
+    let htmlQH = buildHeader();
+    const minutes = [0, 15, 30, 45];
+    for (const mm of minutes) {
+      htmlQH += `<tr><td style="padding:3px 6px;background:#f4f5f9;border:1px solid #dde;white-space:nowrap;font-weight:600;font-size:9px;">:${pad(mm)}</td>`;
+      for (let i = 1; i <= 24; i++) {
+        const dataH = i - 1;
+        const v = priceByQH[dataH] ? priceByQH[dataH][mm] : undefined;
+        if (v === undefined || v === null || !Number.isFinite(v)) {
+          htmlQH += `<td style="padding:3px 6px;background:#c8d8e8;border:1px solid #dde;text-align:center;color:#888;">—</td>`;
+          continue;
+        }
+        htmlQH += `<td style="padding:3px 6px;background:${cellColor(v)};border:1px solid #dde;text-align:center;color:#fff;font-weight:600;">${Math.round(v)}</td>`;
+      }
+      htmlQH += '</tr>';
+    }
+    htmlQH += '</tbody>';
+    tblQH.innerHTML = htmlQH;
+  } catch (e) {
+    console.warn('spot tomorrow:', e);
   }
 }
 
