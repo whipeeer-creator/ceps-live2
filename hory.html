@@ -944,40 +944,24 @@ async function loadMain() {
   setKPI('S', lAp||lAm, 'MW', `aFRR+: ${lAp.toFixed(2)}  aFRR−: ${lAm.toFixed(2)}`, dS.fetched_at,
     {greenBelow: 30, redAbove: 100});
 
-  // Včerejší prodloužení - když je toggle aktivní
+  // Uložit dnešní data do cache pro rychlý toggle
+  _cachedToday = { rows: dO.rows, svr: svrSync, colO, colAp, colAm, colMp, colMm };
+  
+  // Včerejší prodloužení - když je toggle aktivní a cache je čerstvý
   let topRows = dO.rows;
   let topSvr = svrSync;
-  let splitIdx = -1;  // kde končí dnešek a začíná včerejšek
+  let splitIdx = -1;
   
   if (_yestRegExtended) {
-    try {
-      const now = new Date();
-      const pad = n => String(n).padStart(2,'0');
-      const yest = new Date(now.getTime() - 24*60*60*1000);
-      const yStart = new Date(yest.getFullYear(), yest.getMonth(), yest.getDate(), now.getHours(), now.getMinutes(), 0);
-      const yEnd = new Date(yStart.getTime() + 5*60*60*1000);
-      const df = `${yStart.getFullYear()}-${pad(yStart.getMonth()+1)}-${pad(yStart.getDate())}T${pad(yStart.getHours())}:${pad(yStart.getMinutes())}:00`;
-      const dt = `${yEnd.getFullYear()}-${pad(yEnd.getMonth()+1)}-${pad(yEnd.getDate())}T${pad(yEnd.getHours())}:${pad(yEnd.getMinutes())}:00`;
-      
-      const pO = new URLSearchParams({ method:'AktualniSystemovaOdchylkaCR', dateFrom:df, dateTo:dt, agregation:'MI', function:'AVG' });
-      const pS = new URLSearchParams({ method:'AktivaceSVRvCR', dateFrom:df, dateTo:dt, agregation:'MI', function:'AVG', para1:'all' });
-      const [rO, rS] = await Promise.all([
-        fetch(`${API_URL}/api?${pO}`).then(r => r.ok ? r.json() : null).catch(() => null),
-        fetch(`${API_URL}/api?${pS}`).then(r => r.ok ? r.json() : null).catch(() => null)
-      ]);
-      
-      if (rO && rO.rows && rO.rows.length) {
-        splitIdx = dO.rows.length;
-        // Připojit včerejší rows (s vlastním colO - mělo by být stejné)
-        const yColO = rO.columns[0];
-        // Připojit přejmenovanou kolonku pokud se liší (typicky stejná: "Aktuální odchylka [MW]")
-        const yRows = rO.rows.map(r => ({ ...r, [colO]: r[yColO] }));
-        topRows = [...dO.rows, ...yRows];
-        // Připojit svr data
-        const ySvrSync = rO.rows.map((_, i) => (rS && rS.rows[i]) || {});
-        topSvr = [...svrSync, ...ySvrSync];
-      }
-    } catch(e) { console.warn('yest extend:', e); }
+    if (_cachedYest && (Date.now() - _cachedYest.ts) < 5*60*1000) {
+      // Použij cached včerejšek
+      splitIdx = dO.rows.length;
+      topRows = [...dO.rows, ..._cachedYest.rows];
+      topSvr = [...svrSync, ..._cachedYest.svrSync];
+    } else {
+      // Spustit fetch včerejška na pozadí (neblokuj loadMain)
+      loadYestExtension();
+    }
   }
   window._topSplitIdx = splitIdx;
 
@@ -1004,21 +988,71 @@ async function loadMain() {
 }
 
 let _yestRegExtended = false;
+let _cachedToday = null;  // {rows, svr, colO, colAp, colAm, colMp, colMm}
+let _cachedYest = null;   // {rows, svrSync}
 
 function toggleYestReg(el) {
   _yestRegExtended = !_yestRegExtended;
   if (_yestRegExtended) {
     el.style.background = '#1565c0';
     el.style.color = '#fff';
-    el.textContent = '\u00AB\u00AB\u00AB';  // «««
+    el.textContent = '\u00AB\u00AB\u00AB';
     el.title = 'Vrátit zpět (skrýt včerejší prodloužení)';
+    renderTopChart();  // okamžitý rerender s tím co máme
+    loadYestExtension();  // a stáhnout včerejšek (pokud není v cache)
   } else {
     el.style.background = '#eef2f8';
     el.style.color = '#1565c0';
     el.innerHTML = '&raquo;&raquo;&raquo;';
     el.title = 'Prodloužit graf doprava o včerejší regulaci v nadcházejících časech';
+    renderTopChart();  // rychlý rerender bez včerejška
   }
-  loadMain();  // re-render s/bez prodloužení
+}
+
+function renderTopChart() {
+  if (!_cachedToday) return;
+  const t = _cachedToday;
+  let topRows = t.rows, topSvr = t.svr, splitIdx = -1;
+  if (_yestRegExtended && _cachedYest) {
+    splitIdx = t.rows.length;
+    topRows = [...t.rows, ..._cachedYest.rows];
+    topSvr = [...t.svr, ..._cachedYest.svrSync];
+  }
+  window._topSplitIdx = splitIdx;
+  drawTopChart(document.getElementById('topCanvas'), topRows, t.colO, topSvr, t.colAp, t.colAm, t.colMp, t.colMm);
+}
+
+async function loadYestExtension() {
+  // Pokud máme čerstvý cache (< 5 min), použij ho
+  if (_cachedYest && (Date.now() - _cachedYest.ts) < 5*60*1000) {
+    renderTopChart();
+    return;
+  }
+  try {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const yest = new Date(now.getTime() - 24*60*60*1000);
+    const yStart = new Date(yest.getFullYear(), yest.getMonth(), yest.getDate(), now.getHours(), now.getMinutes(), 0);
+    const yEnd = new Date(yStart.getTime() + 5*60*60*1000);
+    const df = `${yStart.getFullYear()}-${pad(yStart.getMonth()+1)}-${pad(yStart.getDate())}T${pad(yStart.getHours())}:${pad(yStart.getMinutes())}:00`;
+    const dt = `${yEnd.getFullYear()}-${pad(yEnd.getMonth()+1)}-${pad(yEnd.getDate())}T${pad(yEnd.getHours())}:${pad(yEnd.getMinutes())}:00`;
+    
+    const pO = new URLSearchParams({ method:'AktualniSystemovaOdchylkaCR', dateFrom:df, dateTo:dt, agregation:'MI', function:'AVG' });
+    const pS = new URLSearchParams({ method:'AktivaceSVRvCR', dateFrom:df, dateTo:dt, agregation:'MI', function:'AVG', para1:'all' });
+    const [rO, rS] = await Promise.all([
+      fetch(`${API_URL}/api?${pO}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_URL}/api?${pS}`).then(r => r.ok ? r.json() : null).catch(() => null)
+    ]);
+    if (!rO || !rO.rows || !rO.rows.length) return;
+    
+    const colO = _cachedToday.colO;
+    const yColO = rO.columns[0];
+    const yRows = rO.rows.map(r => ({ ...r, [colO]: r[yColO] }));
+    const ySvrSync = rO.rows.map((_, i) => (rS && rS.rows[i]) || {});
+    _cachedYest = { rows: yRows, svrSync: ySvrSync, ts: Date.now() };
+    
+    if (_yestRegExtended) renderTopChart();
+  } catch(e) { console.warn('yest ext:', e); }
 }
 const RES_COLOR_MAP = [
   { match: /VTE|vetrn|wind/i,        color: '#BF2837' },
