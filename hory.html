@@ -4196,24 +4196,6 @@ async function loadSpotTable(country, tableId) {
     }
     html += '</tr>';
     
-    // Řádek 2 - ZÍTRA (šedý overlay)
-    if (rowsTom.length > 0) {
-      html += '<tr>';
-      html += `<td style="padding:3px 6px;background:#ececec;border:1px solid #dde;white-space:nowrap;font-weight:600;color:#666;font-size:9px;">zítra</td>`;
-      for (let h = 1; h <= 24; h++) {
-        const dataH = h - 1;
-        if (!(dataH in priceByHourTom)) {
-          html += `<td style="padding:3px 6px;background:#f0f0f0;border:1px solid #dde;text-align:center;color:#aaa;">—</td>`;
-          continue;
-        }
-        const v = priceByHourTom[dataH];
-        const bg = cellColor(v);
-        const txt = Math.round(v);
-        html += `<td style="padding:3px 6px;background:${bg};opacity:0.45;border:1px solid #dde;text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
-      }
-      html += '</tr>';
-    }
-    
     html += '</tbody>';
     tbl.innerHTML = html;
   } catch (e) {
