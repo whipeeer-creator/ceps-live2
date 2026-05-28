@@ -207,7 +207,7 @@ canvas { max-width: 100%; display: block; }
   <div class="chart-panel">
     <div class="panel-hdr"><div class="panel-title">ČEPS - CENY</div></div>
     <div id="spotTablesWrap" style="overflow-x:auto;padding:8px 12px;">
-      <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;width:100%;"></table>
+      <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · hodinové</div>
       <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · 15min QH</div>
@@ -3462,7 +3462,9 @@ async function loadCenaTable() {
 
     const tbl = document.getElementById('tbl-cena');
     const curHour = now.getHours() + 1;  // 0-23 -> H01-H24
-    let html = '<thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
+    let html = '<colgroup><col style="width:40px;">';
+    for (let h = 1; h <= 24; h++) html += '<col style="width:52px;">';
+    html += '</colgroup><thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
     hours.forEach(h => {
       const isCur = h === curHour;
       html += `<th style="padding:4px 6px;background:${isCur?'#1565c0':'#f4f5f9'};color:${isCur?'#fff':'#666'};border:1px solid #dde;text-align:center;width:52px !important;">H${String(h).padStart(2,'0')}</th>`;
