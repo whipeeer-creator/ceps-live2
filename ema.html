@@ -433,13 +433,12 @@ async function load30DayBacktest() {
         }
       }
       
-      // Backtest
+      // Backtest - HISTORICKÝ: kc=0 = zúčtováno za 0 (legit trade)
       for (let i = LAG; i < dayRows.length; i++) {
         const sig = ema[i - LAG];
         const r = dayRows[i];
-        // ESSENTIAL SKIPS ONLY
         if (r.vdt === null || r.vdt === undefined) { skipVdt++; continue; }
-        if (r.kc === null || r.kc === 0) { skipZero++; continue; }  // null/0 = nezúčtováno; záporné = legit spike
+        if (r.kc === null) { skipZero++; continue; }  // jen null = chybí v ČEPS; 0 = legit zúčtováno za 0
         // Žádný filtr na |sig| - Tom tradeu vždy
         
         const direction = sig > 0 ? +1 : -1;
@@ -1255,9 +1254,9 @@ function computeDayBacktest(date, dOdch, dVdt) {
     const actual = rows[i].odch;
     const vdt = rows[i].vdt;
     const kc = rows[i].kc;
-    // ESSENTIAL SKIPS ONLY
+    // HISTORICKÝ: kc=0 = zúčtováno za 0 (legit); null = chybí v ČEPS
     if (vdt === null || vdt === undefined) continue;
-    if (kc === null || kc === 0) continue;  // nezúčtováno
+    if (kc === null) continue;
     // Žádný filter na sig - tradeu vždy
     
     const direction = sig > 0 ? +1 : -1;
