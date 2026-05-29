@@ -921,16 +921,14 @@ function renderBacktest(rows, ema) {
     const isRecent = BT_PERIOD === 'today' && (nowMinBT - qhEndMinBT) < 30 && (nowMinBT - qhEndMinBT) >= 0;
     
     if (vdt === null || vdt === undefined) {
-      // Skip: chybí VDT cena pro tu QH (nelze vyhodnotit reálný spread)
+      // Skip: chybí VDT cena pro tu QH
       skipReason = '⏸ chybí VDT';
       skipNoVdt++;
-    } else if (kc === null || kc === 0) {
-      // Skip: cena_odchylky nezúčtována (null nebo 0 = nemáme data)
-      // Záporné/spike ceny PROJDOU (jsou legit)
-      skipReason = '⏸ nezúčtováno';
+    } else if (kc === null) {
+      // null = chybí v ČEPS
+      skipReason = '⏸ chybí cena';
     } else {
-      // VŠECHNY ostatní QH trade-uj
-      // Žádný filtr na |sig| < X - Tom by stejně tradoval
+      // kc=0 nebo ne-0 → legit trade (Tom potvrdil že 0 může být reálná cena)
       direction = sig > 0 ? +1 : -1;
       const rawSpread = actual - vdt;
       
