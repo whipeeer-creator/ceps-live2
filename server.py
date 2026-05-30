@@ -750,6 +750,63 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._json({"error": "source not found", "available": list(store.keys())}, 404)
             return
+        
+        # VDT orderbook - merged snapshot (last 100 changes merged by kontrakt)
+        if parsed.path == "/vdt/orderbook":
+            store = globals().get("_INGEST_STORE", {})
+            records = store.get("ote-com-bridge", [])
+            # Filtruj jen vdt_orderbook typu
+            records = [r for r in records if r.get("type") == "vdt_orderbook"]
+            
+            # Merge: pro každý kontrakt najdi nejnovější hodnoty
+            # Records jsou v chronologickém pořadí, projít od nejstaršího
+            merged = {}  # kontrakt_raw → row
+            latest_ts = None
+            for rec in records:
+                data = rec.get("data")
+                if not isinstance(data, dict): continue
+                rows = data.get("rows", [])
+                latest_ts = rec.get("ts")
+                for row in rows:
+                    k = row.get("kontrakt", {})
+                    raw = k.get("raw") if isinstance(k, dict) else None
+                    if not raw: continue
+                    merged[raw] = row
+            
+            # Seřaď podle času kontraktu (from)
+            def sort_key(r):
+                k = r.get("kontrakt", {})
+                f = k.get("from", "99:99")
+                t = k.get("type", "Z")
+                return (f, t)  # podle času, pak typ (H před QH pokud stejný čas)
+            sorted_rows = sorted(merged.values(), key=sort_key)
+            
+            self._json({
+                "rows": sorted_rows,
+                "latest_ts": latest_ts,
+                "total_kontraktu": len(sorted_rows),
+                "ingest_records": len(records),
+            })
+            return
+        
+        # Route /vdt.html
+        if parsed.path == "/vdt.html":
+            try:
+                base_dir = os.path.dirname(os.path.abspath(__file__))
+                fpath = os.path.join(base_dir, "vdt.html")
+                if os.path.exists(fpath):
+                    with open(fpath, "rb") as f:
+                        content = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Content-Length", str(len(content)))
+                    self.end_headers()
+                    self.wfile.write(content)
+                    return
+            except Exception as e:
+                print(f"vdt.html error: {e}", flush=True)
+            self._json({"error": "vdt.html not found"}, 404)
+            return
 
         if parsed.path in ("/", "/index.html", "/hory.html"):
             # NEW landing: hory.html (cista verze bez Systemove soustavy)
