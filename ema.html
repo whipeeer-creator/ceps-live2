@@ -346,7 +346,7 @@ async function load30DayBacktest() {
       const dStr = `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
       days.push(dStr);
       dayPromises.push(Promise.all([
-        fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${dStr}T00:00:00&dateTo=${dStr}T23:59:59`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch(`${API_URL}/ceps_txt?date=${dStr}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch(`${API_URL}/ote/vdt?date=${dStr}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)
       ]));
     }
@@ -669,23 +669,13 @@ async function loadAll() {
       return;
     }
     
-    // Helper: kc=0 je nezúčtováno POUZE pokud QH skončila před <1h
-    // Jinak (>1h) = legit zúčtování za 0
-    const nowMinIs = new Date().getHours() * 60 + new Date().getMinutes();
+    // Helper: jen kc=null je nezúčtováno (kc=0 je legit zúčtování za 0)
     function isUnsettledRow(r) {
-      if (r.kc === null) return true;  // chybí v ČEPS
-      if (r.kc !== 0) return false;    // ne-nula = legit
-      // kc === 0: zkontroluj stáří QH
-      if (!r.isToday) return false;    // včerejšek a starší = legit
-      const tm = (r.interval || '').match(/^(\d{1,2}):(\d{2})/);
-      if (!tm) return false;
-      const qhEndMin = parseInt(tm[1])*60 + parseInt(tm[2]) + 15;
-      const ageMin = nowMinIs - qhEndMin;
-      return ageMin < 60;  // < 1h = nezúčtováno
+      return r.kc === null;
     }
     
     const prices = rows.map(r => r.odch);
-    // EMA8 - skip nezúčtované (kc=null nebo kc=0 do 1h po QH)
+    // EMA8 - skip JEN nezúčtované (kc=null); 0 a záporné = legit
     const ema = [];
     
     for (let i = 0; i < prices.length; i++) {
@@ -950,18 +940,12 @@ function renderBacktest(rows, ema) {
     const isRecent = BT_PERIOD === 'today' && (nowMinBT - qhEndMinBT) < 30 && (nowMinBT - qhEndMinBT) >= 0;
     
     if (vdt === null || vdt === undefined) {
-      // Skip: chybí VDT cena pro tu QH
       skipReason = '⏸ chybí VDT';
       skipNoVdt++;
     } else if (kc === null) {
-      // null = chybí v ČEPS
       skipReason = '⏸ chybí cena';
-    } else if (kc === 0 && BT_PERIOD === 'today' && rows[i].isToday && (nowMinBT - qhEndMinBT) < 60) {
-      // kc=0 dnes a QH skončila < 1h = nezúčtováno (placeholder)
-      // Po 1h se kc=0 stává legit (zúčtováno za 0)
-      skipReason = '⏸ nezúčtováno (<1h)';
     } else {
-      // Legit trade (i kc=0 pokud QH >1h stará)
+      // kc=0 je legit zúčtování za 0; záporné jsou legit spike
       direction = sig > 0 ? +1 : -1;
       const rawSpread = actual - vdt;
       
@@ -1155,7 +1139,7 @@ async function loadWeekBacktest() {
     const batchResults = await Promise.all(batch.map(async (date) => {
       try {
         const [rO, rV] = await Promise.all([
-          fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }),
+          fetch(`${API_URL}/ceps_txt?date=${date}`, { cache: 'no-store' }),
           fetch(`${API_URL}/ote/vdt?date=${date}`, { cache: 'no-store' })
         ]);
         if (!rO.ok || !rV.ok) {

@@ -925,8 +925,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/ote/vdt/range":
             self._ote_vdt_range(qs); return
         
+        # ČEPS TXT download (reálná data) - pro ema.html backtest
+        if parsed.path == "/ceps_txt":
+            self._ceps_txt(qs); return
+        
         # Staticke HTML soubory (hruska.html, kapacity.html, live_odchylky.html)
-        if parsed.path in ("/hruska.html", "/kapacity.html", "/live_odchylky.html", "/ema.html", "/odhad.html", "/eisi.html", "/ceny.html", "/fanda.html", "/api_test.html"):
+        if parsed.path in ("/hruska.html", "/kapacity.html", "/live_odchylky.html", "/ema.html", "/odhad.html", "/eisi.html", "/ceny.html", "/fanda.html", "/api_test.html", "/spread.html"):
             try:
                 fname = parsed.path.lstrip("/")
                 # Hleda soubor vedle server.py
@@ -973,10 +977,6 @@ class Handler(BaseHTTPRequestHandler):
         elif method == "AktualniCenaRE":
             # Aktualni cena regulacni energie (aFRR, mFRR+, mFRR-)
             # agregation: MI (minuta) / QH / HR
-            params.update({"agregation": agr, "function": fn})
-        elif method == "OdhadovanaCenaOdchylky":
-            # Odhadovaná cena odchylky - DŮLEŽITÉ: posílat agregation+function
-            # jinak může vrátit zprůměrované hodnoty které "vynulují" záporné spike
             params.update({"agregation": agr, "function": fn})
         elif method in ["Load","Generation","GenerationRES","CrossborderPowerFlows"]:
             params.update({"agregation": agr, "function": fn, "version": ver})
@@ -3347,6 +3347,93 @@ class Handler(BaseHTTPRequestHandler):
             import traceback
             print(f"  -> /ote/vdt/range ERROR: {e}\n{traceback.format_exc()}", flush=True)
             self._json({"error": str(e), "data": []}, 502)
+
+    def _ceps_txt(self, qs):
+        """
+        Download ČEPS TXT file with REAL settled prices (not API estimate).
+        Format: https://www.ceps.cz/download-data/?...
+        Returns JSON kompatibilní s /api?method=OdhadovanaCenaOdchylky:
+          {columns: ["Estimated price [Kč/MWh]", "Date", "Interval"], 
+           rows: [{Estimated...: "4216.16", Date: "29.05.2026", Interval: "00:00-00:15"}, ...]}
+        """
+        import urllib.parse
+        date_str = qs.get("date", [None])[0]
+        if not date_str:
+            self._json({"error": "missing date param"}, 400); return
+        
+        try:
+            # Parse date YYYY-MM-DD → DD.MM.YYYY format expected by ČEPS
+            from datetime import datetime as _dt
+            d = _dt.strptime(date_str, "%Y-%m-%d")
+            df_iso = f"{date_str}T00:00:00"
+            dt_iso = f"{date_str}T23:59:59"
+            
+            # ČEPS TXT download URL (z reverse-engineered z ceps.cz/cs/data)
+            params = {
+                "method": "OdhadovanaCenaOdchylky",
+                "format": "TXT",
+                "version": "RT",  # real-time = reálná data
+                "agregation": "QH",
+                "function": "AVG",
+                "dateFrom": df_iso,
+                "dateTo": dt_iso,
+            }
+            url = "https://www.ceps.cz/download-data/?" + urllib.parse.urlencode(params)
+            
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "text/plain,*/*;q=0.8",
+                "Referer": "https://www.ceps.cz/cs/data",
+            })
+            with urllib.request.urlopen(req, timeout=20) as r:
+                raw = r.read()
+            
+            # Auto-detect encoding (ČEPS používá utf-8 nebo cp1250)
+            text = None
+            for enc in ("utf-8", "cp1250", "iso-8859-2"):
+                try:
+                    text = raw.decode(enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if text is None:
+                text = raw.decode("utf-8", errors="replace")
+            
+            # Parse TXT formát:
+            #   Verze dat;Od;Do;Agregační funkce;Agregace;
+            #   reálná data;...
+            #   Datum;;Odhadovaná cena [Kč/MWh];
+            #   29.05.2026;00:00-00:15;4216.16;
+            lines = [l.strip() for l in text.split("\n") if l.strip()]
+            rows = []
+            for line in lines:
+                parts = [p.strip() for p in line.rstrip(";").split(";")]
+                # Datový řádek má 3 části: datum, interval, cena
+                if len(parts) != 3: continue
+                date_part, interval, price = parts
+                # Datum musí být DD.MM.YYYY
+                if not (len(date_part) == 10 and date_part[2] == '.' and date_part[5] == '.'):
+                    continue
+                # Interval HH:MM-HH:MM
+                if not (len(interval) == 11 and interval[5] == '-'):
+                    continue
+                rows.append({
+                    "Estimated price [Kč/MWh]": price,  # string, jako z API
+                    "Date": date_part,
+                    "Interval": interval,
+                })
+            
+            print(f"  -> /ceps_txt {date_str}: {len(rows)} QH", flush=True)
+            self._json({
+                "columns": ["Estimated price [Kč/MWh]", "Date", "Interval"],
+                "rows": rows,
+                "source": "ceps.cz TXT (real data)",
+                "date": date_str,
+            })
+        except Exception as e:
+            import traceback
+            print(f"  -> /ceps_txt ERROR: {e}\n{traceback.format_exc()}", flush=True)
+            self._json({"error": str(e), "rows": []}, 502)
 
     def _regelleistung_afrr_energy(self, qs):
         try:
