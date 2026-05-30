@@ -2,67 +2,46 @@
 <html lang="cs">
 <head>
 <meta charset="UTF-8">
-<title>EISI-NEW v2 · NET SPREAD Strategy</title>
+<title>EISI-NEW v2 · CEPS + Backtest 30d</title>
 <style>
-/* Stejný styl jako originál */
-* { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: 'Inter', -apple-system, sans-serif; background: #f4f5f9; color: #1a1a2e; padding: 14px; max-width: 1200px; margin: 0 auto; }
-h1 { font-size: 22px; margin-bottom: 4px; color: #0d47a1; font-weight: 700; }
-h1 small { font-size: 11px; color: #888; font-weight: 400; font-family: 'JetBrains Mono', monospace; }
-.card { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; padding: 12px 14px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
-.card-l { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px; font-weight: 600; }
-.card-v { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1.2; }
-.big { font-size: 30px; }
-.green { color: #2e7d32; }
-.red { color: #c62828; }
-.signal-card { padding: 16px 18px; }
-table { width: 100%; border-collapse: collapse; background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; overflow: hidden; font-size: 11px; font-family: 'JetBrains Mono', monospace; }
-th { background: #f4f5f9; padding: 6px 8px; text-align: right; }
-td { padding: 5px 8px; border-top: 1px solid #f0f1f4; text-align: right; }
-.refresh { background: #1565c0; color: white; border: none; padding: 6px 14px; border-radius: 5px; font-size: 11px; font-weight: 600; cursor: pointer; }
+* { box-sizing: border-box; margin:0; padding:0; }
+body { font-family: 'Inter', sans-serif; background:#f4f5f9; color:#1a1a2e; padding:15px; max-width:1300px; margin:auto; }
+h1 { color:#0d47a1; }
+.card { background:#fff; border:1px solid #ddd; border-radius:8px; padding:14px; margin-bottom:12px; }
+.big { font-size:32px; font-weight:700; font-family:'JetBrains Mono',monospace; }
+.green { color:#2e7d32; }
+.red { color:#c62828; }
+table { width:100%; border-collapse:collapse; font-size:11.5px; font-family:'JetBrains Mono',monospace; background:white; }
+th, td { padding:6px 8px; text-align:right; border-top:1px solid #eee; }
+th { background:#f8f9fc; }
+.refresh { padding:8px 16px; background:#1565c0; color:white; border:none; border-radius:6px; cursor:pointer; }
+button { margin:5px; }
 </style>
 </head>
 <body>
 
-<header>
-  <h1>EISI-NEW v2 <small>· NET SPREAD Strategy</small></h1>
-  <button onclick="loadAll()">↺ Refresh</button>
-</header>
+<h1>EISI-NEW v2 <small>· NET SPREAD (CEPS) + Pyramiding + 30d Backtest</small></h1>
+<button onclick="loadAll()" class="refresh">↺ Live Refresh</button>
+<button onclick="runBacktest()">📊 Backtest 30 dní</button>
 
-<div class="card signal-card">
-  <div class="card-l">AKTUÁLNÍ SIGNÁL (EISI-NEW v2)</div>
-  <div class="big" id="currentSignal">NAČÍTÁM...</div>
-  <div id="currentSignalDetail"></div>
+<div class="card">
+  <div style="font-size:11px;color:#666;margin-bottom:6px;">AKTUÁLNÍ SIGNÁL</div>
+  <div class="big" id="signal">NAČÍTÁM...</div>
 </div>
 
-<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px;">
-  <div class="card">
-    <div class="card-l">EISI Hodnota</div>
-    <div class="big" id="eisiValue">—</div>
-  </div>
-  <div class="card">
-    <div class="card-l">Režim</div>
-    <div class="big" id="regime">—</div>
-  </div>
-  <div class="card">
-    <div class="card-l">Doporučená velikost</div>
-    <div class="big" id="positionSize">— MWh</div>
-  </div>
+<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:10px;">
+  <div class="card"><div style="font-size:11px;color:#666;">EISI</div><div class="big" id="eisi">—</div></div>
+  <div class="card"><div style="font-size:11px;color:#666;">Režim</div><div class="big" id="regime">—</div></div>
+  <div class="card"><div style="font-size:11px;color:#666;">Pozice (Pyramiding)</div><div class="big" id="size">— MWh</div></div>
 </div>
 
 <h2>Posledních 8 QH</h2>
-<table>
-  <thead>
-    <tr>
-      <th>Interval</th>
-      <th>Odch EUR</th>
-      <th>EISI</th>
-      <th>Režim</th>
-      <th>Signal</th>
-    </tr>
-  </thead>
-  <tbody id="tableBody"></tbody>
-</table>
+<table id="liveTable"><thead><tr><th>Interval</th><th>Odch. EUR</th><th>EISI</th><th>Režim</th><th>Signal</th></tr></thead><tbody></tbody></table>
+
+<h2>Backtest 30 dní (Pyramiding)</h2>
+<div class="card">
+  <pre id="backtestResult" style="font-size:12px; max-height:400px; overflow:auto; background:#f8f9fc;"></pre>
+</div>
 
 <script>
 const KURZ = 24.5;
@@ -78,8 +57,8 @@ async function loadAll() {
     const data = await res.json();
     const rows = data.rows || [];
 
-    if (rows.length < 15) {
-      document.getElementById('currentSignal').innerHTML = `<span style="color:orange">NEDOSTATEK DAT (${rows.length})</span>`;
+    if (rows.length < 20) {
+      document.getElementById('signal').innerHTML = `<span style="color:orange">NEDOSTATEK DAT</span>`;
       return;
     }
 
@@ -88,18 +67,12 @@ async function loadAll() {
       return kc / KURZ;
     });
 
-    // === EISI-NEW v2 ===
-    const eisi = [];
-    const regimes = [];
+    const eisiVals = [], regimes = [];
 
     for (let i = 0; i < prices.length; i++) {
-      if (i < 40) {
-        eisi.push(0);
-        regimes.push("WARMUP");
-        continue;
-      }
+      if (i < 40) { eisiVals.push(0); regimes.push("WARMUP"); continue; }
 
-      const slice = prices.slice(i-36, i);
+      const slice = prices.slice(i-48, i);
       const mean = slice.reduce((a,b)=>a+b,0) / slice.length;
       const std = Math.sqrt(slice.reduce((a,b)=>a+Math.pow(b-mean,2),0)/slice.length) || 1;
       const zscore = (prices[i] - mean) / std;
@@ -112,28 +85,27 @@ async function loadAll() {
         val = zscore * 7.2;
         regime = "TREND";
       }
-      eisi.push(val);
+      eisiVals.push(val);
       regimes.push(regime);
     }
 
-    const lastIdx = eisi.length - 1;
-    const lastEisi = eisi[lastIdx] || 0;
+    const lastIdx = eisiVals.length - 1;
+    const lastEisi = eisiVals[lastIdx] || 0;
     const isLong = lastEisi > 25;
-    const size = Math.min(12, Math.floor(Math.abs(lastEisi) / 45) + 2);
+    const position = getPyramidSize(lastEisi);
 
-    // Zobrazení
-    document.getElementById('currentSignal').innerHTML = isLong ? 
-      `<span class="green">LONG ▲ EISI-NEW v2</span>` : 
-      `<span class="red">SHORT ▼ EISI-NEW v2</span>`;
+    document.getElementById('signal').innerHTML = isLong ? 
+      `<span class="green">LONG ▲</span>` : 
+      `<span class="red">SHORT ▼</span>`;
 
-    document.getElementById('eisiValue').innerHTML = `<span class="\( {isLong?'green':'red'}"> \){lastEisi.toFixed(1)}</span>`;
+    document.getElementById('eisi').innerHTML = `<span class="\( {isLong?'green':'red'}"> \){lastEisi.toFixed(1)}</span>`;
     document.getElementById('regime').textContent = regimes[lastIdx];
-    document.getElementById('positionSize').innerHTML = `<span class="\( {isLong?'green':'red'}"> \){size} MWh</span>`;
+    document.getElementById('size').innerHTML = `<span class="\( {isLong?'green':'red'}"> \){position} MWh</span>`;
 
-    // Tabulka
+    // Live tabulka
     let html = '';
     for (let i = Math.max(0, prices.length-8); i < prices.length; i++) {
-      const v = eisi[i];
+      const v = eisiVals[i];
       html += `<tr>
         <td>${rows[i]['Interval'] || '—'}</td>
         <td>${prices[i].toFixed(1)}</td>
@@ -142,12 +114,91 @@ async function loadAll() {
         <td>${v>25?'LONG':v<-25?'SHORT':'—'}</td>
       </tr>`;
     }
-    document.getElementById('tableBody').innerHTML = html;
+    document.querySelector('#liveTable tbody').innerHTML = html;
 
   } catch(e) {
     console.error(e);
-    document.getElementById('currentSignal').innerHTML = `<span style="color:red">CHYBA</span>`;
   }
+}
+
+function getPyramidSize(eisi) {
+  const abs = Math.abs(eisi);
+  if (abs > 180) return 12;
+  if (abs > 120) return 9;
+  if (abs > 80) return 7;
+  if (abs > 50) return 5;
+  if (abs > 30) return 3;
+  return 2;
+}
+
+// ==================== BACKTEST 30 DNÍ ====================
+async function runBacktest() {
+  const resultEl = document.getElementById('backtestResult');
+  resultEl.textContent = "Stahuji data pro posledních 30 dní...\n";
+
+  let totalPnL = 0;
+  let trades = 0;
+  let winningTrades = 0;
+  let equity = 10000;
+  let peak = 10000;
+  let maxDD = 0;
+
+  for (let d = 0; d < 30; d++) {
+    const date = new Date();
+    date.setDate(date.getDate() - d);
+    const dateStr = date.toISOString().slice(0,10);
+
+    try {
+      const res = await fetch(`/api?method=OdhadovanaCenaOdchylky&dateFrom=\( {dateStr}T00:00:00&dateTo= \){dateStr}T23:59:59&_=${Date.now()}`);
+      const data = await res.json();
+      if (!data.rows || data.rows.length < 50) continue;
+
+      const prices = data.rows.map(r => parseFloat(r['Zúčtovací cena odchylky (Kč/MWh)'] || 0) / KURZ);
+
+      const eisiVals = [];
+      for (let i = 0; i < prices.length; i++) {
+        if (i < 40) { eisiVals.push(0); continue; }
+        const slice = prices.slice(i-48, i);
+        const mean = slice.reduce((a,b)=>a+b,0)/slice.length;
+        const std = Math.sqrt(slice.reduce((a,b)=>a+Math.pow(b-mean,2),0)/slice.length) || 1;
+        const z = (prices[i] - mean) / std;
+        const val = Math.abs(z) > 1.75 ? -z * 9.5 : z * 7.2;
+        eisiVals.push(val);
+      }
+
+      // Jednoduchý backtest s LAG a pyramidingem
+      for (let i = LAG; i < prices.length - 1; i++) {
+        const signal = eisiVals[i-LAG];
+        if (Math.abs(signal) < 25) continue;
+
+        const direction = signal > 0 ? 1 : -1;
+        const mwh = getPyramidSize(signal);
+        const pnl = direction * (prices[i+1] - prices[i]) * mwh;
+
+        totalPnL += pnl;
+        equity += pnl;
+        trades++;
+        if (pnl > 0) winningTrades++;
+
+        if (equity > peak) peak = equity;
+        const dd = ((peak - equity) / peak) * 100;
+        if (dd > maxDD) maxDD = dd;
+      }
+
+      resultEl.textContent += `✓ ${dateStr} | ${prices.length} QH\n`;
+    } catch(e) {
+      resultEl.textContent += `✗ ${dateStr} - chyba\n`;
+    }
+  }
+
+  const winrate = trades > 0 ? (winningTrades / trades * 100).toFixed(1) : 0;
+
+  resultEl.textContent += `\n=== VÝSLEDEK 30 DNÍ ===\n`;
+  resultEl.textContent += `Celkový PnL: ${totalPnL.toFixed(0)} EUR\n`;
+  resultEl.textContent += `Počet obchodů: ${trades}\n`;
+  resultEl.textContent += `Winrate: ${winrate}%\n`;
+  resultEl.textContent += `Max Drawdown: ${maxDD.toFixed(1)}%\n`;
+  resultEl.textContent += `Finální equity: ${equity.toFixed(0)} EUR\n`;
 }
 
 loadAll();
