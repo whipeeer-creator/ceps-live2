@@ -751,42 +751,50 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "source not found", "available": list(store.keys())}, 404)
             return
         
-        # VDT orderbook - merged snapshot (last 100 changes merged by kontrakt)
+        # VDT orderbook - merged snapshot s cache
         if parsed.path == "/vdt/orderbook":
             store = globals().get("_INGEST_STORE", {})
+            cache = globals().get("_VDT_OB_CACHE", {})
             records = store.get("ote-com-bridge", [])
-            # Filtruj jen vdt_orderbook typu
             records = [r for r in records if r.get("type") == "vdt_orderbook"]
             
+            # Cache key = počet records + last ts
+            latest_ts = records[-1].get("ts") if records else None
+            cache_key = (len(records), latest_ts)
+            
+            if cache.get("key") == cache_key and "result" in cache:
+                # Cached - vrať okamžitě
+                self._json(cache["result"])
+                return
+            
             # Merge: pro každý kontrakt najdi nejnovější hodnoty
-            # Records jsou v chronologickém pořadí, projít od nejstaršího
-            merged = {}  # kontrakt_raw → row
-            latest_ts = None
+            merged = {}
             for rec in records:
                 data = rec.get("data")
                 if not isinstance(data, dict): continue
                 rows = data.get("rows", [])
-                latest_ts = rec.get("ts")
                 for row in rows:
                     k = row.get("kontrakt", {})
                     raw = k.get("raw") if isinstance(k, dict) else None
                     if not raw: continue
                     merged[raw] = row
             
-            # Seřaď podle času kontraktu (from)
             def sort_key(r):
                 k = r.get("kontrakt", {})
                 f = k.get("from", "99:99")
                 t = k.get("type", "Z")
-                return (f, t)  # podle času, pak typ (H před QH pokud stejný čas)
+                return (f, t)
             sorted_rows = sorted(merged.values(), key=sort_key)
             
-            self._json({
+            result = {
                 "rows": sorted_rows,
                 "latest_ts": latest_ts,
                 "total_kontraktu": len(sorted_rows),
                 "ingest_records": len(records),
-            })
+            }
+            # Cache
+            globals()["_VDT_OB_CACHE"] = {"key": cache_key, "result": result}
+            self._json(result)
             return
         
         # Route /vdt.html
@@ -2609,6 +2617,39 @@ class Handler(BaseHTTPRequestHandler):
                             }
                     # Zitrejsi statistiky (pokud OTE uz publikovalo - obvykle po 14:00 CET)
                     hours_tomorrow = day_data.get("hoursTomorrow", [])
+                    
+                    # PRIMARNI ZDROJ pro zitra: OTE-CR oficial (spotovaelektrina.cz může mít zpoždění)
+                    try:
+                        now_utc = datetime.now(timezone.utc)
+                        month = now_utc.month
+                        berlin_offset = 2 if 4 <= month <= 10 else 1
+                        berlin_now = now_utc + timedelta(hours=berlin_offset)
+                        tomorrow_date = (berlin_now + timedelta(days=1)).strftime("%Y-%m-%d")
+                        
+                        ote_url = f"https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/denni-trh/@@chart-data?report_date={tomorrow_date}"
+                        ote_r = requests.get(ote_url, timeout=12, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+                        if ote_r.status_code == 200:
+                            ote_data = ote_r.json()
+                            # Format: {"data": {"dataLine": [{"point": [{"x": 1, "y": 95.5}, ...], "title": "Cena (EUR/MWh)"}, ...]}}
+                            ote_tomorrow = []
+                            data_lines = ote_data.get("data", {}).get("dataLine", [])
+                            for line in data_lines:
+                                title = line.get("title", "")
+                                if "EUR" in title or "Cena" in title:
+                                    points = line.get("point", [])
+                                    for p in points:
+                                        h = int(p.get("x", 0)) - 1  # OTE indexuje od 1
+                                        y = p.get("y")
+                                        if 0 <= h <= 23 and y is not None and y != 0:
+                                            ote_tomorrow.append({"hour": h, "priceEur": float(y)})
+                                    break
+                            if ote_tomorrow:
+                                # OTE-CR má prioritu - oficiální zdroj
+                                hours_tomorrow = ote_tomorrow
+                                print(f"  -> /ote/spot tomorrow: {len(ote_tomorrow)} h from OTE-CR official", flush=True)
+                    except Exception as e:
+                        print(f"  -> OTE-CR tomorrow fallback: {e}", flush=True)
+                    
                     if hours_tomorrow:
                         prices_t = [h.get("priceEur") for h in hours_tomorrow if h.get("priceEur") is not None]
                         if prices_t:
