@@ -2618,7 +2618,7 @@ class Handler(BaseHTTPRequestHandler):
                     # Zitrejsi statistiky (pokud OTE uz publikovalo - obvykle po 14:00 CET)
                     hours_tomorrow = day_data.get("hoursTomorrow", [])
                     
-                    # PRIMARNI ZDROJ pro zitra: OTE-CR oficial (spotovaelektrina.cz může mít zpoždění)
+                    # PRIMARNI ZDROJ pro zitra: OTE-CR HTML scrape (60min ceny z posledniho sloupce)
                     try:
                         now_utc = datetime.now(timezone.utc)
                         month = now_utc.month
@@ -2626,27 +2626,52 @@ class Handler(BaseHTTPRequestHandler):
                         berlin_now = now_utc + timedelta(hours=berlin_offset)
                         tomorrow_date = (berlin_now + timedelta(days=1)).strftime("%Y-%m-%d")
                         
-                        ote_url = f"https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/denni-trh/@@chart-data?report_date={tomorrow_date}"
-                        ote_r = requests.get(ote_url, timeout=12, headers={"User-Agent": "Mozilla/5.0", "Accept": "application/json"})
+                        # HTML stranka OTE - obsahuje tabulku se sloupci:
+                        # | Casovy interval | 15min cena | ... | 60min cena |
+                        ote_url = f"https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/denni-trh?date={tomorrow_date}&time_resolution=PT15M"
+                        ote_r = requests.get(ote_url, timeout=15, headers={
+                            "User-Agent": "Mozilla/5.0 (compatible; ceps-dashboard)",
+                            "Accept": "text/html",
+                        })
                         if ote_r.status_code == 200:
-                            ote_data = ote_r.json()
-                            # Format: {"data": {"dataLine": [{"point": [{"x": 1, "y": 95.5}, ...], "title": "Cena (EUR/MWh)"}, ...]}}
+                            html = ote_r.text
+                            # Parsuj radky tabulky pomoci regex
+                            # Format: | 00:00-00:15 | 150,14 | ... cislice ... | 137,65 |
+                            # Posledni sloupec = 60min cena
                             ote_tomorrow = []
-                            data_lines = ote_data.get("data", {}).get("dataLine", [])
-                            for line in data_lines:
-                                title = line.get("title", "")
-                                if "EUR" in title or "Cena" in title:
-                                    points = line.get("point", [])
-                                    for p in points:
-                                        h = int(p.get("x", 0)) - 1  # OTE indexuje od 1
-                                        y = p.get("y")
-                                        if 0 <= h <= 23 and y is not None and y != 0:
-                                            ote_tomorrow.append({"hour": h, "priceEur": float(y)})
-                                    break
-                            if ote_tomorrow:
-                                # OTE-CR má prioritu - oficiální zdroj
+                            # Najdi radky "HH:MM-HH:MM | ..." kde HH:MM zacina v HH:00 (prvni QH hodiny)
+                            import re as _re
+                            # Hledame radky s casovym intervalem
+                            pattern = _re.compile(
+                                r"(\d{2}):(\d{2})-(\d{2}):(\d{2})\s*\|([^|]+\|){8,12}\s*([\d\s\u00A0]+,\d+)",
+                                _re.MULTILINE
+                            )
+                            
+                            # Alternativni jednodussi pristup: rozdelit po radcich a pro kazdy radek vzit posledni cislo
+                            for line in html.split("\n"):
+                                # Hledame jen QH radky zacinajici na :00 (prvni QH hodiny)
+                                m = _re.match(r"^\s*\|?\s*(\d{2}):(\d{2})-(\d{2}):(\d{2})\s*\|", line)
+                                if not m:
+                                    continue
+                                start_min = int(m.group(2))
+                                if start_min != 0:
+                                    continue  # jen prvni QH hodiny (HH:00)
+                                hour = int(m.group(1))
+                                # Najdi vsechny cisla v radku (format X.XXX nebo X,XX)
+                                # Posledni cislo = 60min cena
+                                nums = _re.findall(r"(\d+(?:[\s\u00A0]\d+)*,\d+)", line)
+                                if not nums:
+                                    continue
+                                try:
+                                    price_str = nums[-1].replace(" ", "").replace("\u00A0", "").replace(",", ".")
+                                    price = float(price_str)
+                                    if 0 <= hour <= 23 and price > 0:
+                                        ote_tomorrow.append({"hour": hour, "priceEur": price})
+                                except: pass
+                            
+                            if len(ote_tomorrow) >= 20:  # ocekavame 24 hodin
                                 hours_tomorrow = ote_tomorrow
-                                print(f"  -> /ote/spot tomorrow: {len(ote_tomorrow)} h from OTE-CR official", flush=True)
+                                print(f"  -> /ote/spot tomorrow: {len(ote_tomorrow)} h from OTE-CR (60min ceny z HTML)", flush=True)
                     except Exception as e:
                         print(f"  -> OTE-CR tomorrow fallback: {e}", flush=True)
                     
