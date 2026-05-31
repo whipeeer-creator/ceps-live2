@@ -4422,7 +4422,7 @@ async function loadSpotTomorrow() {
     const tblQH = document.getElementById('tbl-spot-cz-qh-tom');
     if (!tblH || !tblQH) return;
     
-    // Fetch zítřejší 15min data
+    // Fetch zítřejší 15min data (pro QH tabulku)
     const r = await fetch(`${API_URL}/spot/prices?country=CZ&date=${tomorrow}`, { cache: 'no-store' });
     if (!r.ok) {
       tblH.innerHTML = '<tr><td style="padding:8px;color:#888;">Zítřejší ceny nejsou k dispozici (DA aukce ~14:00)</td></tr>';
@@ -4442,9 +4442,24 @@ async function loadSpotTomorrow() {
       if (!(p.hour in priceByQH)) priceByQH[p.hour] = {};
       priceByQH[p.hour][p.minute] = p.price_eur;
     }
-    // hodinové = minute 0
+    
+    // Hodinové ceny ZE SPRÁVNÉHO ZDROJE (/ote/spot - OTE oficiální 60min ceny)
     const priceByHour = {};
-    for (const p of d.data) if (p.minute === 0) priceByHour[p.hour] = p.price_eur;
+    try {
+      const rOte = await fetch(`${API_URL}/ote/spot`, { cache: 'no-store' });
+      if (rOte.ok) {
+        const dOte = await rOte.json();
+        const ht = dOte.hours_tomorrow || dOte.hoursTomorrow || [];
+        for (const p of ht) {
+          const v = p.priceEur ?? p.priceEUR ?? p.price_eur;
+          if (Number.isFinite(v)) priceByHour[p.hour] = v;
+        }
+      }
+    } catch(e) {}
+    // Fallback: pokud /ote/spot nedalo hodinové, vezmi minute=0 z 15min dat (nepřesné)
+    if (Object.keys(priceByHour).length === 0) {
+      for (const p of d.data) if (p.minute === 0) priceByHour[p.hour] = p.price_eur;
+    }
     
     const allVals = d.data.map(p => p.price_eur).filter(v => Number.isFinite(v));
     if (!allVals.length) return;
