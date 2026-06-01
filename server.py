@@ -895,63 +895,82 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": "no key"}); return
                 raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
                 
-                urls_to_test = [
-                    # Možné modely
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=magma",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=ecmwf",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=icon",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=gfs",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=harmonie",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=hrrr",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=arpege",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=ensemble",
-                    # Možné země s magma
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=CZ&generation_type=solar&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=solar&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=AT&generation_type=solar&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=HU&generation_type=solar&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=PL&generation_type=solar&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=SK&generation_type=solar&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=FR&generation_type=solar&issue=latest",
-                    # Možné generation types
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=wind_offshore&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=wind_onshore&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=hydro&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=biomass&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=total&issue=latest",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=renewable&issue=latest",
-                    # Other endpoints in powergen
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/models",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/countries",
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/types",
-                ]
+                # Test ruzne kombinace location/element pro vsechny tri modely
+                now_utc = datetime.now(timezone.utc)
+                start = now_utc.strftime("%Y-%m-%dT00:00:00Z")
+                end = (now_utc + timedelta(hours=24)).strftime("%Y-%m-%dT00:00:00Z")
+                
+                # Najit latest issue
+                def get_latest_issue(model):
+                    try:
+                        req = urllib.request.Request(
+                            f"https://api.metdesk.com/get/metdesk/powergen/v2/issues?model={model}",
+                            headers={"Authorization": f"jwt {raw_token}"})
+                        with urllib.request.urlopen(req, timeout=5) as r:
+                            d = json.loads(r.read())
+                        return d.get("data", [])[-1] if d.get("data") else None
+                    except: return None
+                
+                magma_issue = get_latest_issue("magma")
+                icon_issue = get_latest_issue("icon")
+                
+                urls_to_test = []
+                # ZEMĚ pro MAGMA (víme že CZ/DE fungují)
+                for c in ["CZ", "DE", "AT", "HU", "PL", "SK", "FR", "IT", "ES", "BE", "NL", "DK", "GB", "RO", "BG"]:
+                    urls_to_test.append(f"https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&issue={magma_issue}&location={c}&location_type=country&element=solar&interval=hires&start_dtg={start}&end_dtg={end}")
+                
+                # ELEMENTY (generation types) pro DE
+                for el in ["solar", "wind", "wind_onshore", "wind_offshore", "hydro", "biomass", "nuclear", "coal", "gas", "renewable", "total", "load", "consumption", "demand"]:
+                    urls_to_test.append(f"https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&issue={magma_issue}&location=DE&location_type=country&element={el}&interval=hires&start_dtg={start}&end_dtg={end}")
+                
+                # ICON model
+                if icon_issue:
+                    for c in ["DE", "CZ", "AT", "PL", "FR"]:
+                        for el in ["solar", "wind"]:
+                            urls_to_test.append(f"https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=icon&issue={icon_issue}&location={c}&location_type=country&element={el}&interval=hires&start_dtg={start}&end_dtg={end}")
                 
                 results = []
                 for url in urls_to_test:
+                    # Vytvor zkraceny label: jen relevantni parametry
+                    if "?" in url:
+                        params = url.split("?", 1)[1]
+                        # Vytahnout jen klicove: model, location, element
+                        import urllib.parse as _up
+                        qp = dict(_up.parse_qsl(params))
+                        short = f"{qp.get('model','?')} | {qp.get('location','-')} | {qp.get('element','-')}"
+                    else:
+                        short = url.split("/metdesk/")[1] if "/metdesk/" in url else url
                     try:
                         req = urllib.request.Request(url, headers={"Authorization": f"jwt {raw_token}"})
                         with urllib.request.urlopen(req, timeout=6) as r:
-                            body = r.read(300).decode("utf-8", "replace")
+                            body = r.read(400).decode("utf-8", "replace")
+                            # Kontrolovat data_count
+                            data_count = "?"
+                            try:
+                                j = json.loads(body + "}" if not body.endswith("}") else body[:body.rfind("}")+1])
+                                data_count = j.get("request", {}).get("data_count", "?")
+                            except: pass
                             results.append({
-                                "url": url.split("/metdesk/")[1],
+                                "id": short,
                                 "status": r.status,
-                                "preview": body[:200]
+                                "n": data_count,
+                                "preview": body[:120]
                             })
                     except urllib.error.HTTPError as e:
                         err = ""
-                        try: err = e.read().decode("utf-8")[:200]
+                        try: err = e.read().decode("utf-8")[:150]
                         except: pass
                         results.append({
-                            "url": url.split("/metdesk/")[1],
+                            "id": short,
                             "status": e.code,
                             "err": err
                         })
                     except Exception as e:
-                        results.append({"url": url.split("/metdesk/")[1], "err": str(e)[:100]})
+                        results.append({"id": short, "err": str(e)[:80]})
                 
-                # Filter to relevant
-                interesting = [r for r in results if r.get("status", 0) not in (404,)]
-                self._json({"interesting": interesting, "all": results})
+                # Filter to relevant (200 OK + 401/403 jsou zajímavé)
+                interesting = [r for r in results if r.get("status", 0) in (200, 401, 403)]
+                self._json({"interesting": interesting, "total_tested": len(results)})
             except Exception as e:
                 self._json({"error": str(e)}, 500)
             return
