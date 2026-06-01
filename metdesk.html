@@ -124,6 +124,13 @@ const COUNTRIES = [
   { code: 'NL', name: 'Nizozemsko', flag: '🇳🇱', color_solar: '#e74c3c', color_wind: '#16a085' },
 ];
 
+// Toggle state - default all visible
+const visibleState = {
+  solar: { CZ: true, DE: true, AT: true, HU: true, NL: true },
+  wind:  { CZ: true, DE: true, AT: true, HU: true, NL: true },
+};
+let _dataMap = null;
+
 async function fetchData(country, type) {
   try {
     const r = await fetch(`${API_URL}/metdesk/magma?model=magma&country=${country}&generation_type=${type}`, { cache: 'no-store' });
@@ -147,7 +154,7 @@ async function main() {
   const results = await Promise.all(tasks);
   
   // Index data
-  const dataMap = {};  // {CZ: {solar: [...], wind: [...]}, ...}
+  const dataMap = {};
   for (const r of results) {
     if (!dataMap[r.country]) dataMap[r.country] = {};
     if (r.data && r.data.points) {
@@ -156,6 +163,7 @@ async function main() {
       dataMap[r.country][r.type] = null;
     }
   }
+  _dataMap = dataMap;  // global pro toggle re-render
   
   // Souhrn karet
   const sumEl = document.getElementById('summary');
@@ -247,8 +255,12 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
       points: pts,
       maxV,
       color: type === 'solar' ? c.color_solar : c.color_wind,
+      visible: visibleState[type][c.code] !== false,
     });
   }
+  
+  // Visible series jen
+  const visSeries = series.filter(s => s.visible);
   
   if (!series.length) {
     ctx.fillStyle = '#999';
@@ -262,7 +274,6 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
   const tMin = new Date(timeSeries[0].ts).getTime();
   const tMax = new Date(timeSeries[timeSeries.length-1].ts).getTime();
   const tR = tMax - tMin;
-  
   // Y axis = % of max (0-100)
   // Background
   ctx.fillStyle = '#fafbfc';
@@ -308,8 +319,8 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
     ctx.fillText(' teď', nx, PAD.top + 10);
   }
   
-  // Lines for each series
-  for (const s of series) {
+  // Lines for each visible series
+  for (const s of visSeries) {
     ctx.strokeStyle = s.color;
     ctx.lineWidth = 2;
     ctx.beginPath();
@@ -329,16 +340,31 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
   ctx.lineWidth = 1;
   ctx.strokeRect(PAD.left, PAD.top, cW, cH);
   
-  // Legend
+  // Legend - clickable toggle
   const lEl = document.getElementById(legendId);
   lEl.innerHTML = '';
   for (const s of series) {
+    const opacity = s.visible ? '1' : '0.35';
+    const strikeStyle = s.visible ? 'none' : 'line-through';
     lEl.insertAdjacentHTML('beforeend', `
-      <span style="display:flex;align-items:center;gap:4px;">
+      <span data-country="${s.country.code}" data-type="${type}" 
+        style="display:flex;align-items:center;gap:4px;cursor:pointer;opacity:${opacity};text-decoration:${strikeStyle};padding:3px 6px;border-radius:3px;user-select:none;"
+        onclick="toggleCountry('${type}', '${s.country.code}')">
         <span style="width:14px;height:3px;background:${s.color};display:inline-block;"></span>
         ${s.country.flag} ${s.country.name} (max ${s.maxV.toFixed(0)} MW)
       </span>
     `);
+  }
+}
+
+// Toggle a redraw
+function toggleCountry(type, code) {
+  visibleState[type][code] = !visibleState[type][code];
+  if (!_dataMap) return;
+  if (type === 'solar') {
+    drawAllChart('canvasSolarAll', 'solarLegend', _dataMap, 'solar');
+  } else {
+    drawAllChart('canvasWindAll', 'windLegend', _dataMap, 'wind');
   }
 }
 
