@@ -190,16 +190,21 @@ async function fetchDay(date) {
     const vdtMap = {};
     if (r2 && r2.data) {
       for (const v of r2.data) {
-        const hh = String(v.hour).padStart(2, '0');
-        const mm = String(v.minute).padStart(2, '0');
-        vdtMap[`${hh}:${mm}`] = v.last;
+        // VDT formát: {timestamp: "2026-05-15T00:15:00", last: 131.59, ...}
+        const ts = v.timestamp || '';
+        const m = ts.match(/T(\d{2}):(\d{2})/);
+        if (!m) continue;
+        vdtMap[`${m[1]}:${m[2]}`] = v.last;
       }
     }
     
     const qhs = [];
+    let kcCount = 0, vdtCount = 0, matchCount = 0;
     for (const tm in kcMap) {
+      kcCount++;
       const vdt = vdtMap[tm];
       if (vdt === undefined || vdt === null) continue;
+      vdtCount++;
       const kc = kcMap[tm];
       const [hStr, mStr] = tm.split(':');
       qhs.push({
@@ -210,6 +215,10 @@ async function fetchDay(date) {
         vdt,
         spread: kc - vdt,
       });
+      matchCount++;
+    }
+    if (matchCount === 0) {
+      console.log(`${date}: kc=${kcCount} vdtMap keys=${Object.keys(vdtMap).length} sample vdtMap:`, Object.keys(vdtMap).slice(0,5), 'sample kc:', Object.keys(kcMap).slice(0,5));
     }
     
     // Aktivace agregát za den (suma minutových hodnot v MW)
@@ -271,7 +280,9 @@ async function main() {
   }
   
   if (!allQHs.length) {
-    status.textContent = '❌ Žádná data k dispozici';
+    status.innerHTML = '❌ Žádná data k dispozici<br><br>' +
+      '<small style="color:#666;">Načteno per-day result: ' + perDayStats.length + ' dní. Načti F12 → Console pro detaily.</small>';
+    console.log('perDayStats:', perDayStats);
     return;
   }
   
