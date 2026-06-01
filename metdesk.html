@@ -53,6 +53,19 @@
   .chart-card .h-sub { font-size: 11px; color: #7f8c8d; margin-bottom: 6px; }
   canvas { width: 100%; display: block; }
   
+  /* Default heights (mobile) */
+  #canvasSolarAll, #canvasWindAll { height: 280px; }
+  .perc-canvas { height: 220px; }
+  
+  /* Smaller on PC */
+  @media (min-width: 900px) {
+    #canvasSolarAll, #canvasWindAll { height: 180px; }
+    .perc-canvas { height: 140px; }
+    /* Per-country layout 2 columns on PC */
+    #perCountry { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    #perCountry .chart-card { margin-bottom: 0; }
+  }
+  
   .grid-2 {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -110,7 +123,7 @@
   <div class="chart-card">
     <h2>Solar 48h forecast - srovnání</h2>
     <div class="h-sub">CZ, DE, AT, HU, NL - normalizováno na max kapacitu (% z peak)</div>
-    <canvas id="canvasSolarAll" height="320"></canvas>
+    <canvas id="canvasSolarAll"></canvas>
     <div id="solarLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
   </div>
   
@@ -118,7 +131,7 @@
   <div class="chart-card">
     <h2>Wind 48h forecast - srovnání</h2>
     <div class="h-sub">DE primární, ostatní pokud dostupné</div>
-    <canvas id="canvasWindAll" height="320"></canvas>
+    <canvas id="canvasWindAll"></canvas>
     <div id="windLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
   </div>
   
@@ -149,6 +162,7 @@ const visibleState = {
   wind:  { CZ: true, DE: true, AT: true, HU: true, NL: true },
 };
 let _dataMap = null;
+let _actualMap = null;
 
 async function fetchData(model, country, type) {
   try {
@@ -161,6 +175,18 @@ async function fetchData(model, country, type) {
   } catch(e) { return null; }
 }
 
+async function fetchActual(country, type) {
+  try {
+    const today = new Date();
+    const dayStr = today.toISOString().substring(0, 10);
+    const r = await fetch(`${API_URL}/entsoe/actual?country=${country}&type=${type}&day=${dayStr}`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (d.error || !d.points || !d.points.length) return null;
+    return d.points;
+  } catch(e) { return null; }
+}
+
 async function main() {
   const status = document.getElementById('status');
   
@@ -169,7 +195,7 @@ async function main() {
     tasks.push(fetchData('magma', c.code, 'solar').then(d => ({ country: c.code, type: 'solar', data: d })));
     tasks.push(fetchData('magma', c.code, 'wind').then(d => ({ country: c.code, type: 'wind', data: d })));
   }
-  status.textContent = `Stahuji ${tasks.length} datových sad paralelně...`;
+  status.textContent = `Stahuji ${tasks.length} datových sad...`;
   const results = await Promise.all(tasks);
   
   const dataMap = {};
@@ -178,6 +204,7 @@ async function main() {
     dataMap[r.country][r.type] = (r.data && r.data.points) ? r.data.points : null;
   }
   _dataMap = dataMap;
+  _actualMap = {};  // Zatím prázdné - bude doplněno až najdeme MetDesk observations endpoint
   
   status.style.display = 'none';
   document.getElementById('content').style.display = 'block';
@@ -233,7 +260,7 @@ function renderAll() {
       <div class="chart-card">
         <h2>${c.flag} ${c.name}</h2>
         <div class="h-sub">Solar + Wind combined view (absolute MW)</div>
-        <canvas id="canvas_${c.code}" height="240"></canvas>
+        <canvas id="canvas_${c.code}" class="perc-canvas"></canvas>
       </div>
     `);
   }
@@ -356,6 +383,26 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
       else ctx.lineTo(x, y);
     }
     ctx.stroke();
+    
+    // ACTUAL - přerušovaná tlustší čára stejné barvy, normalizováno na stejný maxV
+    const actual = _actualMap?.[s.country.code]?.[type];
+    if (actual && actual.length) {
+      ctx.strokeStyle = s.color;
+      ctx.lineWidth = 2.5;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      let firstA = true;
+      for (const p of actual) {
+        const tMs = new Date(p.ts).getTime();
+        if (tMs < tMin || tMs > tMax) continue;
+        const x = PAD.left + cW * ((tMs - tMin) / tR);
+        const y = PAD.top + cH * (1 - p.value / s.maxV);
+        if (firstA) { ctx.moveTo(x, y); firstA = false; }
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
   }
   
   // Border

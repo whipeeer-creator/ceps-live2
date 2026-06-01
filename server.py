@@ -837,6 +837,76 @@ class Handler(BaseHTTPRequestHandler):
 
         if parsed.path == "/entsoe/solar":
             self._entsoe_solar(qs); return
+        
+        # Actual generation per type/country (solar+wind) z ENTSO-E
+        if parsed.path == "/entsoe/actual":
+            try:
+                country = qs.get("country", ["CZ"])[0].upper()
+                gen_type = qs.get("type", ["solar"])[0].lower()
+                day_str = qs.get("day", [None])[0]
+                
+                EIC = {
+                    "CZ": "10YCZ-CEPS-----N",
+                    "DE": "10Y1001A1001A83F",  # DE total
+                    "AT": "10YAT-APG------L",
+                    "HU": "10YHU-MAVIR----U",
+                    "NL": "10YNL----------L",
+                    "PL": "10YPL-AREA-----S",
+                    "SK": "10YSK-SEPS-----K",
+                }.get(country)
+                if not EIC:
+                    self._json({"error": f"unknown country {country}", "available": ["CZ","DE","AT","HU","NL"]}, 400); return
+                
+                psrType = {"solar": "B16", "wind": "B19", "wind_onshore": "B19", "wind_offshore": "B18"}.get(gen_type, "B16")
+                
+                if day_str:
+                    day = datetime.strptime(day_str, "%Y-%m-%d")
+                else:
+                    day = datetime.now(timezone.utc).replace(tzinfo=None)
+                ps = day.replace(hour=0, minute=0, second=0, microsecond=0)
+                pe = ps + timedelta(hours=23)
+                
+                # A75 = Actual generation per type
+                params = {
+                    "documentType": "A75",
+                    "processType": "A16",  # Realised
+                    "psrType": psrType,
+                    "in_Domain": EIC,
+                    "periodStart": fmt_entsoe_period(ps),
+                    "periodEnd": fmt_entsoe_period(pe),
+                }
+                
+                # Cache 10 min
+                cache_key = f"actual|{country}|{gen_type}|{ps.strftime('%Y-%m-%d')}"
+                if "_ENTSOE_ACT_CACHE" not in globals(): globals()["_ENTSOE_ACT_CACHE"] = {}
+                cache = globals()["_ENTSOE_ACT_CACHE"]
+                now = time.time()
+                if cache_key in cache and (now - cache[cache_key]["ts"]) < 600:
+                    out = dict(cache[cache_key]["data"]); out["_cache"] = "hit"
+                    self._json(out); return
+                
+                xml, st = call_entsoe(params)
+                if st != 200:
+                    self._json({"error": f"ENTSO-E status {st}", "preview": xml[:200] if isinstance(xml, str) else str(xml)[:200]}, 200); return
+                
+                points = parse_entsoe_xml(xml, ps)
+                # Convert to {ts, value} format - same as MAGMA
+                result_points = []
+                for p in points:
+                    result_points.append({"ts": p.get("ts") or p.get("timestamp"), "value": p.get("value")})
+                
+                out = {
+                    "country": country,
+                    "type": gen_type,
+                    "day": ps.strftime("%Y-%m-%d"),
+                    "points": result_points,
+                    "n": len(result_points),
+                }
+                cache[cache_key] = {"ts": now, "data": out}
+                self._json(out)
+            except Exception as e:
+                self._json({"error": str(e)[:200]}, 500)
+            return
 
         if parsed.path == "/entsoe/residual-load" or parsed.path == "/entsoe/residual":
             self._entsoe_residual_load(qs); return
@@ -915,19 +985,26 @@ class Handler(BaseHTTPRequestHandler):
                 icon_issue = get_latest_issue("icon")
                 
                 urls_to_test = []
-                # ZEMĚ pro MAGMA (víme že CZ/DE fungují)
-                for c in ["CZ", "DE", "AT", "HU", "PL", "SK", "FR", "IT", "ES", "BE", "NL", "DK", "GB", "RO", "BG"]:
-                    urls_to_test.append(f"https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&issue={magma_issue}&location={c}&location_type=country&element=solar&interval=hires&start_dtg={start}&end_dtg={end}")
+                # Možné endpointy pro observations/actuals
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/observations")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/observations?model=magma&location=DE&location_type=country&element=solar")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/actuals")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/realised")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/measurements")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/history")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/historical")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/nowcast")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/analysis")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergenobs/v2/issues")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/observations/v2/issues")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen_actual/v2/issues")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/data")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/timeseries")
+                urls_to_test.append("https://api.metdesk.com/get/metdesk/powergen/v2/")
                 
-                # ELEMENTY (generation types) pro DE
-                for el in ["solar", "wind", "wind_onshore", "wind_offshore", "hydro", "biomass", "nuclear", "coal", "gas", "renewable", "total", "load", "consumption", "demand"]:
-                    urls_to_test.append(f"https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&issue={magma_issue}&location=DE&location_type=country&element={el}&interval=hires&start_dtg={start}&end_dtg={end}")
-                
-                # ICON model
-                if icon_issue:
-                    for c in ["DE", "CZ", "AT", "PL", "FR"]:
-                        for el in ["solar", "wind"]:
-                            urls_to_test.append(f"https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=icon&issue={icon_issue}&location={c}&location_type=country&element={el}&interval=hires&start_dtg={start}&end_dtg={end}")
+                # Také zkusit starší issue (před 48h) - to bude historický forecast = "actual" po tom času
+                old_issue = (now_utc - timedelta(hours=48)).strftime("%Y-%m-%dT00:00:00Z")
+                urls_to_test.append(f"https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&issue={old_issue}&location=DE&location_type=country&element=solar&interval=hires&start_dtg={(now_utc - timedelta(hours=48)).strftime('%Y-%m-%dT00:00:00Z')}&end_dtg={now_utc.strftime('%Y-%m-%dT00:00:00Z')}")
                 
                 results = []
                 for url in urls_to_test:
