@@ -184,17 +184,13 @@ async function main() {
     }
   }
   
-  // Graf solar pro všechny země
-  drawAllChart('canvasSolarAll', 'solarLegend', dataMap, 'solar');
-  drawAllChart('canvasWindAll', 'windLegend', dataMap, 'wind');
-  
-  // Per country detail
+  // Per country detail - prepare HTML containers BEFORE drawing
   const pcEl = document.getElementById('perCountry');
+  pcEl.innerHTML = '';
   for (const c of COUNTRIES) {
     const solar = dataMap[c.code]?.solar;
     const wind = dataMap[c.code]?.wind;
     if (!solar && !wind) continue;
-    
     pcEl.insertAdjacentHTML('beforeend', `
       <div class="chart-card">
         <h2>${c.flag} ${c.name}</h2>
@@ -202,14 +198,29 @@ async function main() {
         <canvas id="canvas_${c.code}" height="240"></canvas>
       </div>
     `);
+  }
+  
+  // ZOBRAZIT content PŘED kreslením grafů (canvas potřebuje real width)
+  status.style.display = 'none';
+  document.getElementById('content').style.display = 'block';
+  
+  // Wait for layout to settle, then draw
+  await new Promise(r => setTimeout(r, 50));
+  
+  // Graf solar pro všechny země
+  drawAllChart('canvasSolarAll', 'solarLegend', dataMap, 'solar');
+  drawAllChart('canvasWindAll', 'windLegend', dataMap, 'wind');
+  
+  // Per country detail charts
+  for (const c of COUNTRIES) {
+    const solar = dataMap[c.code]?.solar;
+    const wind = dataMap[c.code]?.wind;
+    if (!solar && !wind) continue;
     drawCountryChart(`canvas_${c.code}`, c, solar, wind);
   }
   
   // Data tabulka
   buildDataTable(dataMap);
-  
-  status.style.display = 'none';
-  document.getElementById('content').style.display = 'block';
 }
 
 function drawAllChart(canvasId, legendId, dataMap, type) {
