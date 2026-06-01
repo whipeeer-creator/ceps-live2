@@ -896,27 +896,34 @@ class Handler(BaseHTTPRequestHandler):
                 raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
                 
                 urls_to_test = [
-                    # PowerGen v2 (víme že funguje)
-                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues",
-                    # Možné v2 produkty
-                    "https://api.metdesk.com/get/metdesk/load/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/germanload/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/loadforecast/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/imbalance/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/weather/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/temperature/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/wind/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/solar/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/renewable/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/renewables/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/price/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/priceforecast/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/cloud/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/radiation/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/ghi/v2/issues",
-                    "https://api.metdesk.com/get/metdesk/windspeed/v2/issues",
-                    # Try root listing
-                    "https://api.metdesk.com/get/metdesk/",
+                    # Možné modely
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=magma",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=ecmwf",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=icon",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=gfs",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=harmonie",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=hrrr",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=arpege",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues?model=ensemble",
+                    # Možné země s magma
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=CZ&generation_type=solar&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=solar&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=AT&generation_type=solar&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=HU&generation_type=solar&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=PL&generation_type=solar&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=SK&generation_type=solar&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=FR&generation_type=solar&issue=latest",
+                    # Možné generation types
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=wind_offshore&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=wind_onshore&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=hydro&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=biomass&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=total&issue=latest",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/forecasts?model=magma&country=DE&generation_type=renewable&issue=latest",
+                    # Other endpoints in powergen
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/models",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/countries",
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/types",
                 ]
                 
                 results = []
