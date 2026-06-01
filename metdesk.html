@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MetDesk - Power Generation Forecast</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #f5f7fa;
+    color: #2c3e50;
+    padding: 12px;
+    font-size: 13px;
+  }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .subtitle { color: #7f8c8d; font-size: 12px; margin-bottom: 14px; }
+  
+  .summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .sum-card {
+    background: white;
+    border: 1px solid #dde;
+    border-radius: 6px;
+    padding: 10px 12px;
+  }
+  .sum-card .country { font-size: 11px; color: #7f8c8d; }
+  .sum-card .type { font-size: 11px; font-weight: 600; }
+  .sum-card .val { font-size: 20px; font-weight: 700; color: #2c3e50; margin-top: 2px; }
+  .sum-card .unit { font-size: 11px; color: #95a5a6; margin-left: 2px; }
+  .sum-card .max { font-size: 10px; color: #95a5a6; margin-top: 2px; }
+  .sum-card.solar { border-left: 4px solid #f39c12; }
+  .sum-card.wind  { border-left: 4px solid #2980b9; }
+  
+  .chart-card {
+    background: white;
+    border: 1px solid #dde;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 12px;
+  }
+  .chart-card h2 {
+    font-size: 14px;
+    margin-bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .chart-card .h-sub { font-size: 11px; color: #7f8c8d; margin-bottom: 6px; }
+  canvas { width: 100%; display: block; }
+  
+  .grid-2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  @media (max-width: 900px) {
+    .grid-2 { grid-template-columns: 1fr; }
+  }
+  
+  table { width: 100%; font-size: 11px; font-family: monospace; border-collapse: collapse; }
+  th, td { padding: 3px 6px; text-align: right; border-bottom: 1px solid #ecf0f1; }
+  th { background: #ecf0f1; }
+  
+  #status {
+    padding: 10px;
+    background: #fef9e7;
+    border: 1px solid #f4d03f;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<h1>⚡ MetDesk - Power Generation Forecast</h1>
+<div class="subtitle">Aktuální 48h forecast solar + wind generation pro CZ, DE, AT, HU, NL z MetDesk MAGMA modelu.</div>
+
+<div id="status">Načítám data z MetDesk API...</div>
+
+<div id="content" style="display:none;">
+  <h2 style="font-size:14px; margin-bottom:6px;">Aktuální výroba (next 1h)</h2>
+  <div class="summary-grid" id="summary"></div>
+  
+  <h2 style="font-size:14px; margin: 14px 0 6px;">☀️ Solar - všechny dostupné země</h2>
+  <div class="chart-card">
+    <h2>Solar 48h forecast - srovnání</h2>
+    <div class="h-sub">CZ, DE, AT, HU, NL - normalizováno na max kapacitu (% z peak)</div>
+    <canvas id="canvasSolarAll" height="320"></canvas>
+    <div id="solarLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
+  </div>
+  
+  <h2 style="font-size:14px; margin: 14px 0 6px;">💨 Wind - všechny dostupné země</h2>
+  <div class="chart-card">
+    <h2>Wind 48h forecast - srovnání</h2>
+    <div class="h-sub">DE primární, ostatní pokud dostupné</div>
+    <canvas id="canvasWindAll" height="320"></canvas>
+    <div id="windLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
+  </div>
+  
+  <h2 style="font-size:14px; margin: 14px 0 6px;">📊 Detail per země</h2>
+  <div id="perCountry"></div>
+  
+  <h2 style="font-size:14px; margin: 14px 0 6px;">📋 Data tabulka</h2>
+  <div class="chart-card">
+    <div style="overflow-x:auto;">
+      <table id="dataTable"></table>
+    </div>
+  </div>
+</div>
+
+<script>
+const API_URL = '';
+const COUNTRIES = [
+  { code: 'CZ', name: 'Česko', flag: '🇨🇿', color_solar: '#f39c12', color_wind: '#2980b9' },
+  { code: 'DE', name: 'Německo', flag: '🇩🇪', color_solar: '#e67e22', color_wind: '#3498db' },
+  { code: 'AT', name: 'Rakousko', flag: '🇦🇹', color_solar: '#d35400', color_wind: '#1abc9c' },
+  { code: 'HU', name: 'Maďarsko', flag: '🇭🇺', color_solar: '#f1c40f', color_wind: '#9b59b6' },
+  { code: 'NL', name: 'Nizozemsko', flag: '🇳🇱', color_solar: '#e74c3c', color_wind: '#16a085' },
+];
+
+async function fetchData(country, type) {
+  try {
+    const r = await fetch(`${API_URL}/metdesk/magma?model=magma&country=${country}&generation_type=${type}`, { cache: 'no-store' });
+    if (!r.ok) return null;
+    const d = await r.json();
+    if (d.error) return null;
+    return d;
+  } catch(e) { return null; }
+}
+
+async function main() {
+  const status = document.getElementById('status');
+  
+  // Fetch all in parallel
+  const tasks = [];
+  for (const c of COUNTRIES) {
+    tasks.push(fetchData(c.code, 'solar').then(d => ({ country: c.code, type: 'solar', data: d })));
+    tasks.push(fetchData(c.code, 'wind').then(d => ({ country: c.code, type: 'wind', data: d })));
+  }
+  status.textContent = `Stahuji ${tasks.length} datových sad paralelně...`;
+  const results = await Promise.all(tasks);
+  
+  // Index data
+  const dataMap = {};  // {CZ: {solar: [...], wind: [...]}, ...}
+  for (const r of results) {
+    if (!dataMap[r.country]) dataMap[r.country] = {};
+    if (r.data && r.data.points) {
+      dataMap[r.country][r.type] = r.data.points;
+    } else {
+      dataMap[r.country][r.type] = null;
+    }
+  }
+  
+  // Souhrn karet
+  const sumEl = document.getElementById('summary');
+  sumEl.innerHTML = '';
+  for (const c of COUNTRIES) {
+    for (const type of ['solar', 'wind']) {
+      const pts = dataMap[c.code]?.[type];
+      if (!pts || !pts.length) continue;
+      // Najít aktuální nebo nejbližší hodnotu k now
+      const now = Date.now();
+      let nearest = pts[0];
+      let nearestDiff = Math.abs(new Date(pts[0].ts).getTime() - now);
+      for (const p of pts) {
+        const d = Math.abs(new Date(p.ts).getTime() - now);
+        if (d < nearestDiff) { nearest = p; nearestDiff = d; }
+      }
+      const maxV = Math.max(...pts.map(p => p.value));
+      sumEl.insertAdjacentHTML('beforeend', `
+        <div class="sum-card ${type}">
+          <div class="country">${c.flag} ${c.name}</div>
+          <div class="type">${type === 'solar' ? '☀️ Solar' : '💨 Wind'}</div>
+          <div class="val">${nearest.value.toFixed(0)}<span class="unit">MW</span></div>
+          <div class="max">max v 48h: ${maxV.toFixed(0)} MW</div>
+        </div>
+      `);
+    }
+  }
+  
+  // Graf solar pro všechny země
+  drawAllChart('canvasSolarAll', 'solarLegend', dataMap, 'solar');
+  drawAllChart('canvasWindAll', 'windLegend', dataMap, 'wind');
+  
+  // Per country detail
+  const pcEl = document.getElementById('perCountry');
+  for (const c of COUNTRIES) {
+    const solar = dataMap[c.code]?.solar;
+    const wind = dataMap[c.code]?.wind;
+    if (!solar && !wind) continue;
+    
+    pcEl.insertAdjacentHTML('beforeend', `
+      <div class="chart-card">
+        <h2>${c.flag} ${c.name}</h2>
+        <div class="h-sub">Solar + Wind combined view (absolute MW)</div>
+        <canvas id="canvas_${c.code}" height="240"></canvas>
+      </div>
+    `);
+    drawCountryChart(`canvas_${c.code}`, c, solar, wind);
+  }
+  
+  // Data tabulka
+  buildDataTable(dataMap);
+  
+  status.style.display = 'none';
+  document.getElementById('content').style.display = 'block';
+}
+
+function drawAllChart(canvasId, legendId, dataMap, type) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
+  canvas.width = W * (window.devicePixelRatio || 1);
+  canvas.height = H * (window.devicePixelRatio || 1);
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+  
+  const PAD = { left: 50, top: 12, right: 8, bottom: 28 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+  
+  // Find data with this type, normalize each to its own max (% of peak)
+  const series = [];
+  for (const c of COUNTRIES) {
+    const pts = dataMap[c.code]?.[type];
+    if (!pts || !pts.length) continue;
+    const maxV = Math.max(...pts.map(p => p.value)) || 1;
+    series.push({
+      country: c,
+      points: pts,
+      maxV,
+      color: type === 'solar' ? c.color_solar : c.color_wind,
+    });
+  }
+  
+  if (!series.length) {
+    ctx.fillStyle = '#999';
+    ctx.font = '13px sans-serif';
+    ctx.fillText('Žádná data', PAD.left + 20, H/2);
+    return;
+  }
+  
+  // X axis = time (use first series for time range)
+  const timeSeries = series[0].points;
+  const tMin = new Date(timeSeries[0].ts).getTime();
+  const tMax = new Date(timeSeries[timeSeries.length-1].ts).getTime();
+  const tR = tMax - tMin;
+  
+  // Y axis = % of max (0-100)
+  // Background
+  ctx.fillStyle = '#fafbfc';
+  ctx.fillRect(PAD.left, PAD.top, cW, cH);
+  // Grid
+  ctx.strokeStyle = '#eee';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#7f8c8d';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (let p = 0; p <= 100; p += 25) {
+    const y = PAD.top + cH * (1 - p/100);
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
+    ctx.fillText(p + '%', PAD.left - 4, y);
+  }
+  // Hours labels (every 6h)
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  const startDate = new Date(tMin);
+  for (let i = 0; i <= 48; i += 6) {
+    const ts = tMin + i * 3600 * 1000;
+    if (ts > tMax) break;
+    const x = PAD.left + cW * ((ts - tMin) / tR);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top + cH); ctx.lineTo(x, PAD.top + cH + 3); ctx.stroke();
+    const d = new Date(ts);
+    const label = `${String(d.getHours()).padStart(2,'0')}:00`;
+    ctx.fillText(label, x, PAD.top + cH + 4);
+  }
+  
+  // Now line
+  const nowMs = Date.now();
+  if (nowMs >= tMin && nowMs <= tMax) {
+    const nx = PAD.left + cW * ((nowMs - tMin) / tR);
+    ctx.strokeStyle = '#e74c3c';
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(nx, PAD.top); ctx.lineTo(nx, PAD.top + cH); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#e74c3c';
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 10px sans-serif';
+    ctx.fillText(' teď', nx, PAD.top + 10);
+  }
+  
+  // Lines for each series
+  for (const s of series) {
+    ctx.strokeStyle = s.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let first = true;
+    for (const p of s.points) {
+      const tMs = new Date(p.ts).getTime();
+      const x = PAD.left + cW * ((tMs - tMin) / tR);
+      const y = PAD.top + cH * (1 - p.value / s.maxV);
+      if (first) { ctx.moveTo(x, y); first = false; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  
+  // Border
+  ctx.strokeStyle = '#bdc3c7';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(PAD.left, PAD.top, cW, cH);
+  
+  // Legend
+  const lEl = document.getElementById(legendId);
+  lEl.innerHTML = '';
+  for (const s of series) {
+    lEl.insertAdjacentHTML('beforeend', `
+      <span style="display:flex;align-items:center;gap:4px;">
+        <span style="width:14px;height:3px;background:${s.color};display:inline-block;"></span>
+        ${s.country.flag} ${s.country.name} (max ${s.maxV.toFixed(0)} MW)
+      </span>
+    `);
+  }
+}
+
+function drawCountryChart(canvasId, country, solar, wind) {
+  const canvas = document.getElementById(canvasId);
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth;
+  const H = canvas.offsetHeight;
+  canvas.width = W * (window.devicePixelRatio || 1);
+  canvas.height = H * (window.devicePixelRatio || 1);
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+  
+  const PAD = { left: 50, top: 8, right: 8, bottom: 24 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+  
+  const allPts = [...(solar || []), ...(wind || [])];
+  if (!allPts.length) return;
+  
+  const allVals = allPts.map(p => p.value);
+  const yMax = Math.max(...allVals) * 1.05 || 100;
+  
+  const allTs = allPts.map(p => new Date(p.ts).getTime());
+  const tMin = Math.min(...allTs);
+  const tMax = Math.max(...allTs);
+  const tR = tMax - tMin;
+  
+  ctx.fillStyle = '#fafbfc';
+  ctx.fillRect(PAD.left, PAD.top, cW, cH);
+  
+  ctx.strokeStyle = '#eee';
+  ctx.fillStyle = '#7f8c8d';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'middle';
+  for (let i = 0; i <= 4; i++) {
+    const y = PAD.top + (cH/4)*i;
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
+    const val = yMax * (1 - i/4);
+    ctx.fillText(val.toFixed(0), PAD.left - 4, y);
+  }
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  for (let i = 0; i <= 48; i += 12) {
+    const ts = tMin + i * 3600 * 1000;
+    if (ts > tMax) break;
+    const x = PAD.left + cW * ((ts - tMin) / tR);
+    ctx.beginPath(); ctx.moveTo(x, PAD.top + cH); ctx.lineTo(x, PAD.top + cH + 3); ctx.stroke();
+    const d = new Date(ts);
+    const label = `${d.getDate()}.${d.getMonth()+1} ${String(d.getHours()).padStart(2,'0')}h`;
+    ctx.fillText(label, x, PAD.top + cH + 4);
+  }
+  
+  // Now
+  const nowMs = Date.now();
+  if (nowMs >= tMin && nowMs <= tMax) {
+    const nx = PAD.left + cW * ((nowMs - tMin) / tR);
+    ctx.strokeStyle = '#e74c3c';
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(nx, PAD.top); ctx.lineTo(nx, PAD.top + cH); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  
+  // Solar (filled area)
+  if (solar && solar.length) {
+    ctx.fillStyle = country.color_solar + '40';  // 25% alpha
+    ctx.strokeStyle = country.color_solar;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(PAD.left, PAD.top + cH);
+    for (const p of solar) {
+      const tMs = new Date(p.ts).getTime();
+      const x = PAD.left + cW * ((tMs - tMin) / tR);
+      const y = PAD.top + cH * (1 - p.value / yMax);
+      ctx.lineTo(x, y);
+    }
+    ctx.lineTo(PAD.left + cW, PAD.top + cH);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+  
+  // Wind (line on top)
+  if (wind && wind.length) {
+    ctx.strokeStyle = country.color_wind;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    let first = true;
+    for (const p of wind) {
+      const tMs = new Date(p.ts).getTime();
+      const x = PAD.left + cW * ((tMs - tMin) / tR);
+      const y = PAD.top + cH * (1 - p.value / yMax);
+      if (first) { ctx.moveTo(x, y); first = false; }
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  }
+  
+  ctx.strokeStyle = '#bdc3c7';
+  ctx.strokeRect(PAD.left, PAD.top, cW, cH);
+}
+
+function buildDataTable(dataMap) {
+  // Find common time axis
+  let timePoints = null;
+  for (const c of COUNTRIES) {
+    const solar = dataMap[c.code]?.solar;
+    if (solar && solar.length) {
+      timePoints = solar.map(p => p.ts);
+      break;
+    }
+  }
+  if (!timePoints) return;
+  
+  const tbl = document.getElementById('dataTable');
+  let h = '<thead><tr><th class="left" style="text-align:left;">Čas</th>';
+  for (const c of COUNTRIES) {
+    if (dataMap[c.code]?.solar?.length) h += `<th>${c.flag} Sol</th>`;
+    if (dataMap[c.code]?.wind?.length) h += `<th>${c.flag} Wnd</th>`;
+  }
+  h += '</tr></thead><tbody>';
+  
+  for (let i = 0; i < Math.min(timePoints.length, 48); i++) {
+    const ts = timePoints[i];
+    const d = new Date(ts);
+    const label = `${d.getDate()}.${d.getMonth()+1} ${String(d.getHours()).padStart(2,'0')}:00`;
+    h += `<tr><td style="text-align:left;">${label}</td>`;
+    for (const c of COUNTRIES) {
+      if (dataMap[c.code]?.solar?.length) {
+        const v = dataMap[c.code].solar[i]?.value;
+        h += `<td>${v != null ? v.toFixed(0) : '-'}</td>`;
+      }
+      if (dataMap[c.code]?.wind?.length) {
+        const v = dataMap[c.code].wind[i]?.value;
+        h += `<td>${v != null ? v.toFixed(0) : '-'}</td>`;
+      }
+    }
+    h += '</tr>';
+  }
+  h += '</tbody>';
+  tbl.innerHTML = h;
+}
+
+main();
+</script>
+
+</body>
+</html>
