@@ -896,22 +896,27 @@ class Handler(BaseHTTPRequestHandler):
                 raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
                 
                 urls_to_test = [
-                    # Power / load endpointy
-                    "https://api.metdesk.com/get/metdesk/power/v1/issues",
-                    "https://api.metdesk.com/get/metdesk/magmapower/v1/issues",
-                    "https://api.metdesk.com/get/metdesk/germanload/v1/issues",
-                    "https://api.metdesk.com/get/metdesk/load/v1/issues",
-                    # Solar endpointy
-                    "https://api.metdesk.com/get/metdesk/solar/v1/issues",
-                    "https://api.metdesk.com/get/metdesk/magmasolar/v1/issues",
-                    "https://api.metdesk.com/get/metdesk/solar/v1/forecasts",
-                    # Wind endpointy
-                    "https://api.metdesk.com/get/metdesk/wind/v1/issues",
-                    "https://api.metdesk.com/get/metdesk/magmawind/v1/issues",
-                    "https://api.metdesk.com/get/metdesk/wind/v1/forecasts",
-                    # Renewable
-                    "https://api.metdesk.com/get/metdesk/renewable/v1/issues",
-                    "https://api.metdesk.com/get/metdesk/renewables/v1/issues",
+                    # PowerGen v2 (víme že funguje)
+                    "https://api.metdesk.com/get/metdesk/powergen/v2/issues",
+                    # Možné v2 produkty
+                    "https://api.metdesk.com/get/metdesk/load/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/germanload/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/loadforecast/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/imbalance/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/weather/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/temperature/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/wind/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/solar/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/renewable/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/renewables/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/price/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/priceforecast/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/cloud/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/radiation/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/ghi/v2/issues",
+                    "https://api.metdesk.com/get/metdesk/windspeed/v2/issues",
+                    # Try root listing
+                    "https://api.metdesk.com/get/metdesk/",
                 ]
                 
                 results = []
