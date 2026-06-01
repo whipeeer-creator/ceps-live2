@@ -151,6 +151,12 @@
   </div>
   
   <div class="card">
+    <h2>Srovnání regulace den po dni</h2>
+    <div class="subtitle">Per den za květen: průměrná odchylka, suma aktivací (aFRR+/aFRR-/mFRR+/mFRR-) a P&L LONG vs SHORT.</div>
+    <div id="dayChart" style="margin-top:8px;"></div>
+  </div>
+  
+  <div class="card">
     <h2>Závěry</h2>
     <div id="conclusions" style="font-size:13px; line-height:1.6;"></div>
   </div>
@@ -162,9 +168,10 @@ const KURZ = 24.5;  // EUR/CZK
 
 async function fetchDay(date) {
   try {
-    const [r1, r2] = await Promise.all([
-      fetch(`${API_URL}/ceps_txt?date=${date}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    const [r1, r2, r3] = await Promise.all([
+      fetch(`${API_URL}/api?method=OdhadovanaCenaOdchylky&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`${API_URL}/ote/vdt?date=${date}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_URL}/api?method=AktivaceSVRvCR&dateFrom=${date}T00:00:00&dateTo=${date}T23:59:59&para1=all`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
     if (!r1 || !r1.rows) return null;
     
@@ -177,20 +184,18 @@ async function fetchDay(date) {
       if (!start || raw === '' || raw === null) continue;
       const kc_czk = parseFloat(String(raw).replace(',', '.'));
       if (!isFinite(kc_czk)) continue;
-      kcMap[start] = kc_czk / KURZ;  // → EUR
+      kcMap[start] = kc_czk / KURZ;
     }
     
-    // VDT
     const vdtMap = {};
     if (r2 && r2.data) {
       for (const v of r2.data) {
         const hh = String(v.hour).padStart(2, '0');
         const mm = String(v.minute).padStart(2, '0');
-        vdtMap[`${hh}:${mm}`] = v.last;  // EUR
+        vdtMap[`${hh}:${mm}`] = v.last;
       }
     }
     
-    // Spojit
     const qhs = [];
     for (const tm in kcMap) {
       const vdt = vdtMap[tm];
@@ -206,6 +211,22 @@ async function fetchDay(date) {
         spread: kc - vdt,
       });
     }
+    
+    // Aktivace agregát za den (suma minutových hodnot v MW)
+    let actAfrrPlus = 0, actAfrrMinus = 0, actMfrrPlus = 0, actMfrrMinus = 0;
+    if (r3 && r3.rows) {
+      for (const row of r3.rows) {
+        actAfrrPlus += parseFloat(row['aFRR+ [MW]']) || 0;
+        actAfrrMinus += parseFloat(row['aFRR- [MW]']) || 0;
+        actMfrrPlus += parseFloat(row['mFRR+ [MW]']) || 0;
+        actMfrrMinus += parseFloat(row['mFRR- [MW]']) || 0;
+      }
+    }
+    
+    qhs._dayStats = {
+      actAfrrPlus, actAfrrMinus, actMfrrPlus, actMfrrMinus,
+    };
+    
     return qhs;
   } catch (e) {
     console.warn(`Day ${date} error:`, e);
@@ -230,13 +251,22 @@ async function main() {
   
   // Fetch all in parallel batches
   const allQHs = [];
+  const perDayStats = [];  // {date, qhs, dayStats}
   const BATCH_SIZE = 5;
   for (let i = 0; i < days.length; i += BATCH_SIZE) {
     const batch = days.slice(i, i + BATCH_SIZE);
     status.textContent = `Načítám ${i+1}-${Math.min(i+BATCH_SIZE, days.length)} z ${days.length}...`;
     const results = await Promise.all(batch.map(fetchDay));
-    for (const qhs of results) {
-      if (qhs) allQHs.push(...qhs);
+    for (let j = 0; j < results.length; j++) {
+      const qhs = results[j];
+      if (qhs && qhs.length) {
+        allQHs.push(...qhs);
+        perDayStats.push({
+          date: batch[j],
+          qhs,
+          dayStats: qhs._dayStats || {},
+        });
+      }
     }
   }
   
@@ -405,9 +435,110 @@ async function main() {
   concl += 'Večerní špička (18-21h) má deficit → LONG.<br>';
   concl += '</p>';
   
+  // Per-day chart
+  renderDayChart(perDayStats);
+  
   document.getElementById('conclusions').innerHTML = concl;
   document.getElementById('content').style.display = 'block';
   status.style.display = 'none';
+}
+
+function renderDayChart(perDayStats) {
+  const cont = document.getElementById('dayChart');
+  if (!perDayStats.length) {
+    cont.innerHTML = '<div style="color:#888;padding:8px;">Žádná data</div>';
+    return;
+  }
+  
+  // Per den spočítat:
+  //  - průměrná odchylka EUR
+  //  - aktivace celkem (suma)
+  //  - LONG net P&L
+  //  - SHORT net P&L
+  const days = perDayStats.map(d => {
+    const qhs = d.qhs;
+    const ds = d.dayStats || {};
+    const avgKc = qhs.reduce((s,q)=>s+q.kc,0) / qhs.length;
+    const avgVdt = qhs.reduce((s,q)=>s+q.vdt,0) / qhs.length;
+    const longNet = qhs.reduce((s,q)=>s+(q.kc-q.vdt),0);
+    const shortNet = qhs.reduce((s,q)=>s+(q.vdt-q.kc),0);
+    const longW = qhs.filter(q=>q.kc>q.vdt).length;
+    const shortW = qhs.filter(q=>q.kc<q.vdt).length;
+    return {
+      date: d.date,
+      qhs: qhs.length,
+      avgKc, avgVdt,
+      longNet, shortNet,
+      longPct: 100*longW/qhs.length,
+      shortPct: 100*shortW/qhs.length,
+      actTotal: (ds.actAfrrPlus||0) + (ds.actAfrrMinus||0) + (ds.actMfrrPlus||0) + (ds.actMfrrMinus||0),
+      actAfrrPlus: ds.actAfrrPlus||0,
+      actAfrrMinus: ds.actAfrrMinus||0,
+      actMfrrPlus: ds.actMfrrPlus||0,
+      actMfrrMinus: ds.actMfrrMinus||0,
+    };
+  });
+  
+  // Vykreslit jako tabulku + bar charts
+  let html = '<table style="font-size:11px;">';
+  html += '<thead><tr>';
+  html += '<th class="left">Den</th>';
+  html += '<th>DoW</th>';
+  html += '<th>QH</th>';
+  html += '<th>Ø odch €</th>';
+  html += '<th>Ø VDT €</th>';
+  html += '<th>aFRR+ MW</th>';
+  html += '<th>aFRR− MW</th>';
+  html += '<th>mFRR+ MW</th>';
+  html += '<th>mFRR− MW</th>';
+  html += '<th>LONG net €</th>';
+  html += '<th>SHORT net €</th>';
+  html += '<th>Vítěz</th>';
+  html += '</tr></thead><tbody>';
+  
+  const dayNames = ['Ne','Po','Út','St','Čt','Pá','So'];
+  
+  // Najdi max pro normalizaci bar šířek
+  const maxAct = Math.max(...days.map(d => Math.max(d.actAfrrPlus, d.actAfrrMinus, d.actMfrrPlus, d.actMfrrMinus)));
+  const maxAbsNet = Math.max(...days.map(d => Math.max(Math.abs(d.longNet), Math.abs(d.shortNet))));
+  
+  function bar(v, max, color) {
+    const pct = max > 0 ? Math.min(100, 100*v/max) : 0;
+    return `<div style="background:${color};height:10px;width:${pct}%;display:inline-block;min-width:1px;"></div>`;
+  }
+  
+  for (const d of days) {
+    const dow = new Date(d.date).getDay();
+    const winner = d.longNet > d.shortNet ? 'LONG' : (d.shortNet > d.longNet ? 'SHORT' : '-');
+    const winColor = winner === 'LONG' ? '#27ae60' : (winner === 'SHORT' ? '#e74c3c' : '#888');
+    
+    html += '<tr>';
+    html += `<td class="left"><strong>${d.date.substring(8)}.5.</strong></td>`;
+    html += `<td>${dayNames[dow]}</td>`;
+    html += `<td>${d.qhs}</td>`;
+    html += `<td style="color:${d.avgKc>0?'#27ae60':'#e74c3c'}">${d.avgKc.toFixed(1)}</td>`;
+    html += `<td>${d.avgVdt.toFixed(1)}</td>`;
+    html += `<td title="${d.actAfrrPlus.toFixed(0)} MW">${bar(d.actAfrrPlus, maxAct, '#ff9800')}<br><small>${(d.actAfrrPlus/1000).toFixed(1)}k</small></td>`;
+    html += `<td title="${d.actAfrrMinus.toFixed(0)} MW">${bar(d.actAfrrMinus, maxAct, '#00b4d8')}<br><small>${(d.actAfrrMinus/1000).toFixed(1)}k</small></td>`;
+    html += `<td title="${d.actMfrrPlus.toFixed(0)} MW">${bar(d.actMfrrPlus, maxAct, '#f44336')}<br><small>${(d.actMfrrPlus/1000).toFixed(1)}k</small></td>`;
+    html += `<td title="${d.actMfrrMinus.toFixed(0)} MW">${bar(d.actMfrrMinus, maxAct, '#4caf50')}<br><small>${(d.actMfrrMinus/1000).toFixed(1)}k</small></td>`;
+    html += `<td style="color:${d.longNet>0?'#27ae60':'#e74c3c'}">${d.longNet>0?'+':''}${d.longNet.toFixed(0)}</td>`;
+    html += `<td style="color:${d.shortNet>0?'#27ae60':'#e74c3c'}">${d.shortNet>0?'+':''}${d.shortNet.toFixed(0)}</td>`;
+    html += `<td style="color:${winColor};font-weight:600;">${winner}</td>`;
+    html += '</tr>';
+  }
+  
+  html += '</tbody></table>';
+  
+  // Legenda
+  html += '<div style="margin-top:10px;font-size:11px;color:#666;">';
+  html += '<span style="display:inline-block;width:10px;height:10px;background:#ff9800;"></span> aFRR+ (kladná sek. regulace) &nbsp;&nbsp;';
+  html += '<span style="display:inline-block;width:10px;height:10px;background:#00b4d8;"></span> aFRR− (záporná sek.) &nbsp;&nbsp;';
+  html += '<span style="display:inline-block;width:10px;height:10px;background:#f44336;"></span> mFRR+ (kladná terc.) &nbsp;&nbsp;';
+  html += '<span style="display:inline-block;width:10px;height:10px;background:#4caf50;"></span> mFRR− (záporná terc.)';
+  html += '</div>';
+  
+  cont.innerHTML = html;
 }
 
 main();
