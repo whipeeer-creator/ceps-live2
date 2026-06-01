@@ -74,12 +74,38 @@
     margin-bottom: 12px;
     font-size: 12px;
   }
+  
+  .model-btn {
+    padding: 6px 14px;
+    border: 1px solid #bdc3c7;
+    background: white;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    margin-right: 4px;
+    font-weight: 500;
+  }
+  .model-btn.active {
+    background: #2c3e50;
+    color: white;
+    border-color: #2c3e50;
+  }
+  .model-btn:hover:not(.active) {
+    background: #ecf0f1;
+  }
 </style>
 </head>
 <body>
 
 <h1>⚡ MetDesk - Power Generation Forecast</h1>
-<div class="subtitle">Aktuální 48h forecast solar + wind generation pro CZ, DE, AT, HU, NL z MetDesk MAGMA modelu.</div>
+<div class="subtitle">Aktuální 48h forecast solar + wind generation pro CZ, DE, AT, HU, NL. Vyber model: MAGMA (MetDesk), ICON (DWD), ARPEGE (Météo France).</div>
+
+<div style="margin-bottom: 12px;">
+  <strong style="font-size:12px;margin-right:8px;">Model:</strong>
+  <button id="modelMagma" class="model-btn active" onclick="setModel('magma')">🌐 MAGMA</button>
+  <button id="modelIcon"  class="model-btn"        onclick="setModel('icon')">🇩🇪 ICON</button>
+  <button id="modelArpege" class="model-btn"       onclick="setModel('arpege')">🇫🇷 ARPEGE</button>
+</div>
 
 <div id="status">Načítám data z MetDesk API...</div>
 
@@ -131,48 +157,76 @@ const visibleState = {
 };
 let _dataMap = null;
 
-async function fetchData(country, type) {
+async function fetchData(model, country, type) {
   try {
-    const r = await fetch(`${API_URL}/metdesk/magma?model=magma&country=${country}&generation_type=${type}`, { cache: 'no-store' });
+    const r = await fetch(`${API_URL}/metdesk/magma?model=${model}&country=${country}&generation_type=${type}`, { cache: 'no-store' });
     if (!r.ok) return null;
     const d = await r.json();
     if (d.error) return null;
+    if (!d.points || !d.points.length) return null;
     return d;
   } catch(e) { return null; }
+}
+
+let _currentModel = 'magma';
+let _allModelsData = {};  // {magma: dataMap, icon: dataMap, arpege: dataMap}
+
+function setModel(m) {
+  _currentModel = m;
+  document.querySelectorAll('.model-btn').forEach(b => b.classList.remove('active'));
+  const id = 'model' + m.charAt(0).toUpperCase() + m.slice(1);
+  const btn = document.getElementById(id);
+  if (btn) btn.classList.add('active');
+  
+  _dataMap = _allModelsData[m] || {};
+  renderAll();
 }
 
 async function main() {
   const status = document.getElementById('status');
   
-  // Fetch all in parallel
+  const models = ['magma', 'icon', 'arpege'];
   const tasks = [];
-  for (const c of COUNTRIES) {
-    tasks.push(fetchData(c.code, 'solar').then(d => ({ country: c.code, type: 'solar', data: d })));
-    tasks.push(fetchData(c.code, 'wind').then(d => ({ country: c.code, type: 'wind', data: d })));
-  }
-  status.textContent = `Stahuji ${tasks.length} datových sad paralelně...`;
-  const results = await Promise.all(tasks);
-  
-  // Index data
-  const dataMap = {};
-  for (const r of results) {
-    if (!dataMap[r.country]) dataMap[r.country] = {};
-    if (r.data && r.data.points) {
-      dataMap[r.country][r.type] = r.data.points;
-    } else {
-      dataMap[r.country][r.type] = null;
+  for (const m of models) {
+    for (const c of COUNTRIES) {
+      tasks.push(fetchData(m, c.code, 'solar').then(d => ({ model: m, country: c.code, type: 'solar', data: d })));
+      tasks.push(fetchData(m, c.code, 'wind').then(d => ({ model: m, country: c.code, type: 'wind', data: d })));
     }
   }
-  _dataMap = dataMap;  // global pro toggle re-render
+  status.textContent = `Stahuji ${tasks.length} datových sad (3 modely × 5 zemí × 2 typy)...`;
+  const results = await Promise.all(tasks);
+  
+  // Index data: _allModelsData[model][country][type] = points
+  for (const m of models) _allModelsData[m] = {};
+  for (const r of results) {
+    if (!_allModelsData[r.model][r.country]) _allModelsData[r.model][r.country] = {};
+    _allModelsData[r.model][r.country][r.type] = (r.data && r.data.points) ? r.data.points : null;
+  }
+  
+  // Set default model
+  _dataMap = _allModelsData[_currentModel];
+  
+  // ZOBRAZIT content PŘED kreslením
+  status.style.display = 'none';
+  document.getElementById('content').style.display = 'block';
+  
+  await new Promise(r => setTimeout(r, 50));
+  renderAll();
+}
+
+function renderAll() {
+  if (!_dataMap) return;
+  const dataMap = _dataMap;
   
   // Souhrn karet
   const sumEl = document.getElementById('summary');
   sumEl.innerHTML = '';
+  let anyData = false;
   for (const c of COUNTRIES) {
     for (const type of ['solar', 'wind']) {
       const pts = dataMap[c.code]?.[type];
       if (!pts || !pts.length) continue;
-      // Najít aktuální nebo nejbližší hodnotu k now
+      anyData = true;
       const now = Date.now();
       let nearest = pts[0];
       let nearestDiff = Math.abs(new Date(pts[0].ts).getTime() - now);
@@ -192,7 +246,11 @@ async function main() {
     }
   }
   
-  // Per country detail - prepare HTML containers BEFORE drawing
+  if (!anyData) {
+    sumEl.innerHTML = `<div style="padding:14px;color:#888;grid-column:1/-1;">Žádná data pro model <strong>${_currentModel.toUpperCase()}</strong>. Tento model pravděpodobně nemá pokrytí dostupných zemí pro tvůj API klíč.</div>`;
+  }
+  
+  // Per country detail containers
   const pcEl = document.getElementById('perCountry');
   pcEl.innerHTML = '';
   for (const c of COUNTRIES) {
@@ -208,27 +266,20 @@ async function main() {
     `);
   }
   
-  // ZOBRAZIT content PŘED kreslením grafů (canvas potřebuje real width)
-  status.style.display = 'none';
-  document.getElementById('content').style.display = 'block';
-  
-  // Wait for layout to settle, then draw
-  await new Promise(r => setTimeout(r, 50));
-  
-  // Graf solar pro všechny země
-  drawAllChart('canvasSolarAll', 'solarLegend', dataMap, 'solar');
-  drawAllChart('canvasWindAll', 'windLegend', dataMap, 'wind');
-  
-  // Per country detail charts
-  for (const c of COUNTRIES) {
-    const solar = dataMap[c.code]?.solar;
-    const wind = dataMap[c.code]?.wind;
-    if (!solar && !wind) continue;
-    drawCountryChart(`canvas_${c.code}`, c, solar, wind);
-  }
-  
-  // Data tabulka
-  buildDataTable(dataMap);
+  // Wait for layout
+  setTimeout(() => {
+    drawAllChart('canvasSolarAll', 'solarLegend', dataMap, 'solar');
+    drawAllChart('canvasWindAll', 'windLegend', dataMap, 'wind');
+    
+    for (const c of COUNTRIES) {
+      const solar = dataMap[c.code]?.solar;
+      const wind = dataMap[c.code]?.wind;
+      if (!solar && !wind) continue;
+      drawCountryChart(`canvas_${c.code}`, c, solar, wind);
+    }
+    
+    buildDataTable(dataMap);
+  }, 30);
 }
 
 function drawAllChart(canvasId, legendId, dataMap, type) {
