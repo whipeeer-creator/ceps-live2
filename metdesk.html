@@ -98,14 +98,7 @@
 <body>
 
 <h1>⚡ MetDesk - Power Generation Forecast</h1>
-<div class="subtitle">Aktuální 48h forecast solar + wind generation pro CZ, DE, AT, HU, NL. Vyber model: MAGMA (MetDesk), ICON (DWD), ARPEGE (Météo France).</div>
-
-<div style="margin-bottom: 12px;">
-  <strong style="font-size:12px;margin-right:8px;">Model:</strong>
-  <button id="modelMagma" class="model-btn active" onclick="setModel('magma')">🌐 MAGMA</button>
-  <button id="modelIcon"  class="model-btn"        onclick="setModel('icon')">🇩🇪 ICON</button>
-  <button id="modelArpege" class="model-btn"       onclick="setModel('arpege')">🇫🇷 ARPEGE</button>
-</div>
+<div class="subtitle">Aktuální 48h forecast solar + wind generation pro CZ, DE, AT, HU, NL z MAGMA modelu.</div>
 
 <div id="status">Načítám data z MetDesk API...</div>
 
@@ -168,45 +161,24 @@ async function fetchData(model, country, type) {
   } catch(e) { return null; }
 }
 
-let _currentModel = 'magma';
-let _allModelsData = {};  // {magma: dataMap, icon: dataMap, arpege: dataMap}
-
-function setModel(m) {
-  _currentModel = m;
-  document.querySelectorAll('.model-btn').forEach(b => b.classList.remove('active'));
-  const id = 'model' + m.charAt(0).toUpperCase() + m.slice(1);
-  const btn = document.getElementById(id);
-  if (btn) btn.classList.add('active');
-  
-  _dataMap = _allModelsData[m] || {};
-  renderAll();
-}
-
 async function main() {
   const status = document.getElementById('status');
   
-  const models = ['magma', 'icon', 'arpege'];
   const tasks = [];
-  for (const m of models) {
-    for (const c of COUNTRIES) {
-      tasks.push(fetchData(m, c.code, 'solar').then(d => ({ model: m, country: c.code, type: 'solar', data: d })));
-      tasks.push(fetchData(m, c.code, 'wind').then(d => ({ model: m, country: c.code, type: 'wind', data: d })));
-    }
+  for (const c of COUNTRIES) {
+    tasks.push(fetchData('magma', c.code, 'solar').then(d => ({ country: c.code, type: 'solar', data: d })));
+    tasks.push(fetchData('magma', c.code, 'wind').then(d => ({ country: c.code, type: 'wind', data: d })));
   }
-  status.textContent = `Stahuji ${tasks.length} datových sad (3 modely × 5 zemí × 2 typy)...`;
+  status.textContent = `Stahuji ${tasks.length} datových sad paralelně...`;
   const results = await Promise.all(tasks);
   
-  // Index data: _allModelsData[model][country][type] = points
-  for (const m of models) _allModelsData[m] = {};
+  const dataMap = {};
   for (const r of results) {
-    if (!_allModelsData[r.model][r.country]) _allModelsData[r.model][r.country] = {};
-    _allModelsData[r.model][r.country][r.type] = (r.data && r.data.points) ? r.data.points : null;
+    if (!dataMap[r.country]) dataMap[r.country] = {};
+    dataMap[r.country][r.type] = (r.data && r.data.points) ? r.data.points : null;
   }
+  _dataMap = dataMap;
   
-  // Set default model
-  _dataMap = _allModelsData[_currentModel];
-  
-  // ZOBRAZIT content PŘED kreslením
   status.style.display = 'none';
   document.getElementById('content').style.display = 'block';
   
@@ -247,7 +219,7 @@ function renderAll() {
   }
   
   if (!anyData) {
-    sumEl.innerHTML = `<div style="padding:14px;color:#888;grid-column:1/-1;">Žádná data pro model <strong>${_currentModel.toUpperCase()}</strong>. Tento model pravděpodobně nemá pokrytí dostupných zemí pro tvůj API klíč.</div>`;
+    sumEl.innerHTML = `<div style="padding:14px;color:#888;grid-column:1/-1;">Žádná data dostupná.</div>`;
   }
   
   // Per country detail containers
