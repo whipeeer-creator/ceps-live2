@@ -797,11 +797,12 @@ class Handler(BaseHTTPRequestHandler):
             self._json(result)
             return
         
-        # Route /vdt.html
-        if parsed.path == "/vdt.html":
+        # Route /vdt.html, /analyza.html, /ema.html atd - generic static file serve
+        if parsed.path.endswith(".html") and parsed.path != "/" and "/" not in parsed.path[1:]:
             try:
                 base_dir = os.path.dirname(os.path.abspath(__file__))
-                fpath = os.path.join(base_dir, "vdt.html")
+                fname = parsed.path.lstrip("/")
+                fpath = os.path.join(base_dir, fname)
                 if os.path.exists(fpath):
                     with open(fpath, "rb") as f:
                         content = f.read()
@@ -812,9 +813,7 @@ class Handler(BaseHTTPRequestHandler):
                     self.wfile.write(content)
                     return
             except Exception as e:
-                print(f"vdt.html error: {e}", flush=True)
-            self._json({"error": "vdt.html not found"}, 404)
-            return
+                print(f"static html error: {e}", flush=True)
 
         if parsed.path in ("/", "/index.html", "/hory.html"):
             # NEW landing: hory.html (cista verze bez Systemove soustavy)
@@ -2635,43 +2634,31 @@ class Handler(BaseHTTPRequestHandler):
                         })
                         if ote_r.status_code == 200:
                             html = ote_r.text
-                            # Parsuj radky tabulky pomoci regex
-                            # Format: | 00:00-00:15 | 150,14 | ... cislice ... | 137,65 |
-                            # Posledni sloupec = 60min cena
                             ote_tomorrow = []
-                            # Najdi radky "HH:MM-HH:MM | ..." kde HH:MM zacina v HH:00 (prvni QH hodiny)
                             import re as _re
-                            # Hledame radky s casovym intervalem
-                            pattern = _re.compile(
-                                r"(\d{2}):(\d{2})-(\d{2}):(\d{2})\s*\|([^|]+\|){8,12}\s*([\d\s\u00A0]+,\d+)",
-                                _re.MULTILINE
-                            )
-                            
-                            # Alternativni jednodussi pristup: rozdelit po radcich a pro kazdy radek vzit posledni cislo
+                            matched_lines = 0
                             for line in html.split("\n"):
-                                # Hledame jen QH radky zacinajici na :00 (prvni QH hodiny)
-                                m = _re.match(r"^\s*\|?\s*(\d{2}):(\d{2})-(\d{2}):(\d{2})\s*\|", line)
+                                # Hledame radky s "HH:00-HH:15" kdekoliv v radku
+                                m = _re.search(r"(\d{2}):00-(\d{2}):15", line)
                                 if not m:
                                     continue
-                                start_min = int(m.group(2))
-                                if start_min != 0:
-                                    continue  # jen prvni QH hodiny (HH:00)
+                                matched_lines += 1
                                 hour = int(m.group(1))
-                                # Najdi vsechny cisla v radku (format X.XXX nebo X,XX)
-                                # Posledni cislo = 60min cena
-                                nums = _re.findall(r"(\d+(?:[\s\u00A0]\d+)*,\d+)", line)
+                                # Najdi vsechny ceny X,XX v radku (vcetne zapornych a s mezerou jako oddelovac tisicu)
+                                nums = _re.findall(r"-?\d+(?:[\s\u00A0]\d+)*,\d+", line)
                                 if not nums:
                                     continue
+                                # Posledni cislo = 60min cena (posledni sloupec)
                                 try:
                                     price_str = nums[-1].replace(" ", "").replace("\u00A0", "").replace(",", ".")
                                     price = float(price_str)
-                                    if 0 <= hour <= 23 and price > 0:
+                                    if 0 <= hour <= 23 and price != 0:
                                         ote_tomorrow.append({"hour": hour, "priceEur": price})
                                 except: pass
                             
+                            print(f"  -> OTE-CR tomorrow scrape: HTML {len(html)}b, matched lines={matched_lines}, parsed={len(ote_tomorrow)} h", flush=True)
                             if len(ote_tomorrow) >= 20:  # ocekavame 24 hodin
                                 hours_tomorrow = ote_tomorrow
-                                print(f"  -> /ote/spot tomorrow: {len(ote_tomorrow)} h from OTE-CR (60min ceny z HTML)", flush=True)
                     except Exception as e:
                         print(f"  -> OTE-CR tomorrow fallback: {e}", flush=True)
                     

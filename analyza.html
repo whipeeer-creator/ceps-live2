@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Analýza květen - LONG vs SHORT</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    background: #f5f7fa;
+    color: #2c3e50;
+    padding: 16px;
+    font-size: 13px;
+  }
+  h1 { font-size: 18px; margin-bottom: 4px; }
+  .subtitle { color: #7f8c8d; font-size: 12px; margin-bottom: 16px; }
+  .card {
+    background: white;
+    border: 1px solid #dde;
+    border-radius: 6px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+  }
+  .card h2 { font-size: 14px; margin-bottom: 8px; color: #34495e; }
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 8px;
+  }
+  .stat {
+    background: #f8fafc;
+    padding: 8px 10px;
+    border-radius: 4px;
+    border-left: 3px solid #3498db;
+  }
+  .stat .label { font-size: 10px; color: #7f8c8d; text-transform: uppercase; }
+  .stat .val { font-size: 16px; font-weight: 600; color: #2c3e50; }
+  .stat.long { border-left-color: #27ae60; }
+  .stat.short { border-left-color: #e74c3c; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  th, td {
+    padding: 4px 6px;
+    text-align: right;
+    border-bottom: 1px solid #ecf0f1;
+  }
+  th { background: #ecf0f1; font-weight: 600; }
+  th.left, td.left { text-align: left; }
+  .long-win { background: #d4f4dd; }
+  .short-win { background: #fadbd8; }
+  .neutral { background: #f4f6f7; }
+  .heatmap {
+    display: grid;
+    gap: 1px;
+    background: #ccc;
+    margin-top: 8px;
+  }
+  .hm-cell {
+    background: white;
+    padding: 4px 6px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 600;
+    min-width: 28px;
+  }
+  .progress {
+    height: 18px;
+    background: #ecf0f1;
+    border-radius: 3px;
+    overflow: hidden;
+    display: flex;
+    font-size: 10px;
+    font-weight: 600;
+    color: white;
+    line-height: 18px;
+    margin-top: 2px;
+  }
+  .progress .long-bar { background: #27ae60; }
+  .progress .short-bar { background: #e74c3c; }
+  #status {
+    padding: 12px;
+    background: #fef9e7;
+    border: 1px solid #f4d03f;
+    border-radius: 4px;
+    margin-bottom: 12px;
+    font-size: 12px;
+  }
+</style>
+</head>
+<body>
+
+<h1>📊 Analýza květen 2026 - LONG vs SHORT</h1>
+<div class="subtitle">Retrospektivní analýza: kdy by se vyplatil LONG vs SHORT trade. Net = direction × (kc − vdt). Bez slippage/fees.</div>
+
+<div id="status">Načítám data za květen 2026...</div>
+
+<div id="content" style="display:none;">
+  <div class="card">
+    <h2>Celkové statistiky</h2>
+    <div class="stats-grid" id="overallStats"></div>
+  </div>
+  
+  <div class="card">
+    <h2>Po hodinách dne (0-23)</h2>
+    <div class="subtitle" style="margin-bottom:8px;">Která strategie vyhrává v které hodině. % = win rate, EUR = průměr per trade per MWh.</div>
+    <table id="hourTable">
+      <thead>
+        <tr>
+          <th class="left">Hodina</th>
+          <th>QH</th>
+          <th>Ø odchylka</th>
+          <th>Ø VDT</th>
+          <th>Ø spread</th>
+          <th>LONG win%</th>
+          <th>LONG Ø€</th>
+          <th>SHORT win%</th>
+          <th>SHORT Ø€</th>
+          <th>Doporučení</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  
+  <div class="card">
+    <h2>Po dnech v týdnu</h2>
+    <table id="dowTable">
+      <thead>
+        <tr>
+          <th class="left">Den</th>
+          <th>QH</th>
+          <th>LONG win%</th>
+          <th>SHORT win%</th>
+          <th>LONG net €</th>
+          <th>SHORT net €</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </div>
+  
+  <div class="card">
+    <h2>Heatmapa: doporučená strategie (hodina × den v týdnu)</h2>
+    <div class="subtitle">🟢 LONG vyhrál &gt;60% | 🔴 SHORT vyhrál &gt;60% | šedá = nejasné</div>
+    <div id="heatmap"></div>
+  </div>
+  
+  <div class="card">
+    <h2>Závěry</h2>
+    <div id="conclusions" style="font-size:13px; line-height:1.6;"></div>
+  </div>
+</div>
+
+<script>
+const API_URL = '';  // same origin
+const KURZ = 24.5;  // EUR/CZK
+
+async function fetchDay(date) {
+  try {
+    const [r1, r2] = await Promise.all([
+      fetch(`${API_URL}/ceps_txt?date=${date}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_URL}/ote/vdt?date=${date}`, { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+    if (!r1 || !r1.rows) return null;
+    
+    // Build map: "HH:MM" → kc (EUR/MWh)
+    const kcMap = {};
+    for (const row of r1.rows) {
+      const interval = row.Interval || '';
+      const start = interval.split('-')[0].trim();
+      const raw = row['Estimated price [Kč/MWh]'];
+      if (!start || raw === '' || raw === null) continue;
+      const kc_czk = parseFloat(String(raw).replace(',', '.'));
+      if (!isFinite(kc_czk)) continue;
+      kcMap[start] = kc_czk / KURZ;  // → EUR
+    }
+    
+    // VDT
+    const vdtMap = {};
+    if (r2 && r2.data) {
+      for (const v of r2.data) {
+        const hh = String(v.hour).padStart(2, '0');
+        const mm = String(v.minute).padStart(2, '0');
+        vdtMap[`${hh}:${mm}`] = v.last;  // EUR
+      }
+    }
+    
+    // Spojit
+    const qhs = [];
+    for (const tm in kcMap) {
+      const vdt = vdtMap[tm];
+      if (vdt === undefined || vdt === null) continue;
+      const kc = kcMap[tm];
+      const [hStr, mStr] = tm.split(':');
+      qhs.push({
+        date,
+        hour: parseInt(hStr),
+        minute: parseInt(mStr),
+        kc,
+        vdt,
+        spread: kc - vdt,
+      });
+    }
+    return qhs;
+  } catch (e) {
+    console.warn(`Day ${date} error:`, e);
+    return null;
+  }
+}
+
+function getDow(dateStr) {
+  // YYYY-MM-DD → 0=Sunday...6=Saturday
+  return new Date(dateStr).getDay();
+}
+
+async function main() {
+  const status = document.getElementById('status');
+  status.textContent = 'Načítám květen 2026 (31 dní)...';
+  
+  // Pole dnů 2026-05-01 až 2026-05-31
+  const days = [];
+  for (let d = 1; d <= 31; d++) {
+    days.push(`2026-05-${String(d).padStart(2, '0')}`);
+  }
+  
+  // Fetch all in parallel batches
+  const allQHs = [];
+  const BATCH_SIZE = 5;
+  for (let i = 0; i < days.length; i += BATCH_SIZE) {
+    const batch = days.slice(i, i + BATCH_SIZE);
+    status.textContent = `Načítám ${i+1}-${Math.min(i+BATCH_SIZE, days.length)} z ${days.length}...`;
+    const results = await Promise.all(batch.map(fetchDay));
+    for (const qhs of results) {
+      if (qhs) allQHs.push(...qhs);
+    }
+  }
+  
+  if (!allQHs.length) {
+    status.textContent = '❌ Žádná data k dispozici';
+    return;
+  }
+  
+  status.textContent = `✓ Načteno ${allQHs.length} QH za květen 2026`;
+  
+  // Analýza
+  // Per QH: long_net = kc - vdt, short_net = vdt - kc
+  for (const q of allQHs) {
+    q.long_net = q.kc - q.vdt;
+    q.short_net = q.vdt - q.kc;
+    q.long_win = q.long_net > 0;
+    q.short_win = q.short_net > 0;
+  }
+  
+  // Overall stats
+  const totalQH = allQHs.length;
+  const longWins = allQHs.filter(q => q.long_win).length;
+  const shortWins = allQHs.filter(q => q.short_win).length;
+  const avgKc = allQHs.reduce((s,q) => s+q.kc, 0) / totalQH;
+  const avgVdt = allQHs.reduce((s,q) => s+q.vdt, 0) / totalQH;
+  const longTotalNet = allQHs.reduce((s,q) => s+q.long_net, 0);
+  const shortTotalNet = allQHs.reduce((s,q) => s+q.short_net, 0);
+  
+  const overallEl = document.getElementById('overallStats');
+  overallEl.innerHTML = `
+    <div class="stat"><div class="label">Celkem QH</div><div class="val">${totalQH}</div></div>
+    <div class="stat"><div class="label">Ø cena odchylky</div><div class="val">${avgKc.toFixed(1)} €</div></div>
+    <div class="stat"><div class="label">Ø VDT</div><div class="val">${avgVdt.toFixed(1)} €</div></div>
+    <div class="stat long"><div class="label">LONG win rate</div><div class="val">${(100*longWins/totalQH).toFixed(1)}%</div></div>
+    <div class="stat long"><div class="label">LONG total net</div><div class="val">${(longTotalNet/1000).toFixed(1)}k €</div></div>
+    <div class="stat short"><div class="label">SHORT win rate</div><div class="val">${(100*shortWins/totalQH).toFixed(1)}%</div></div>
+    <div class="stat short"><div class="label">SHORT total net</div><div class="val">${(shortTotalNet/1000).toFixed(1)}k €</div></div>
+  `;
+  
+  // Per hour
+  const byHour = {};
+  for (let h = 0; h < 24; h++) byHour[h] = [];
+  for (const q of allQHs) byHour[q.hour].push(q);
+  
+  const hourTbody = document.querySelector('#hourTable tbody');
+  for (let h = 0; h < 24; h++) {
+    const list = byHour[h];
+    if (!list.length) continue;
+    const longW = list.filter(q => q.long_win).length;
+    const shortW = list.filter(q => q.short_win).length;
+    const longPct = 100*longW/list.length;
+    const shortPct = 100*shortW/list.length;
+    const longAvg = list.reduce((s,q) => s+q.long_net, 0) / list.length;
+    const shortAvg = list.reduce((s,q) => s+q.short_net, 0) / list.length;
+    const avgKc = list.reduce((s,q) => s+q.kc, 0) / list.length;
+    const avgVdt = list.reduce((s,q) => s+q.vdt, 0) / list.length;
+    const avgSpread = list.reduce((s,q) => s+q.spread, 0) / list.length;
+    
+    let doporuceni;
+    if (longPct >= 60) doporuceni = '<span style="color:#27ae60;font-weight:600;">LONG</span>';
+    else if (shortPct >= 60) doporuceni = '<span style="color:#e74c3c;font-weight:600;">SHORT</span>';
+    else doporuceni = '<span style="color:#888;">neutrální</span>';
+    
+    hourTbody.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td class="left"><strong>${String(h).padStart(2,'0')}:00</strong></td>
+        <td>${list.length}</td>
+        <td>${avgKc.toFixed(1)}</td>
+        <td>${avgVdt.toFixed(1)}</td>
+        <td style="color:${avgSpread>0?'#27ae60':'#e74c3c'}">${avgSpread>0?'+':''}${avgSpread.toFixed(1)}</td>
+        <td class="${longPct>=55?'long-win':''}">${longPct.toFixed(0)}%</td>
+        <td style="color:${longAvg>0?'#27ae60':'#e74c3c'}">${longAvg>0?'+':''}${longAvg.toFixed(1)}</td>
+        <td class="${shortPct>=55?'short-win':''}">${shortPct.toFixed(0)}%</td>
+        <td style="color:${shortAvg>0?'#27ae60':'#e74c3c'}">${shortAvg>0?'+':''}${shortAvg.toFixed(1)}</td>
+        <td>${doporuceni}</td>
+      </tr>
+    `);
+  }
+  
+  // Per day of week
+  const dayNames = ['Ne', 'Po', 'Út', 'St', 'Čt', 'Pá', 'So'];
+  const byDow = {};
+  for (let d = 0; d < 7; d++) byDow[d] = [];
+  for (const q of allQHs) byDow[getDow(q.date)].push(q);
+  
+  const dowTbody = document.querySelector('#dowTable tbody');
+  // Pondělí první
+  const dowOrder = [1, 2, 3, 4, 5, 6, 0];
+  for (const d of dowOrder) {
+    const list = byDow[d];
+    if (!list.length) continue;
+    const longW = list.filter(q => q.long_win).length;
+    const shortW = list.filter(q => q.short_win).length;
+    const longAvg = list.reduce((s,q) => s+q.long_net, 0) / list.length;
+    const shortAvg = list.reduce((s,q) => s+q.short_net, 0) / list.length;
+    dowTbody.insertAdjacentHTML('beforeend', `
+      <tr>
+        <td class="left"><strong>${dayNames[d]}</strong></td>
+        <td>${list.length}</td>
+        <td>${(100*longW/list.length).toFixed(0)}%</td>
+        <td>${(100*shortW/list.length).toFixed(0)}%</td>
+        <td style="color:${longAvg>0?'#27ae60':'#e74c3c'}">${longAvg.toFixed(1)}</td>
+        <td style="color:${shortAvg>0?'#27ae60':'#e74c3c'}">${shortAvg.toFixed(1)}</td>
+      </tr>
+    `);
+  }
+  
+  // Heatmap (hour × dow)
+  const hmEl = document.getElementById('heatmap');
+  hmEl.style.gridTemplateColumns = `60px repeat(24, 1fr)`;
+  // Header
+  hmEl.insertAdjacentHTML('beforeend', '<div class="hm-cell" style="background:#34495e;color:white;">h↓ d→</div>');
+  for (let h = 0; h < 24; h++) {
+    hmEl.insertAdjacentHTML('beforeend', `<div class="hm-cell" style="background:#34495e;color:white;">${String(h).padStart(2,'0')}</div>`);
+  }
+  for (const d of dowOrder) {
+    hmEl.insertAdjacentHTML('beforeend', `<div class="hm-cell" style="background:#34495e;color:white;">${dayNames[d]}</div>`);
+    for (let h = 0; h < 24; h++) {
+      const list = (byDow[d] || []).filter(q => q.hour === h);
+      if (!list.length) {
+        hmEl.insertAdjacentHTML('beforeend', '<div class="hm-cell">-</div>');
+        continue;
+      }
+      const longW = list.filter(q => q.long_win).length;
+      const longPct = 100*longW/list.length;
+      let bg, txt;
+      if (longPct >= 60) { bg = '#27ae60'; txt = 'L'; }
+      else if (longPct <= 40) { bg = '#e74c3c'; txt = 'S'; }
+      else { bg = '#bdc3c7'; txt = '·'; }
+      hmEl.insertAdjacentHTML('beforeend', `<div class="hm-cell" style="background:${bg};color:white;" title="${longPct.toFixed(0)}% LONG">${txt}</div>`);
+    }
+  }
+  
+  // Conclusions
+  const longHours = [];
+  const shortHours = [];
+  for (let h = 0; h < 24; h++) {
+    const list = byHour[h];
+    if (!list.length) continue;
+    const longPct = 100*list.filter(q => q.long_win).length / list.length;
+    if (longPct >= 55) longHours.push({h, pct: longPct});
+    else if (longPct <= 45) shortHours.push({h, pct: 100-longPct});
+  }
+  longHours.sort((a,b) => b.pct - a.pct);
+  shortHours.sort((a,b) => b.pct - a.pct);
+  
+  let concl = '<p>';
+  concl += `<strong>Celkem za květen 2026:</strong> ${totalQH} QH analyzováno (z 31 × 96 = 2976 možných).<br>`;
+  concl += `LONG by vydělal celkem <strong style="color:${longTotalNet>0?'#27ae60':'#e74c3c'}">${(longTotalNet/1000).toFixed(1)}k €/MWh</strong>, SHORT <strong style="color:${shortTotalNet>0?'#27ae60':'#e74c3c'}">${(shortTotalNet/1000).toFixed(1)}k €/MWh</strong>.<br>`;
+  concl += `Win rate LONG: ${(100*longWins/totalQH).toFixed(1)}% vs SHORT: ${(100*shortWins/totalQH).toFixed(1)}%</p>`;
+  
+  concl += '<p style="margin-top:12px;"><strong>Hodiny kde se vyplatí LONG (top 5):</strong><br>';
+  for (const x of longHours.slice(0,5)) {
+    concl += `&nbsp;&nbsp;${String(x.h).padStart(2,'0')}:00 - LONG vyhrál ${x.pct.toFixed(0)}% případů<br>`;
+  }
+  
+  concl += '</p><p style="margin-top:12px;"><strong>Hodiny kde se vyplatí SHORT (top 5):</strong><br>';
+  for (const x of shortHours.slice(0,5)) {
+    concl += `&nbsp;&nbsp;${String(x.h).padStart(2,'0')}:00 - SHORT vyhrál ${x.pct.toFixed(0)}% případů<br>`;
+  }
+  
+  concl += '</p><p style="margin-top:12px;"><strong>Vysvětlení:</strong><br>';
+  concl += 'LONG vítězí když cena odchylky &gt; VDT (trh měl deficit, ČEPS musel nakupovat draho).<br>';
+  concl += 'SHORT vítězí když cena odchylky &lt; VDT (trh měl přebytek, ČEPS prodával levně).<br>';
+  concl += 'Solární hodiny (10-16h) typicky mají přebytek → SHORT.<br>';
+  concl += 'Večerní špička (18-21h) má deficit → LONG.<br>';
+  concl += '</p>';
+  
+  document.getElementById('conclusions').innerHTML = concl;
+  document.getElementById('content').style.display = 'block';
+  status.style.display = 'none';
+}
+
+main();
+</script>
+
+</body>
+</html>
