@@ -440,7 +440,8 @@ function renderDataTable(lastRec, allRecords) {
   </div>`;
   
   // TRANSPONOVANÁ TABULKA: řádky = hodiny, sloupce = země (in/out)
-  const hourCols = colsArr.filter(c => c !== 'key');  // ['1','2',...,'20']
+  const IGNORE_COLS = new Set(['intervals','interval','intervaly']);
+  const hourCols = colsArr.filter(c => c !== 'key' && !IGNORE_COLS.has(String(c).toLowerCase()));
   const countryKeys = rows.map(r => r.key).filter(k => k != null);  // ['hub_at_in', 'hub_at_out',...]
   
   html += '<table style="font-family:\'JetBrains Mono\',monospace;font-size:11px;"><thead><tr>';
