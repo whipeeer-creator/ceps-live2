@@ -195,7 +195,7 @@ async function loadData() {
   const type = document.getElementById('typeSelect').value;
   
   try {
-    let url = `${API_URL}/ingest/data?source=${encodeURIComponent(src)}&limit=20&_=${Date.now()}`;
+    let url = `${API_URL}/ingest/data?source=${encodeURIComponent(src)}&limit=200&_=${Date.now()}`;
     if (type) url += `&type=${encodeURIComponent(type)}`;
     const r = await fetch(url, { cache: 'no-store' });
     const d = await r.json();
@@ -375,163 +375,240 @@ function renderDataTable(lastRec, allRecords) {
     </svg>`;
   }
   
+  // Format hour label "1" → "00:00 - 01:00"
+  function fmtHour(h) {
+    const num = parseInt(String(h).replace(/[^\d]/g, ''));
+    if (!isFinite(num) || num < 1 || num > 24) return String(h);
+    const start = String(num - 1).padStart(2, '0');
+    const end = String(num % 24).padStart(2, '0');
+    return `${start}:00`;
+  }
+  // Format timestamp "2026-06-01T15:30:45" → "1.6. 15:30"
+  function fmtTs(ts) {
+    if (!ts) return '';
+    const d = new Date(ts.endsWith('Z') ? ts : ts + 'Z');
+    if (isNaN(d)) return ts;
+    return `${d.getDate()}.${d.getMonth()+1}. ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+  }
+  
   // Build HTML
   let html = `<div style="padding:8px 12px;font-size:11px;color:#666;display:flex;justify-content:space-between;align-items:center;">
-    <span><b>${lastRec.source}</b> · ${lastRec.type} · ${lastRec.ts}</span>
-    <span style="color:#999;">${formatHint}</span>
+    <span><b>${lastRec.source}</b> · ${lastRec.type} · ${fmtTs(lastRec.ts)}</span>
+    <span style="color:#999;">${formatHint} · ${allRecords.length} verzí historie</span>
   </div>`;
   
-  html += '<table><thead><tr>';
-  for (const c of colsArr) html += `<th>${escapeHtml(c)}</th>`;
+  // TRANSPONOVANÁ TABULKA: řádky = hodiny, sloupce = země (in/out)
+  const hourCols = colsArr.filter(c => c !== 'key');  // ['1','2',...,'20']
+  const countryKeys = rows.map(r => r.key).filter(k => k != null);  // ['hub_at_in', 'hub_at_out',...]
+  
+  html += '<table style="font-family:\'JetBrains Mono\',monospace;font-size:11px;"><thead><tr>';
+  html += '<th style="text-align:left;background:#ecf0f1;position:sticky;left:0;">Hodina</th>';
+  for (const key of countryKeys) {
+    const flag = flagFor(key);
+    const disp = displayKey(key);
+    const dir = directionFor(key);
+    const cls = dir === 'in' ? 'green' : (dir === 'out' ? 'red' : '');
+    html += `<th class="${cls}" style="text-align:right;">${flag ? flag + ' ' : ''}<br>${escapeHtml(disp)}</th>`;
+  }
   html += '</tr></thead><tbody>';
   
-  for (const row of rows) {
-    html += '<tr>';
-    for (const c of colsArr) {
-      const v = row[c];
-      let cellHtml = '';
+  // Najdi index do rows podle key
+  const rowByKey = {};
+  for (const r of rows) rowByKey[r.key] = r;
+  
+  for (const h of hourCols) {
+    html += `<tr><td style="text-align:left;font-weight:600;background:#f8f9fa;position:sticky;left:0;">${fmtHour(h)}</td>`;
+    for (const key of countryKeys) {
+      const v = rowByKey[key]?.[h];
+      let cellHtml = '<span class="gray">—</span>';
       let cls = '';
-      if (c === 'key') {
-        const flag = flagFor(v);
-        cellHtml = `${flag ? flag + ' ' : ''}<b>${escapeHtml(displayKey(v))}</b>`;
-      } else if (v === null || v === undefined) {
-        cellHtml = '<span class="gray">—</span>';
-      } else if (typeof v === 'number') {
-        if (v > 0) cls = 'green';
-        else if (v < 0) cls = 'red';
-        cellHtml = v.toFixed(Number.isInteger(v) ? 0 : 2);
-      } else if (typeof v === 'object') {
-        cellHtml = escapeHtml(JSON.stringify(v));
-      } else {
-        cellHtml = escapeHtml(String(v));
+      if (typeof v === 'number' && isFinite(v)) {
+        const dir = directionFor(key);
+        cls = dir === 'in' ? 'green' : (dir === 'out' ? 'red' : '');
+        cellHtml = v.toFixed(Number.isInteger(v) ? 0 : 1);
       }
-      html += `<td class="${cls}">${cellHtml}</td>`;
+      html += `<td class="${cls}" style="text-align:right;">${cellHtml}</td>`;
     }
     html += '</tr>';
   }
   html += '</tbody></table>';
   
-  // VELKÉ BAR CHARTY pod tabulkou - kombinované in/out per země
+  // ===== TIMELINE GRAF =====
+  // Pro vybranou hodinu: ukázat jak se hodnota měnila napříč verzemi
   html += '<div style="padding:14px 12px;border-top:2px solid #eef0f7;">';
-  html += '<h3 style="font-size:14px;margin-bottom:10px;">📊 Grafy per země (🟢 in · 🔴 out)</h3>';
-  
-  // Seskup rows podle ISO země
-  const byCountry = {};  // {AT: {in: row, out: row}, ...}
-  for (const row of rows) {
-    const code = countryOf(row.key);
-    const dir = directionFor(row.key);
-    if (!code) continue;
-    if (!byCountry[code]) byCountry[code] = {};
-    byCountry[code][dir || 'unknown'] = row;
+  html += '<h3 style="font-size:14px;margin-bottom:10px;">📈 Vývoj kapacit napříč verzemi</h3>';
+  html += '<div style="margin-bottom:14px;">';
+  html += '<label style="font-size:12px;color:#666;margin-right:8px;">Vyber hodinu:</label>';
+  html += '<select id="hourSelect" onchange="renderTimeline()" style="padding:4px 8px;font-size:12px;">';
+  for (const h of hourCols) {
+    html += `<option value="${escapeHtml(h)}">${fmtHour(h)}</option>`;
   }
-  
-  // Číselné sloupce (kromě key)
-  const numCols = colsArr.filter(c => c !== 'key');
-  
-  for (const code of Object.keys(byCountry).sort()) {
-    const grp = byCountry[code];
-    const inRow = grp.in;
-    const outRow = grp.out;
-    
-    // Vyber jen sloupce kde alespoň jedna hodnota existuje a je číslo
-    const validCols = numCols.filter(c => {
-      const vi = inRow?.[c], vo = outRow?.[c];
-      return (typeof vi === 'number' && isFinite(vi)) || (typeof vo === 'number' && isFinite(vo));
-    });
-    if (validCols.length === 0) continue;
-    
-    const inVals = validCols.map(c => (typeof inRow?.[c] === 'number' && isFinite(inRow[c])) ? inRow[c] : 0);
-    const outVals = validCols.map(c => (typeof outRow?.[c] === 'number' && isFinite(outRow[c])) ? outRow[c] : 0);
-    const max = Math.max(...inVals, ...outVals, 1);
-    
-    // SVG layout
-    const H = 240;
-    const PAD_TOP = 26;   // místo pro text nad bary
-    const PAD_BOT = 32;   // místo pro labels pod
-    const chartH = H - PAD_TOP - PAD_BOT;
-    const groupCount = validCols.length;
-    
-    let bars = '';
-    for (let i = 0; i < validCols.length; i++) {
-      const groupW = 100 / groupCount;
-      const barW = groupW * 0.4;  // 2 bary per skupina, mezera mezi
-      const groupX = groupW * i;
-      
-      // IN bar (zelený, vlevo)
-      const inH = (inVals[i] / max) * chartH;
-      const inY = PAD_TOP + chartH - inH;
-      bars += `<rect x="${groupX + groupW * 0.05}%" y="${inY}" width="${barW}%" height="${inH}" fill="#27ae60" rx="2"/>`;
-      if (inVals[i] > 0) {
-        bars += `<text x="${groupX + groupW * 0.05 + barW/2}%" y="${inY - 3}" text-anchor="middle" font-size="9" fill="#27ae60" font-weight="600">${inVals[i].toFixed(0)}</text>`;
-      }
-      
-      // OUT bar (červený, vpravo)
-      const outH = (outVals[i] / max) * chartH;
-      const outY = PAD_TOP + chartH - outH;
-      bars += `<rect x="${groupX + groupW * 0.55}%" y="${outY}" width="${barW}%" height="${outH}" fill="#e74c3c" rx="2"/>`;
-      if (outVals[i] > 0) {
-        bars += `<text x="${groupX + groupW * 0.55 + barW/2}%" y="${outY - 3}" text-anchor="middle" font-size="9" fill="#e74c3c" font-weight="600">${outVals[i].toFixed(0)}</text>`;
-      }
-      
-      // Label pod
-      bars += `<text x="${groupX + groupW/2}%" y="${PAD_TOP + chartH + 14}" text-anchor="middle" font-size="9" fill="#666">${escapeHtml(validCols[i])}</text>`;
-    }
-    
-    // Baseline
-    bars += `<line x1="0" y1="${PAD_TOP + chartH}" x2="100%" y2="${PAD_TOP + chartH}" stroke="#bdc3c7" stroke-width="1"/>`;
-    
-    html += `<div style="margin-bottom:18px;background:#fafbfd;border:1px solid #eef0f7;border-radius:6px;padding:10px;">
-      <div style="font-size:14px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:10px;">
-        <span>${FLAGS[code] || ''} ${NAMES_CZ[code] || code}</span>
-        <span style="font-size:11px;font-weight:400;color:#666;">
-          <span style="color:#27ae60;">▮ in</span> · <span style="color:#e74c3c;">▮ out</span> · max ${max.toFixed(0)} MW
-        </span>
-      </div>
-      <svg width="100%" height="${H}" style="display:block;" preserveAspectRatio="none">
-        ${bars}
-      </svg>
-    </div>`;
-  }
-  
-  // Země bez ISO (orphans) - dej do extra sekce
-  const orphanRows = rows.filter(r => !countryOf(r.key));
-  if (orphanRows.length) {
-    html += '<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;color:#666;">Ostatní řádky (' + orphanRows.length + ')</summary>';
-    for (const row of orphanRows) {
-      const series = numCols.map(c => ({label: c, value: row[c]})).filter(s => typeof s.value === 'number' && isFinite(s.value));
-      if (!series.length) continue;
-      const max = Math.max(...series.map(s => Math.abs(s.value)), 1);
-      let bars = '';
-      const H = 200, PAD_TOP=22, PAD_BOT=28, chartH=H-PAD_TOP-PAD_BOT;
-      for (let i=0; i<series.length; i++) {
-        const groupW = 100/series.length;
-        const barW = groupW*0.7;
-        const groupX = groupW*i;
-        const v = series[i].value;
-        const bH = (Math.abs(v)/max)*chartH;
-        const bY = PAD_TOP + chartH - bH;
-        const color = v >= 0 ? '#27ae60' : '#e74c3c';
-        bars += `<rect x="${groupX+groupW*0.15}%" y="${bY}" width="${barW}%" height="${bH}" fill="${color}" rx="2"/>`;
-        bars += `<text x="${groupX+groupW/2}%" y="${bY-3}" text-anchor="middle" font-size="9" fill="${color}">${v.toFixed(0)}</text>`;
-        bars += `<text x="${groupX+groupW/2}%" y="${PAD_TOP+chartH+14}" text-anchor="middle" font-size="9" fill="#666">${escapeHtml(series[i].label)}</text>`;
-      }
-      html += `<div style="margin:10px 0;background:#fafbfd;border:1px solid #eef0f7;border-radius:6px;padding:10px;">
-        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">${escapeHtml(displayKey(row.key))}</div>
-        <svg width="100%" height="${H}" style="display:block;">${bars}</svg>
-      </div>`;
-    }
-    html += '</details>';
-  }
+  html += '</select>';
+  html += '</div>';
+  html += '<div id="timelineChart"></div>';
   html += '</div>';
   
-  // History dropdown (other timestamps for this source/type)
-  if (allRecords.length > 1) {
-    html += '<div style="padding:8px 12px;font-size:10px;color:#888;border-top:1px solid #eef0f7;">';
-    html += `${allRecords.length} zpráv celkem · zobrazena POSLEDNÍ.`;
-    html += '</div>';
+  container.innerHTML = html;
+  
+  // Uložit data pro renderTimeline (globální state)
+  window._fandaState = {
+    allRecords: allRecords,
+    countryKeys: countryKeys,
+    hourCols: hourCols,
+    FLAGS: FLAGS,
+    NAMES_CZ: NAMES_CZ,
+    countryOf: countryOf,
+    flagFor: flagFor,
+    displayKey: displayKey,
+    directionFor: directionFor,
+    fmtHour: fmtHour,
+    fmtTs: fmtTs,
+    escapeHtml: escapeHtml,
+  };
+  
+  // Initial render
+  window.renderTimeline();
+}
+
+// Vykreslí timeline graf pro vybranou hodinu
+window.renderTimeline = function() {
+  const st = window._fandaState;
+  if (!st) return;
+  const sel = document.getElementById('hourSelect');
+  if (!sel) return;
+  const hour = sel.value;
+  const el = document.getElementById('timelineChart');
+  if (!el) return;
+  
+  // Extrahuj všechny records: pro každý vytáhni hodnotu pro vybranou hodinu, per země
+  // Records jsou v chronologickém pořadí
+  const series = {};  // {key: [{ts, value}, ...]}
+  for (const key of st.countryKeys) series[key] = [];
+  
+  for (const rec of st.allRecords) {
+    const data = rec.data;
+    let parsedRows = null;
+    if (Array.isArray(data?.rows)) parsedRows = data.rows;
+    else if (Array.isArray(data?.data)) parsedRows = data.data;
+    else if (Array.isArray(data)) parsedRows = data;
+    else if (data && typeof data === 'object') {
+      // Pivot: keys as rows
+      parsedRows = Object.keys(data).map(k => ({ key: k, ...data[k] }));
+    }
+    if (!parsedRows) continue;
+    
+    for (const row of parsedRows) {
+      const k = row.key;
+      if (!(k in series)) continue;
+      const v = row[hour];
+      if (typeof v === 'number' && isFinite(v)) {
+        series[k].push({ ts: rec.ts, value: v });
+      }
+    }
   }
   
-  container.innerHTML = html;
+  // Najdi globální min/max
+  let allVals = [];
+  for (const k of Object.keys(series)) for (const p of series[k]) allVals.push(p.value);
+  if (!allVals.length) {
+    el.innerHTML = '<div style="padding:20px;color:#888;">Žádná data pro tuto hodinu</div>';
+    return;
+  }
+  const maxV = Math.max(...allVals);
+  const minV = 0;  // od nuly
+  
+  // Společná osa časů
+  const allTs = [];
+  for (const k of Object.keys(series)) for (const p of series[k]) allTs.push(new Date(p.ts.endsWith('Z') ? p.ts : p.ts + 'Z').getTime());
+  if (!allTs.length) { el.innerHTML = '<div>Žádné timestampy</div>'; return; }
+  const tMin = Math.min(...allTs);
+  const tMax = Math.max(...allTs);
+  const tR = tMax - tMin || 1;
+  
+  const H = 360;
+  const W = 100;  // % container
+  const PAD = { left: 60, right: 20, top: 16, bottom: 50 };
+  
+  let svg = `<svg width="100%" height="${H}" viewBox="0 0 1000 ${H}" preserveAspectRatio="none" style="background:#fafbfd;border:1px solid #e5e7eb;border-radius:6px;">`;
+  
+  // Y axis
+  svg += '<g font-size="10" fill="#7f8c8d" font-family="sans-serif">';
+  for (let i = 0; i <= 5; i++) {
+    const y = PAD.top + (H - PAD.top - PAD.bottom) * i / 5;
+    const v = maxV * (1 - i/5);
+    svg += `<line x1="${PAD.left}" y1="${y}" x2="${1000 - PAD.right}" y2="${y}" stroke="#ecf0f1"/>`;
+    svg += `<text x="${PAD.left - 4}" y="${y + 3}" text-anchor="end">${v.toFixed(0)}</text>`;
+  }
+  svg += '</g>';
+  
+  // X axis labels - timestamps
+  const xLabels = [];
+  if (allTs.length > 1) {
+    const uniq = [...new Set(allTs)].sort((a,b)=>a-b);
+    const step = Math.max(1, Math.floor(uniq.length / 8));
+    for (let i = 0; i < uniq.length; i += step) xLabels.push(uniq[i]);
+    if (xLabels[xLabels.length-1] !== uniq[uniq.length-1]) xLabels.push(uniq[uniq.length-1]);
+  } else {
+    xLabels.push(allTs[0]);
+  }
+  
+  svg += '<g font-size="10" fill="#7f8c8d" font-family="sans-serif">';
+  for (const ts of xLabels) {
+    const x = PAD.left + (1000 - PAD.left - PAD.right) * ((ts - tMin) / tR);
+    const label = st.fmtTs(new Date(ts).toISOString());
+    svg += `<line x1="${x}" y1="${PAD.top}" x2="${x}" y2="${H - PAD.bottom}" stroke="#f0f1f4"/>`;
+    svg += `<text x="${x}" y="${H - PAD.bottom + 14}" text-anchor="middle" transform="rotate(-30 ${x} ${H - PAD.bottom + 14})">${label}</text>`;
+  }
+  svg += '</g>';
+  
+  // Lines per key
+  const COLORS = ['#27ae60','#e74c3c','#3498db','#9b59b6','#f39c12','#1abc9c','#34495e','#e67e22'];
+  let ci = 0;
+  const legendItems = [];
+  
+  for (const key of st.countryKeys) {
+    const pts = series[key];
+    if (!pts.length) continue;
+    const dir = st.directionFor(key);
+    const color = dir === 'in' ? '#27ae60' : (dir === 'out' ? '#e74c3c' : COLORS[ci % COLORS.length]);
+    ci++;
+    
+    // Připrav body sortované
+    const sorted = [...pts].sort((a,b) => new Date(a.ts) - new Date(b.ts));
+    const points = sorted.map(p => {
+      const tMs = new Date(p.ts.endsWith('Z') ? p.ts : p.ts + 'Z').getTime();
+      const x = PAD.left + (1000 - PAD.left - PAD.right) * ((tMs - tMin) / tR);
+      const y = PAD.top + (H - PAD.top - PAD.bottom) * (1 - (p.value - minV) / (maxV - minV || 1));
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    
+    svg += `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
+    
+    // Body
+    for (const p of sorted) {
+      const tMs = new Date(p.ts.endsWith('Z') ? p.ts : p.ts + 'Z').getTime();
+      const x = PAD.left + (1000 - PAD.left - PAD.right) * ((tMs - tMin) / tR);
+      const y = PAD.top + (H - PAD.top - PAD.bottom) * (1 - (p.value - minV) / (maxV - minV || 1));
+      svg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${color}"/>`;
+    }
+    
+    legendItems.push({key, color, flag: st.flagFor(key), display: st.displayKey(key)});
+  }
+  
+  svg += '</svg>';
+  
+  // Legend
+  let legend = '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:8px;font-size:11px;">';
+  for (const li of legendItems) {
+    legend += `<span style="display:flex;align-items:center;gap:4px;"><span style="width:14px;height:3px;background:${li.color};display:inline-block;"></span>${li.flag} ${st.escapeHtml(li.display)}</span>`;
+  }
+  legend += '</div>';
+  
+  el.innerHTML = svg + legend;
+}
+
+function _orig_renderDataTable_end() {
+  // marker
 }
 
 // Init
