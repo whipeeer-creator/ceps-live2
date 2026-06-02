@@ -81,6 +81,21 @@ let _lastList = null;
 async function loadList() {
   try {
     const r = await fetch(`${API_URL}/ingest/list?_=${Date.now()}`, { cache: 'no-store' });
+    
+    if (!r.ok) {
+      // Server neumí /ingest endpoint
+      document.getElementById('metaInfo').textContent = `⚠ /ingest/list vrací ${r.status} - nasaď nový server.py`;
+      document.getElementById('summaryRow').innerHTML = `
+        <div class="card" style="grid-column:1/-1;border-left:4px solid #c62828;">
+          <div class="card-l red">⚠ Endpoint /ingest neexistuje</div>
+          <div class="card-s">
+            Status: ${r.status} ${r.statusText}<br>
+            <b>Nasaď aktuální server.py</b> - obsahuje POST /ingest endpoint pro příjem dat.
+          </div>
+        </div>`;
+      return;
+    }
+    
     const d = await r.json();
     _lastList = d;
     
@@ -101,12 +116,33 @@ async function loadList() {
         sourceSel.appendChild(opt);
       }
       if (currentSrc && d.sources[currentSrc]) sourceSel.value = currentSrc;
+      // AUTO-SELECT 'fanda' pokud existuje a nic není vybráno
+      else if (!currentSrc && d.sources["fanda"]) {
+        sourceSel.value = "fanda";
+        setTimeout(() => loadData(), 50);
+      }
     }
     
     // Update summary cards
     const summaryRow = document.getElementById('summaryRow');
     if (!d.sources || Object.keys(d.sources).length === 0) {
-      summaryRow.innerHTML = '<div class="card"><div class="card-l">žádné zdroje</div><div class="card-s">Nikdo zatím neposlal data. Endpoint: POST /ingest</div></div>';
+      summaryRow.innerHTML = `
+        <div class="card" style="grid-column:1/-1;border-left:4px solid #f57c00;">
+          <div class="card-l">📭 Zatím žádná data</div>
+          <div class="card-s" style="margin-top:8px;line-height:1.6;">
+            Fanda zatím nic neposlal. Endpoint je připravený.<br><br>
+            <b>Pošli Fandovi tento návod:</b><br>
+            <div style="background:#fff8e1;padding:8px;border-radius:4px;margin-top:6px;font-family:'JetBrains Mono',monospace;font-size:10px;">
+              POST <b>${API_URL}/ingest?source=fanda</b><br>
+              Content-Type: application/json<br>
+              Body: { jakýkoliv JSON }
+            </div>
+            <div style="margin-top:8px;">
+              <b>Test (klikni a otevři terminál):</b><br>
+              <code style="background:#f0f1f4;padding:2px 6px;border-radius:3px;font-size:10px;">curl -X POST "${API_URL}/ingest?source=fanda&type=test" -H "Content-Type: application/json" -d '{"hello":123}'</code>
+            </div>
+          </div>
+        </div>`;
     } else {
       let html = '';
       for (const src of Object.keys(d.sources).sort()) {
@@ -247,7 +283,50 @@ function renderDataTable(lastRec, allRecords) {
       Object.keys(row).forEach(k => cols.add(k));
     }
   }
-  const colsArr = Array.from(cols);
+  let colsArr = Array.from(cols);
+  // KEY sloupec na začátek
+  if (colsArr.includes('key')) {
+    colsArr = ['key', ...colsArr.filter(c => c !== 'key')];
+  }
+  
+  // Vlajky pro země - ISO kód → emoji
+  const FLAGS = {
+    CZ:'🇨🇿', DE:'🇩🇪', AT:'🇦🇹', SK:'🇸🇰', PL:'🇵🇱', HU:'🇭🇺',
+    FR:'🇫🇷', IT:'🇮🇹', ES:'🇪🇸', BE:'🇧🇪', NL:'🇳🇱', DK:'🇩🇰',
+    GB:'🇬🇧', UK:'🇬🇧', RO:'🇷🇴', BG:'🇧🇬', GR:'🇬🇷', FI:'🇫🇮',
+    SE:'🇸🇪', NO:'🇳🇴', IE:'🇮🇪', PT:'🇵🇹', CH:'🇨🇭', LU:'🇱🇺',
+    EE:'🇪🇪', LV:'🇱🇻', LT:'🇱🇹', SI:'🇸🇮', HR:'🇭🇷', RS:'🇷🇸',
+    BA:'🇧🇦', MK:'🇲🇰', AL:'🇦🇱', ME:'🇲🇪', XK:'🇽🇰', MD:'🇲🇩',
+    UA:'🇺🇦', BY:'🇧🇾', TR:'🇹🇷', RU:'🇷🇺', US:'🇺🇸', CA:'🇨🇦',
+    EU:'🇪🇺',
+  };
+  function flagFor(key) {
+    if (!key) return '';
+    const code = String(key).toUpperCase().trim();
+    return FLAGS[code] || '';
+  }
+  
+  // Sparkline z numerických hodnot v řádku (kromě key)
+  function sparkline(row, w=120, h=22) {
+    const vals = [];
+    for (const c of colsArr) {
+      if (c === 'key') continue;
+      const v = row[c];
+      if (typeof v === 'number' && isFinite(v)) vals.push(v);
+    }
+    if (vals.length < 2) return '';
+    const min = Math.min(...vals);
+    const max = Math.max(...vals);
+    const range = max - min || 1;
+    const pts = vals.map((v, i) => {
+      const x = (i / (vals.length - 1)) * (w - 2) + 1;
+      const y = h - 2 - ((v - min) / range) * (h - 4);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    return `<svg width="${w}" height="${h}" style="vertical-align:middle;">
+      <polyline points="${pts}" fill="none" stroke="#2980b9" stroke-width="1.5"/>
+    </svg>`;
+  }
   
   // Build HTML
   let html = `<div style="padding:8px 12px;font-size:11px;color:#666;display:flex;justify-content:space-between;align-items:center;">
@@ -257,6 +336,7 @@ function renderDataTable(lastRec, allRecords) {
   
   html += '<table><thead><tr>';
   for (const c of colsArr) html += `<th>${escapeHtml(c)}</th>`;
+  html += '<th>📈 Trend</th>';
   html += '</tr></thead><tbody>';
   
   for (const row of rows) {
@@ -265,7 +345,11 @@ function renderDataTable(lastRec, allRecords) {
       const v = row[c];
       let cellHtml = '';
       let cls = '';
-      if (v === null || v === undefined) {
+      if (c === 'key') {
+        // Vlajka + key
+        const flag = flagFor(v);
+        cellHtml = `${flag ? flag + ' ' : ''}<b>${escapeHtml(String(v ?? ''))}</b>`;
+      } else if (v === null || v === undefined) {
         cellHtml = '<span class="gray">—</span>';
       } else if (typeof v === 'number') {
         if (v > 0) cls = 'green';
@@ -278,6 +362,8 @@ function renderDataTable(lastRec, allRecords) {
       }
       html += `<td class="${cls}">${cellHtml}</td>`;
     }
+    // Sparkline za řádkem
+    html += `<td>${sparkline(row)}</td>`;
     html += '</tr>';
   }
   html += '</tbody></table>';
