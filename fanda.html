@@ -440,18 +440,23 @@ function renderDataTable(lastRec, allRecords) {
   </div>`;
   
   // TRANSPONOVANÁ TABULKA: řádky = hodiny, sloupce = země (in/out)
-  const IGNORE_COLS = new Set(['intervals','interval','intervaly']);
-  const hourCols = colsArr.filter(c => c !== 'key' && !IGNORE_COLS.has(String(c).toLowerCase()));
-  const countryKeys = rows.map(r => r.key).filter(k => k != null);  // ['hub_at_in', 'hub_at_out',...]
+  const IGNORE_COLS = new Set(['intervals','interval','intervaly','date','ts','timestamp','time','datum','cas']);
+  const hourCols = colsArr.filter(c => c !== 'key' && !IGNORE_COLS.has(String(c).toLowerCase().trim()));
+  const countryKeys = rows.map(r => r.key).filter(k => k != null);
   
   html += '<table style="font-family:\'JetBrains Mono\',monospace;font-size:11px;"><thead><tr>';
   html += '<th style="text-align:left;background:#ecf0f1;position:sticky;left:0;">Hodina</th>';
   for (const key of countryKeys) {
     const flag = flagFor(key);
-    const disp = displayKey(key);
+    const name = nameFor(key) || String(key);
     const dir = directionFor(key);
+    const dirLabel = dir === 'in' ? 'in' : (dir === 'out' ? 'out' : '');
     const cls = dir === 'in' ? 'green' : (dir === 'out' ? 'red' : '');
-    html += `<th class="${cls}" style="text-align:right;">${flag ? flag + ' ' : ''}<br>${escapeHtml(disp)}</th>`;
+    html += `<th class="${cls}" style="text-align:center;padding:6px 4px;line-height:1.3;">
+      <div style="font-size:11px;font-weight:500;">${escapeHtml(name)}</div>
+      <div style="font-size:16px;margin:1px 0;">${flag || ''}</div>
+      <div style="font-size:11px;font-weight:600;">${dirLabel}</div>
+    </th>`;
   }
   html += '</tr></thead><tbody>';
   
