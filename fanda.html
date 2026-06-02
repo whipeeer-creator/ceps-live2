@@ -411,48 +411,116 @@ function renderDataTable(lastRec, allRecords) {
   }
   html += '</tbody></table>';
   
-  // VELKÉ BAR CHARTY pod tabulkou - jeden per řádek
+  // VELKÉ BAR CHARTY pod tabulkou - kombinované in/out per země
   html += '<div style="padding:14px 12px;border-top:2px solid #eef0f7;">';
-  html += '<h3 style="font-size:14px;margin-bottom:10px;">📊 Grafy per země</h3>';
+  html += '<h3 style="font-size:14px;margin-bottom:10px;">📊 Grafy per země (🟢 in · 🔴 out)</h3>';
+  
+  // Seskup rows podle ISO země
+  const byCountry = {};  // {AT: {in: row, out: row}, ...}
   for (const row of rows) {
-    const key = row.key ?? row.country ?? '';
-    const flag = flagFor(key);
-    // Vyber jen číselné sloupce (kromě key)
-    const series = [];
-    for (const c of colsArr) {
-      if (c === 'key') continue;
-      const v = row[c];
-      if (typeof v === 'number' && isFinite(v)) {
-        series.push({ label: c, value: v });
+    const code = countryOf(row.key);
+    const dir = directionFor(row.key);
+    if (!code) continue;
+    if (!byCountry[code]) byCountry[code] = {};
+    byCountry[code][dir || 'unknown'] = row;
+  }
+  
+  // Číselné sloupce (kromě key)
+  const numCols = colsArr.filter(c => c !== 'key');
+  
+  for (const code of Object.keys(byCountry).sort()) {
+    const grp = byCountry[code];
+    const inRow = grp.in;
+    const outRow = grp.out;
+    
+    // Vyber jen sloupce kde alespoň jedna hodnota existuje a je číslo
+    const validCols = numCols.filter(c => {
+      const vi = inRow?.[c], vo = outRow?.[c];
+      return (typeof vi === 'number' && isFinite(vi)) || (typeof vo === 'number' && isFinite(vo));
+    });
+    if (validCols.length === 0) continue;
+    
+    const inVals = validCols.map(c => (typeof inRow?.[c] === 'number' && isFinite(inRow[c])) ? inRow[c] : 0);
+    const outVals = validCols.map(c => (typeof outRow?.[c] === 'number' && isFinite(outRow[c])) ? outRow[c] : 0);
+    const max = Math.max(...inVals, ...outVals, 1);
+    
+    // SVG layout
+    const H = 240;
+    const PAD_TOP = 26;   // místo pro text nad bary
+    const PAD_BOT = 32;   // místo pro labels pod
+    const chartH = H - PAD_TOP - PAD_BOT;
+    const groupCount = validCols.length;
+    
+    let bars = '';
+    for (let i = 0; i < validCols.length; i++) {
+      const groupW = 100 / groupCount;
+      const barW = groupW * 0.4;  // 2 bary per skupina, mezera mezi
+      const groupX = groupW * i;
+      
+      // IN bar (zelený, vlevo)
+      const inH = (inVals[i] / max) * chartH;
+      const inY = PAD_TOP + chartH - inH;
+      bars += `<rect x="${groupX + groupW * 0.05}%" y="${inY}" width="${barW}%" height="${inH}" fill="#27ae60" rx="2"/>`;
+      if (inVals[i] > 0) {
+        bars += `<text x="${groupX + groupW * 0.05 + barW/2}%" y="${inY - 3}" text-anchor="middle" font-size="9" fill="#27ae60" font-weight="600">${inVals[i].toFixed(0)}</text>`;
       }
+      
+      // OUT bar (červený, vpravo)
+      const outH = (outVals[i] / max) * chartH;
+      const outY = PAD_TOP + chartH - outH;
+      bars += `<rect x="${groupX + groupW * 0.55}%" y="${outY}" width="${barW}%" height="${outH}" fill="#e74c3c" rx="2"/>`;
+      if (outVals[i] > 0) {
+        bars += `<text x="${groupX + groupW * 0.55 + barW/2}%" y="${outY - 3}" text-anchor="middle" font-size="9" fill="#e74c3c" font-weight="600">${outVals[i].toFixed(0)}</text>`;
+      }
+      
+      // Label pod
+      bars += `<text x="${groupX + groupW/2}%" y="${PAD_TOP + chartH + 14}" text-anchor="middle" font-size="9" fill="#666">${escapeHtml(validCols[i])}</text>`;
     }
-    if (series.length === 0) continue;
     
-    const max = Math.max(...series.map(s => s.value));
-    const min = Math.min(0, Math.min(...series.map(s => s.value)));
-    const range = max - min || 1;
-    
-    const W = 100;  // procenta, container je 100%
-    const H = 200;
-    const bars = series.map((s, i) => {
-      const barW = 100 / series.length * 0.85;
-      const xPct = (100 / series.length) * i + (100 / series.length - barW) / 2;
-      const zeroY = H - (0 - min) / range * H;
-      const valY = H - (s.value - min) / range * H;
-      const barH = Math.abs(valY - zeroY);
-      const barY = s.value >= 0 ? valY : zeroY;
-      const color = s.value >= 0 ? '#27ae60' : '#e74c3c';
-      return `<rect x="${xPct}%" y="${barY}" width="${barW}%" height="${barH}" fill="${color}" rx="2"/>
-              <text x="${xPct + barW/2}%" y="${barY - 4}" text-anchor="middle" font-size="10" fill="#333">${s.value.toFixed(Number.isInteger(s.value)?0:2)}</text>
-              <text x="${xPct + barW/2}%" y="${H + 14}" text-anchor="middle" font-size="9" fill="#666">${escapeHtml(s.label)}</text>`;
-    }).join('');
+    // Baseline
+    bars += `<line x1="0" y1="${PAD_TOP + chartH}" x2="100%" y2="${PAD_TOP + chartH}" stroke="#bdc3c7" stroke-width="1"/>`;
     
     html += `<div style="margin-bottom:18px;background:#fafbfd;border:1px solid #eef0f7;border-radius:6px;padding:10px;">
-      <div style="font-size:13px;font-weight:600;margin-bottom:8px;">${flag ? flag + ' ' : ''}${escapeHtml(displayKey(key))}</div>
-      <svg width="100%" height="${H + 24}" style="display:block;">
+      <div style="font-size:14px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:10px;">
+        <span>${FLAGS[code] || ''} ${NAMES_CZ[code] || code}</span>
+        <span style="font-size:11px;font-weight:400;color:#666;">
+          <span style="color:#27ae60;">▮ in</span> · <span style="color:#e74c3c;">▮ out</span> · max ${max.toFixed(0)} MW
+        </span>
+      </div>
+      <svg width="100%" height="${H}" style="display:block;" preserveAspectRatio="none">
         ${bars}
       </svg>
     </div>`;
+  }
+  
+  // Země bez ISO (orphans) - dej do extra sekce
+  const orphanRows = rows.filter(r => !countryOf(r.key));
+  if (orphanRows.length) {
+    html += '<details style="margin-top:10px;"><summary style="cursor:pointer;font-size:12px;color:#666;">Ostatní řádky (' + orphanRows.length + ')</summary>';
+    for (const row of orphanRows) {
+      const series = numCols.map(c => ({label: c, value: row[c]})).filter(s => typeof s.value === 'number' && isFinite(s.value));
+      if (!series.length) continue;
+      const max = Math.max(...series.map(s => Math.abs(s.value)), 1);
+      let bars = '';
+      const H = 200, PAD_TOP=22, PAD_BOT=28, chartH=H-PAD_TOP-PAD_BOT;
+      for (let i=0; i<series.length; i++) {
+        const groupW = 100/series.length;
+        const barW = groupW*0.7;
+        const groupX = groupW*i;
+        const v = series[i].value;
+        const bH = (Math.abs(v)/max)*chartH;
+        const bY = PAD_TOP + chartH - bH;
+        const color = v >= 0 ? '#27ae60' : '#e74c3c';
+        bars += `<rect x="${groupX+groupW*0.15}%" y="${bY}" width="${barW}%" height="${bH}" fill="${color}" rx="2"/>`;
+        bars += `<text x="${groupX+groupW/2}%" y="${bY-3}" text-anchor="middle" font-size="9" fill="${color}">${v.toFixed(0)}</text>`;
+        bars += `<text x="${groupX+groupW/2}%" y="${PAD_TOP+chartH+14}" text-anchor="middle" font-size="9" fill="#666">${escapeHtml(series[i].label)}</text>`;
+      }
+      html += `<div style="margin:10px 0;background:#fafbfd;border:1px solid #eef0f7;border-radius:6px;padding:10px;">
+        <div style="font-size:13px;font-weight:600;margin-bottom:6px;">${escapeHtml(displayKey(row.key))}</div>
+        <svg width="100%" height="${H}" style="display:block;">${bars}</svg>
+      </div>`;
+    }
+    html += '</details>';
   }
   html += '</div>';
   
