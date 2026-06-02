@@ -61,9 +61,6 @@
   @media (min-width: 900px) {
     #canvasSolarAll, #canvasWindAll { height: 180px; }
     .perc-canvas { height: 140px; }
-    /* Per-country layout 2 columns on PC */
-    #perCountry { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-    #perCountry .chart-card { margin-bottom: 0; }
   }
   
   .grid-2 {
@@ -119,20 +116,20 @@
   <h2 style="font-size:14px; margin-bottom:6px;">Aktuální výroba (next 1h)</h2>
   <div class="summary-grid" id="summary"></div>
   
-  <h2 style="font-size:14px; margin: 14px 0 6px;">☀️ Solar - všechny dostupné země</h2>
-  <div class="chart-card">
-    <h2>Solar 48h forecast - srovnání</h2>
-    <div class="h-sub">CZ, DE, AT, HU, NL - normalizováno na max kapacitu (% z peak)</div>
-    <canvas id="canvasSolarAll"></canvas>
-    <div id="solarLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
-  </div>
-  
-  <h2 style="font-size:14px; margin: 14px 0 6px;">💨 Wind - všechny dostupné země</h2>
-  <div class="chart-card">
-    <h2>Wind 48h forecast - srovnání</h2>
-    <div class="h-sub">DE primární, ostatní pokud dostupné</div>
-    <canvas id="canvasWindAll"></canvas>
-    <div id="windLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
+  <h2 style="font-size:14px; margin: 14px 0 6px;">Srovnání všech zemí</h2>
+  <div id="topCharts" style="display:grid; gap:12px;">
+    <div class="chart-card">
+      <h2>☀️ Solar 48h forecast</h2>
+      <div class="h-sub">Normalizováno na max kapacitu (% z peak)</div>
+      <canvas id="canvasSolarAll"></canvas>
+      <div id="solarLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
+    </div>
+    <div class="chart-card">
+      <h2>💨 Wind 48h forecast</h2>
+      <div class="h-sub">Normalizováno na max kapacitu (% z peak)</div>
+      <canvas id="canvasWindAll"></canvas>
+      <div id="windLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
+    </div>
   </div>
   
   <h2 style="font-size:14px; margin: 14px 0 6px;">📊 Detail per země</h2>
