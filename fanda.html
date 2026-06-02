@@ -383,12 +383,54 @@ function renderDataTable(lastRec, allRecords) {
     const end = String(num % 24).padStart(2, '0');
     return `${start}:00`;
   }
-  // Format timestamp "2026-06-01T15:30:45" → "1.6. 15:30"
+  // Format timestamp - akceptuje různé formáty
   function fmtTs(ts) {
     if (!ts) return '';
-    const d = new Date(ts.endsWith('Z') ? ts : ts + 'Z');
-    if (isNaN(d)) return ts;
-    return `${d.getDate()}.${d.getMonth()+1}. ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    let d;
+    try {
+      const s = String(ts);
+      // Format 1: ISO "2026-06-02T08:11:23.456Z"
+      if (s.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)) {
+        d = new Date(s.endsWith('Z') ? s : s + 'Z');
+      } 
+      // Format 2: "20260602-081123" (file-like)
+      else if (s.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)) {
+        const m = s.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/);
+        d = new Date(Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]));
+      } 
+      // Format 3: unix timestamp number
+      else if (!isNaN(Number(s))) {
+        const num = Number(s);
+        d = new Date(num > 1e12 ? num : num * 1000);
+      } else {
+        d = new Date(s);
+      }
+      if (isNaN(d)) return s;
+      return `${d.getDate()}.${d.getMonth()+1}. ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    } catch(e) {
+      return String(ts);
+    }
+  }
+  // Parse ts → ms (for timeline)
+  function tsToMs(ts) {
+    if (!ts) return null;
+    try {
+      const s = String(ts);
+      let d;
+      if (s.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)) {
+        d = new Date(s.endsWith('Z') ? s : s + 'Z');
+      } else if (s.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)) {
+        const m = s.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/);
+        d = new Date(Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]));
+      } else if (!isNaN(Number(s))) {
+        const num = Number(s);
+        d = new Date(num > 1e12 ? num : num * 1000);
+      } else {
+        d = new Date(s);
+      }
+      const ms = d.getTime();
+      return isNaN(ms) ? null : ms;
+    } catch(e) { return null; }
   }
   
   // Build HTML
@@ -463,6 +505,7 @@ function renderDataTable(lastRec, allRecords) {
     directionFor: directionFor,
     fmtHour: fmtHour,
     fmtTs: fmtTs,
+    tsToMs: tsToMs,
     escapeHtml: escapeHtml,
   };
   
@@ -519,7 +562,10 @@ window.renderTimeline = function() {
   
   // Společná osa časů
   const allTs = [];
-  for (const k of Object.keys(series)) for (const p of series[k]) allTs.push(new Date(p.ts.endsWith('Z') ? p.ts : p.ts + 'Z').getTime());
+  for (const k of Object.keys(series)) for (const p of series[k]) {
+    const ms = st.tsToMs(p.ts);
+    if (ms != null) allTs.push(ms);
+  }
   if (!allTs.length) { el.innerHTML = '<div>Žádné timestampy</div>'; return; }
   const tMin = Math.min(...allTs);
   const tMax = Math.max(...allTs);
@@ -560,7 +606,6 @@ window.renderTimeline = function() {
     svg += `<text x="${x}" y="${H - PAD.bottom + 14}" text-anchor="middle" transform="rotate(-30 ${x} ${H - PAD.bottom + 14})">${label}</text>`;
   }
   svg += '</g>';
-  
   // Lines per key
   const COLORS = ['#27ae60','#e74c3c','#3498db','#9b59b6','#f39c12','#1abc9c','#34495e','#e67e22'];
   let ci = 0;
@@ -574,19 +619,21 @@ window.renderTimeline = function() {
     ci++;
     
     // Připrav body sortované
-    const sorted = [...pts].sort((a,b) => new Date(a.ts) - new Date(b.ts));
+    const sorted = [...pts].sort((a,b) => (st.tsToMs(a.ts)||0) - (st.tsToMs(b.ts)||0));
     const points = sorted.map(p => {
-      const tMs = new Date(p.ts.endsWith('Z') ? p.ts : p.ts + 'Z').getTime();
+      const tMs = st.tsToMs(p.ts);
+      if (tMs == null) return null;
       const x = PAD.left + (1000 - PAD.left - PAD.right) * ((tMs - tMin) / tR);
       const y = PAD.top + (H - PAD.top - PAD.bottom) * (1 - (p.value - minV) / (maxV - minV || 1));
       return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).join(' ');
+    }).filter(Boolean).join(' ');
     
     svg += `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
     
     // Body
     for (const p of sorted) {
-      const tMs = new Date(p.ts.endsWith('Z') ? p.ts : p.ts + 'Z').getTime();
+      const tMs = st.tsToMs(p.ts);
+      if (tMs == null) continue;
       const x = PAD.left + (1000 - PAD.left - PAD.right) * ((tMs - tMin) / tR);
       const y = PAD.top + (H - PAD.top - PAD.bottom) * (1 - (p.value - minV) / (maxV - minV || 1));
       svg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${color}"/>`;
