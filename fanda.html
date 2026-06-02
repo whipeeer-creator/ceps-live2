@@ -300,10 +300,57 @@ function renderDataTable(lastRec, allRecords) {
     UA:'🇺🇦', BY:'🇧🇾', TR:'🇹🇷', RU:'🇷🇺', US:'🇺🇸', CA:'🇨🇦',
     EU:'🇪🇺',
   };
+  const NAMES_CZ = {
+    CZ:'Česko', DE:'Německo', AT:'Rakousko', SK:'Slovensko', PL:'Polsko', HU:'Maďarsko',
+    FR:'Francie', IT:'Itálie', ES:'Španělsko', BE:'Belgie', NL:'Nizozemsko', DK:'Dánsko',
+    GB:'Británie', UK:'Británie', RO:'Rumunsko', BG:'Bulharsko', GR:'Řecko', FI:'Finsko',
+    SE:'Švédsko', NO:'Norsko', IE:'Irsko', PT:'Portugalsko', CH:'Švýcarsko', LU:'Lucembursko',
+    EE:'Estonsko', LV:'Lotyšsko', LT:'Litva', SI:'Slovinsko', HR:'Chorvatsko', RS:'Srbsko',
+    BA:'Bosna', MK:'Severní Makedonie', AL:'Albánie', ME:'Černá Hora', XK:'Kosovo', MD:'Moldavsko',
+    UA:'Ukrajina', BY:'Bělorusko', TR:'Turecko', RU:'Rusko', US:'USA', CA:'Kanada',
+    EU:'EU',
+  };
+  function countryOf(key) {
+    if (!key) return null;
+    const s = String(key).toLowerCase().trim();
+    for (const code of Object.keys(FLAGS)) {
+      const c = code.toLowerCase();
+      if (s === c || 
+          s.includes('_' + c + '_') || 
+          s.endsWith('_' + c) || 
+          s.startsWith(c + '_') ||
+          s.includes('-' + c + '-') ||
+          s.endsWith('-' + c) ||
+          s.startsWith(c + '-')) {
+        return code;
+      }
+    }
+    return null;
+  }
   function flagFor(key) {
+    const code = countryOf(key);
+    return code ? FLAGS[code] : '';
+  }
+  function nameFor(key) {
+    const code = countryOf(key);
+    return code ? NAMES_CZ[code] : null;
+  }
+  
+  // Direction
+  function directionFor(key) {
     if (!key) return '';
-    const code = String(key).toUpperCase().trim();
-    return FLAGS[code] || '';
+    const s = String(key).toLowerCase();
+    if (s.includes('_in') || s.endsWith('in') || s.includes('import')) return 'in';
+    if (s.includes('_out') || s.endsWith('out') || s.includes('export')) return 'out';
+    return '';
+  }
+  
+  // Display key: "hub_at_in" → "Rakousko in"
+  function displayKey(key) {
+    const name = nameFor(key);
+    const dir = directionFor(key);
+    if (name) return name + (dir ? ' ' + dir : '');
+    return String(key ?? '');
   }
   
   // Sparkline z numerických hodnot v řádku (kromě key)
@@ -336,7 +383,6 @@ function renderDataTable(lastRec, allRecords) {
   
   html += '<table><thead><tr>';
   for (const c of colsArr) html += `<th>${escapeHtml(c)}</th>`;
-  html += '<th>📈 Trend</th>';
   html += '</tr></thead><tbody>';
   
   for (const row of rows) {
@@ -346,9 +392,8 @@ function renderDataTable(lastRec, allRecords) {
       let cellHtml = '';
       let cls = '';
       if (c === 'key') {
-        // Vlajka + key
         const flag = flagFor(v);
-        cellHtml = `${flag ? flag + ' ' : ''}<b>${escapeHtml(String(v ?? ''))}</b>`;
+        cellHtml = `${flag ? flag + ' ' : ''}<b>${escapeHtml(displayKey(v))}</b>`;
       } else if (v === null || v === undefined) {
         cellHtml = '<span class="gray">—</span>';
       } else if (typeof v === 'number') {
@@ -362,11 +407,54 @@ function renderDataTable(lastRec, allRecords) {
       }
       html += `<td class="${cls}">${cellHtml}</td>`;
     }
-    // Sparkline za řádkem
-    html += `<td>${sparkline(row)}</td>`;
     html += '</tr>';
   }
   html += '</tbody></table>';
+  
+  // VELKÉ BAR CHARTY pod tabulkou - jeden per řádek
+  html += '<div style="padding:14px 12px;border-top:2px solid #eef0f7;">';
+  html += '<h3 style="font-size:14px;margin-bottom:10px;">📊 Grafy per země</h3>';
+  for (const row of rows) {
+    const key = row.key ?? row.country ?? '';
+    const flag = flagFor(key);
+    // Vyber jen číselné sloupce (kromě key)
+    const series = [];
+    for (const c of colsArr) {
+      if (c === 'key') continue;
+      const v = row[c];
+      if (typeof v === 'number' && isFinite(v)) {
+        series.push({ label: c, value: v });
+      }
+    }
+    if (series.length === 0) continue;
+    
+    const max = Math.max(...series.map(s => s.value));
+    const min = Math.min(0, Math.min(...series.map(s => s.value)));
+    const range = max - min || 1;
+    
+    const W = 100;  // procenta, container je 100%
+    const H = 200;
+    const bars = series.map((s, i) => {
+      const barW = 100 / series.length * 0.85;
+      const xPct = (100 / series.length) * i + (100 / series.length - barW) / 2;
+      const zeroY = H - (0 - min) / range * H;
+      const valY = H - (s.value - min) / range * H;
+      const barH = Math.abs(valY - zeroY);
+      const barY = s.value >= 0 ? valY : zeroY;
+      const color = s.value >= 0 ? '#27ae60' : '#e74c3c';
+      return `<rect x="${xPct}%" y="${barY}" width="${barW}%" height="${barH}" fill="${color}" rx="2"/>
+              <text x="${xPct + barW/2}%" y="${barY - 4}" text-anchor="middle" font-size="10" fill="#333">${s.value.toFixed(Number.isInteger(s.value)?0:2)}</text>
+              <text x="${xPct + barW/2}%" y="${H + 14}" text-anchor="middle" font-size="9" fill="#666">${escapeHtml(s.label)}</text>`;
+    }).join('');
+    
+    html += `<div style="margin-bottom:18px;background:#fafbfd;border:1px solid #eef0f7;border-radius:6px;padding:10px;">
+      <div style="font-size:13px;font-weight:600;margin-bottom:8px;">${flag ? flag + ' ' : ''}${escapeHtml(displayKey(key))}</div>
+      <svg width="100%" height="${H + 24}" style="display:block;">
+        ${bars}
+      </svg>
+    </div>`;
+  }
+  html += '</div>';
   
   // History dropdown (other timestamps for this source/type)
   if (allRecords.length > 1) {
