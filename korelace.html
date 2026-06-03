@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Korelace — DE forecast error vs CZ cena</title>
+<style>
+  :root{
+    --bg:#fff; --ink:#1a1a1a; --muted:#888; --line:#e4e4e4;
+    --pos:#0b8a3e; --neg:#c0392b; --accent:#2a4d8f;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'SF Mono',Menlo,Consolas,monospace;background:var(--bg);color:var(--ink);
+       padding:16px;max-width:900px;margin:0 auto;font-size:13px}
+  h1{font-size:16px;margin-bottom:4px}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:14px}
+  .bar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+  button{background:var(--ink);color:#fff;border:none;padding:7px 14px;border-radius:4px;
+         font-family:inherit;font-size:12px;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  .status{color:var(--muted);font-size:12px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .card{border:1px solid var(--line);border-radius:6px;padding:12px}
+  .card h2{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:8px}
+  .big{font-size:28px;font-weight:700}
+  .big.pos{color:var(--pos)} .big.neg{color:var(--neg)}
+  table{border-collapse:collapse;width:100%;font-size:12px;margin-top:6px}
+  th,td{padding:5px 8px;text-align:right;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted);font-size:10px;text-transform:uppercase}
+  .err{color:var(--neg);font-size:12px;margin-top:10px}
+  svg{width:100%;height:auto;display:block}
+  .note{font-size:11px;color:var(--muted);margin-top:6px;line-height:1.5}
+  .hint{background:#f6f8fc;border-left:3px solid var(--accent);padding:8px 10px;font-size:11px;
+        line-height:1.5;margin-top:12px;border-radius:0 4px 4px 0}
+</style>
+</head>
+<body>
+  <h1>Korelace: DE forecast error → CZ cena reg. energie</h1>
+  <div class="sub">Solar+wind chyba předpovědi (actual − forecast, DE) vs aFRR cena (ČEPS), hodinově</div>
+
+  <div class="bar">
+    <button id="run" onclick="run()">Spustit analýzu (7 dní)</button>
+    <span class="status" id="status">připraveno</span>
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Korelace (současně)</h2>
+      <div class="big" id="corr0">–</div>
+      <div class="note" id="corr0note"></div>
+    </div>
+    <div class="card">
+      <h2>Nejlepší korelace s předstihem</h2>
+      <div class="big" id="corrbest">–</div>
+      <div class="note" id="corrbestnote"></div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px">
+    <h2>Korelace podle časového posunu</h2>
+    <table id="lagtbl">
+      <thead><tr><th>Posun</th><th>Korelace r</th><th>Bodů</th><th>Interpretace</th></tr></thead>
+      <tbody><tr><td colspan="4" class="status">—</td></tr></tbody>
+    </table>
+    <div class="note">Posun = o kolik předbíhá forecast error cenu. Kladný posun s vysokým r = error predikuje cenu → obchodovatelné.</div>
+  </div>
+
+  <div class="card">
+    <h2>Scatter: forecast error (MW) vs cena (€/MWh)</h2>
+    <div id="scatter"></div>
+  </div>
+
+  <div class="hint" id="hint"></div>
+  <div class="err" id="err"></div>
+
+<script>
+const BASE = (location.origin.startsWith("http") && location.origin!=="null")
+  ? location.origin : "https://ceps-live2.onrender.com";
+const pad = n => String(n).padStart(2,'0');
+
+function setStatus(s){ document.getElementById('status').textContent = s; }
+
+// stahni DE forecast (wind+solar) za 7 dni - z /entsoe/residual-load
+// ten endpoint vraci pole {berlin_time, wind_mw, solar_mw, ...} = FORECAST (A69/A01)
+async function getForecast(){
+  const r = await fetch(`${BASE}/entsoe/residual-load?days_back=7`, {cache:'no-store'});
+  if(!r.ok) throw new Error('forecast HTTP '+r.status);
+  const d = await r.json();
+  // klic = "YYYY-MM-DDTHH" (hodinovy bucket berlin), value = wind+solar forecast
+  const fc = {};
+  for(const p of (d.data||[])){
+    if(!p.berlin_time) continue;
+    const key = p.berlin_time.slice(0,13);  // do hodiny
+    fc[key] = (p.wind_mw||0) + (p.solar_mw||0);
+  }
+  return fc;
+}
+
+// stahni DE actual (solar + wind) per den
+async function getActual(country, type, dayIso){
+  const r = await fetch(`${BASE}/entsoe/actual?country=${country}&type=${type}&day=${dayIso}`, {cache:'no-store'});
+  if(!r.ok) return {};
+  const d = await r.json();
+  const out = {};
+  for(const p of (d.points||[])){
+    const ts = p.ts || p.timestamp;
+    if(!ts || p.value==null) continue;
+    // ts je UTC "YYYY-MM-DDTHH:MMZ" -> prevedem na berlin hodinu
+    const dt = new Date(ts.replace('Z','')+'Z');
+    const off = (dt.getUTCMonth()>=3 && dt.getUTCMonth()<=9) ? 2 : 1;
+    const b = new Date(dt.getTime()+off*3600*1000);
+    const key = b.getUTCFullYear()+'-'+pad(b.getUTCMonth()+1)+'-'+pad(b.getUTCDate())+'T'+pad(b.getUTCHours());
+    out[key] = (out[key]||0) + p.value;  // sluc 15min do hodiny (prumer pozdeji)
+  }
+  return out;
+}
+
+// stahni CZ cenu reg. energie per den z /api AktualniCenaRE
+async function getPrice(dayIso){
+  const df = dayIso+'T00:00:00', dt = dayIso+'T23:59:59';
+  const url = `${BASE}/api?method=AktualniCenaRE&dateFrom=${df}&dateTo=${dt}&agregation=HR&function=AVG`;
+  const r = await fetch(url, {cache:'no-store'});
+  if(!r.ok) return {};
+  const d = await r.json();
+  const out = {};
+  // hledame sloupec s aFRR cenou
+  const cols = d.columns||[];
+  let priceCol = cols.find(c=>/aFRR/i.test(c)) || cols.find(c=>/EUR/i.test(c)) || cols[0];
+  for(const row of (d.rows||[])){
+    const date = row.date; if(!date) continue;
+    // date format "YYYY-MM-DDTHH:MM:SS"
+    const key = date.slice(0,13);
+    const v = parseFloat(row[priceCol]);
+    if(Number.isFinite(v)) out[key] = v;
+  }
+  return out;
+}
+
+// Pearsonuv korelacni koeficient
+function pearson(pairs){
+  const n = pairs.length;
+  if(n<3) return null;
+  let sx=0,sy=0,sxx=0,syy=0,sxy=0;
+  for(const [x,y] of pairs){ sx+=x;sy+=y;sxx+=x*x;syy+=y*y;sxy+=x*y; }
+  const cov = sxy - sx*sy/n;
+  const vx = sxx - sx*sx/n, vy = syy - sy*sy/n;
+  if(vx<=0||vy<=0) return null;
+  return cov/Math.sqrt(vx*vy);
+}
+
+function interp(r){
+  const a = Math.abs(r);
+  if(a<0.1) return 'žádná';
+  if(a<0.3) return 'slabá';
+  if(a<0.5) return 'střední';
+  if(a<0.7) return 'silná';
+  return 'velmi silná';
+}
+
+function drawScatter(pairs){
+  if(pairs.length===0){ document.getElementById('scatter').innerHTML=''; return; }
+  const W=820,H=360,m=40;
+  const xs=pairs.map(p=>p[0]), ys=pairs.map(p=>p[1]);
+  const xmin=Math.min(...xs),xmax=Math.max(...xs),ymin=Math.min(...ys),ymax=Math.max(...ys);
+  const sx=x=>m+(x-xmin)/((xmax-xmin)||1)*(W-2*m);
+  const sy=y=>H-m-(y-ymin)/((ymax-ymin)||1)*(H-2*m);
+  let dots='';
+  for(const [x,y] of pairs){
+    dots+=`<circle cx="${sx(x).toFixed(1)}" cy="${sy(y).toFixed(1)}" r="2.5" fill="#2a4d8f" opacity="0.45"/>`;
+  }
+  // osa x=0
+  const zx = (xmin<0&&xmax>0)? `<line x1="${sx(0)}" y1="${m}" x2="${sx(0)}" y2="${H-m}" stroke="#ccc" stroke-dasharray="3"/>`:'';
+  document.getElementById('scatter').innerHTML = `
+    <svg viewBox="0 0 ${W} ${H}">
+      <line x1="${m}" y1="${H-m}" x2="${W-m}" y2="${H-m}" stroke="#999"/>
+      <line x1="${m}" y1="${m}" x2="${m}" y2="${H-m}" stroke="#999"/>
+      ${zx}${dots}
+      <text x="${W/2}" y="${H-6}" text-anchor="middle" font-size="11" fill="#888">forecast error [MW]  (actual − forecast)</text>
+      <text x="12" y="${H/2}" text-anchor="middle" font-size="11" fill="#888" transform="rotate(-90 12 ${H/2})">aFRR cena [€/MWh]</text>
+      <text x="${m}" y="${H-m+14}" font-size="10" fill="#aaa">${xmin.toFixed(0)}</text>
+      <text x="${W-m}" y="${H-m+14}" text-anchor="end" font-size="10" fill="#aaa">${xmax.toFixed(0)}</text>
+    </svg>`;
+}
+
+async function run(){
+  const btn=document.getElementById('run');
+  const err=document.getElementById('err');
+  btn.disabled=true; err.textContent='';
+  try{
+    // 7 dni zpatky (berlin)
+    const now=new Date();
+    const off=(now.getUTCMonth()>=3&&now.getUTCMonth()<=9)?2:1;
+    const bnow=new Date(now.getTime()+off*3600*1000);
+    const days=[];
+    for(let i=1;i<=7;i++){
+      const d=new Date(bnow.getTime()-i*24*3600*1000);
+      days.push(d.getUTCFullYear()+'-'+pad(d.getUTCMonth()+1)+'-'+pad(d.getUTCDate()));
+    }
+
+    setStatus('stahuji DE forecast (wind+solar)...');
+    const forecast = await getForecast();   // key YYYY-MM-DDTHH -> MW
+
+    // actual DE solar+wind + cena, per den
+    const actual={}, price={};
+    for(let i=0;i<days.length;i++){
+      const day=days[i];
+      setStatus(`stahuji actual + cenu ${day} (${i+1}/${days.length})...`);
+      const [sol,win,pr] = await Promise.all([
+        getActual('DE','solar',day),
+        getActual('DE','wind',day),
+        getPrice(day),
+      ]);
+      for(const k in sol) actual[k]=(actual[k]||0)+sol[k];
+      for(const k in win) actual[k]=(actual[k]||0)+win[k];
+      Object.assign(price, pr);
+    }
+
+    setStatus('počítám korelace...');
+
+    // forecast error per hodinovy klic
+    const errByKey={};
+    for(const k in actual){
+      if(forecast[k]!=null) errByKey[k]=actual[k]-forecast[k];
+    }
+
+    // serad klice chronologicky
+    const keys=Object.keys(errByKey).sort();
+
+    // korelace pro ruzne posuny (0,1,2,4 hodiny = error predbiha cenu)
+    const lags=[0,1,2,4];
+    let best={r:0,lag:0,n:0};
+    let r0=null,n0=0;
+    const rows=[];
+    let scatterPairs=[];
+    for(const lag of lags){
+      const pairs=[];
+      for(let i=0;i<keys.length;i++){
+        const k=keys[i];
+        // cena o 'lag' hodin pozdeji
+        const ki=keys[i+lag];
+        if(ki==null) continue;
+        if(price[ki]==null) continue;
+        pairs.push([errByKey[k], price[ki]]);
+      }
+      const r=pearson(pairs);
+      if(lag===0){ r0=r; n0=pairs.length; scatterPairs=pairs; }
+      if(r!=null && Math.abs(r)>Math.abs(best.r)){ best={r,lag,n:pairs.length}; }
+      rows.push({lag, r, n:pairs.length});
+    }
+
+    // render
+    document.getElementById('corr0').textContent = r0!=null?r0.toFixed(3):'–';
+    document.getElementById('corr0').className = 'big '+(r0>0?'pos':'neg');
+    document.getElementById('corr0note').textContent =
+      r0!=null?`${interp(r0)} korelace · ${n0} hodin`:'málo dat';
+
+    document.getElementById('corrbest').textContent = best.r?best.r.toFixed(3):'–';
+    document.getElementById('corrbest').className='big '+(best.r>0?'pos':'neg');
+    document.getElementById('corrbestnote').textContent =
+      best.lag!=null?`posun +${best.lag}h · ${interp(best.r)} · ${best.n} bodů`:'–';
+
+    const tb=document.querySelector('#lagtbl tbody');
+    tb.innerHTML = rows.map(rw=>
+      `<tr><td>+${rw.lag} h</td><td>${rw.r!=null?rw.r.toFixed(3):'–'}</td><td>${rw.n}</td><td>${rw.r!=null?interp(rw.r):'–'}</td></tr>`
+    ).join('');
+
+    drawScatter(scatterPairs);
+
+    // interpretace
+    const hint=document.getElementById('hint');
+    if(r0==null){
+      hint.textContent='Málo spárovaných dat — ENTSO-E možná nemá actual pro některé dny. Zkus to později.';
+    } else {
+      const sign = r0<0 ? 'záporná' : 'kladná';
+      const mean = r0<0
+        ? 'Záporný error (OZE vyrobilo MÍŇ než forecast) → vyšší cena. Sedí to s logikou: deficit zdroje zdražuje regulační energii.'
+        : 'Kladný error (OZE vyrobilo VÍC) → vyšší cena. To je neobvyklé, čekal bys opak — možná málo dat nebo jiný vliv.';
+      const trade = (best.lag>0 && Math.abs(best.r)>=0.3)
+        ? `Nejlepší korelace je s předstihem +${best.lag}h (r=${best.r.toFixed(2)}) → error má predikční sílu, dá se obchodovat: sleduj DE OZE odchylku a poziciuj na CZ cenu o ${best.lag}h dopředu.`
+        : 'Korelace s předstihem není silná — error nepředbíhá cenu dost na čisté obchodování. Spíš potvrzuje, co už trh zacenil.';
+      hint.innerHTML = `<b>Závěr:</b> ${sign} korelace (r=${r0.toFixed(2)}, ${interp(r0)}). ${mean}<br><br>${trade}`;
+    }
+
+    setStatus(`hotovo · ${keys.length} hodin forecast erroru spárováno`);
+  }catch(e){
+    err.textContent='Chyba: '+e.message;
+    setStatus('chyba');
+  }finally{
+    btn.disabled=false;
+  }
+}
+</script>
+</body>
+</html>
