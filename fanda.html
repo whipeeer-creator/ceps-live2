@@ -331,9 +331,24 @@ function renderDataTable(lastRec, allRecords) {
     UA:'Ukrajina', BY:'Bělorusko', TR:'Turecko', RU:'Rusko', US:'USA', CA:'Kanada',
     EU:'EU',
   };
+  // Explicit hub mapping (zachytí všechny varianty)
+  const HUB_MAP = {
+    'hub_at_in':  {code:'AT', dir:'in'},  'hub_at_out': {code:'AT', dir:'out'},
+    'hub_de_in':  {code:'DE', dir:'in'},  'hub_de_out': {code:'DE', dir:'out'},
+    'hub_cz_in':  {code:'CZ', dir:'in'},  'hub_cz_out': {code:'CZ', dir:'out'},
+    'hub_sk_in':  {code:'SK', dir:'in'},  'hub_sk_out': {code:'SK', dir:'out'},
+    'hub_pl_in':  {code:'PL', dir:'in'},  'hub_pl_out': {code:'PL', dir:'out'},
+    'hub_hu_in':  {code:'HU', dir:'in'},  'hub_hu_out': {code:'HU', dir:'out'},
+    'hub_at':     {code:'AT', dir:''},    'hub_de':     {code:'DE', dir:''},
+    'hub_cz':     {code:'CZ', dir:''},    'hub_sk':     {code:'SK', dir:''},
+    'hub_pl':     {code:'PL', dir:''},    'hub_hu':     {code:'HU', dir:''},
+  };
   function countryOf(key) {
     if (!key) return null;
     const s = String(key).toLowerCase().trim();
+    // Direct HUB lookup
+    if (HUB_MAP[s]) return HUB_MAP[s].code;
+    // Pattern matching
     for (const code of Object.keys(FLAGS)) {
       const c = code.toLowerCase();
       if (s === c || 
@@ -361,6 +376,7 @@ function renderDataTable(lastRec, allRecords) {
   function directionFor(key) {
     if (!key) return '';
     const s = String(key).toLowerCase();
+    if (HUB_MAP[s]) return HUB_MAP[s].dir;
     if (s.includes('_in') || s.endsWith('in') || s.includes('import')) return 'in';
     if (s.includes('_out') || s.endsWith('out') || s.includes('export')) return 'out';
     return '';
@@ -621,6 +637,8 @@ window.renderTimeline = function() {
   const W = 100;  // % container
   const PAD = { left: 60, right: 20, top: 16, bottom: 50 };
   
+  const COLORS = ['#27ae60','#e74c3c','#3498db','#9b59b6','#f39c12','#1abc9c','#34495e','#e67e22'];
+  
   let svg = `<svg width="100%" height="${H}" viewBox="0 0 1000 ${H}" preserveAspectRatio="none" style="background:#fafbfd;border:1px solid #e5e7eb;border-radius:6px;">`;
   
   // Y axis
@@ -633,60 +651,72 @@ window.renderTimeline = function() {
   }
   svg += '</g>';
   
-  // X axis labels - timestamps
-  const xLabels = [];
-  if (allTs.length > 1) {
-    const uniq = [...new Set(allTs)].sort((a,b)=>a-b);
-    const step = Math.max(1, Math.floor(uniq.length / 8));
-    for (let i = 0; i < uniq.length; i += step) xLabels.push(uniq[i]);
-    if (xLabels[xLabels.length-1] !== uniq[uniq.length-1]) xLabels.push(uniq[uniq.length-1]);
-  } else {
-    xLabels.push(allTs[0]);
-  }
-  
-  svg += '<g font-size="10" fill="#7f8c8d" font-family="sans-serif">';
-  for (const ts of xLabels) {
-    const x = PAD.left + (1000 - PAD.left - PAD.right) * ((ts - tMin) / tR);
+  // X axis labels - timestamps pod groupami
+  svg += '<g font-size="9" fill="#7f8c8d" font-family="sans-serif">';
+  // Zobraz každý N-tý label aby se nepřekrývaly
+  const labelStep = Math.max(1, Math.ceil(tsSorted.length / 10));
+  for (let vi = 0; vi < tsSorted.length; vi++) {
+    if (vi % labelStep !== 0 && vi !== tsSorted.length - 1) continue;
+    const ts = tsSorted[vi];
+    const x = PAD.left + groupW * vi + groupW / 2;
     const label = st.fmtTs(new Date(ts).toISOString());
-    svg += `<line x1="${x}" y1="${PAD.top}" x2="${x}" y2="${H - PAD.bottom}" stroke="#f0f1f4"/>`;
-    svg += `<text x="${x}" y="${H - PAD.bottom + 14}" text-anchor="middle" transform="rotate(-30 ${x} ${H - PAD.bottom + 14})">${label}</text>`;
+    svg += `<text x="${x.toFixed(1)}" y="${H - PAD.bottom + 14}" text-anchor="middle">${label}</text>`;
   }
   svg += '</g>';
-  // Lines per key
-  const COLORS = ['#27ae60','#e74c3c','#3498db','#9b59b6','#f39c12','#1abc9c','#34495e','#e67e22'];
-  let ci = 0;
-  const legendItems = [];
+  // Lines per key → BARS per key (histogram)
+  // X = ingest version (each record), Y = value
+  // Stacked grouped: per version 8 bars side by side
   
+  // Najdi unique timestamps (řazené)
+  const tsSorted = [...new Set(allTs)].sort((a,b)=>a-b);
+  if (tsSorted.length === 0) {
+    el.innerHTML = '<div style="padding:20px;color:#888;">Žádné timestampy</div>';
+    return;
+  }
+  
+  // Spočítej hodnoty per [tsIndex][key]
+  const valGrid = {};  // {tsMs: {key: value}}
   for (const key of st.countryKeys) {
     const pts = series[key];
-    if (!pts.length) continue;
-    const dir = st.directionFor(key);
-    const color = dir === 'in' ? '#27ae60' : (dir === 'out' ? '#e74c3c' : COLORS[ci % COLORS.length]);
-    ci++;
-    
-    // Připrav body sortované
-    const sorted = [...pts].sort((a,b) => (st.tsToMs(a.ts)||0) - (st.tsToMs(b.ts)||0));
-    const points = sorted.map(p => {
-      const tMs = st.tsToMs(p.ts);
-      if (tMs == null) return null;
-      const x = PAD.left + (1000 - PAD.left - PAD.right) * ((tMs - tMin) / tR);
-      const y = PAD.top + (H - PAD.top - PAD.bottom) * (1 - (p.value - minV) / (maxV - minV || 1));
-      return `${x.toFixed(1)},${y.toFixed(1)}`;
-    }).filter(Boolean).join(' ');
-    
-    svg += `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
-    
-    // Body
-    for (const p of sorted) {
+    for (const p of pts) {
       const tMs = st.tsToMs(p.ts);
       if (tMs == null) continue;
-      const x = PAD.left + (1000 - PAD.left - PAD.right) * ((tMs - tMin) / tR);
-      const y = PAD.top + (H - PAD.top - PAD.bottom) * (1 - (p.value - minV) / (maxV - minV || 1));
-      svg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.5" fill="${color}"/>`;
+      if (!valGrid[tMs]) valGrid[tMs] = {};
+      valGrid[tMs][key] = p.value;
     }
-    
-    legendItems.push({key, color, flag: st.flagFor(key), display: st.displayKey(key)});
   }
+  
+  // Layout
+  const visibleKeys = st.countryKeys.filter(k => series[k].length > 0);
+  const numVersions = tsSorted.length;
+  const groupW = (1000 - PAD.left - PAD.right) / numVersions;
+  const barW = (groupW * 0.88) / visibleKeys.length;
+  
+  const legendItems = [];
+  let ci = 0;
+  
+  // Bars per version per country
+  for (let vi = 0; vi < numVersions; vi++) {
+    const ts = tsSorted[vi];
+    const groupX = PAD.left + groupW * vi;
+    for (let ki = 0; ki < visibleKeys.length; ki++) {
+      const key = visibleKeys[ki];
+      const dir = st.directionFor(key);
+      const color = dir === 'in' ? '#27ae60' : (dir === 'out' ? '#e74c3c' : COLORS[ki % COLORS.length]);
+      if (vi === 0) {
+        legendItems.push({key, color, flag: st.flagFor(key), display: st.displayKey(key)});
+      }
+      const val = valGrid[ts]?.[key];
+      if (val == null) continue;
+      const barH = (val / (maxV || 1)) * (H - PAD.top - PAD.bottom);
+      const barX = groupX + barW * ki + groupW * 0.06;
+      const barY = H - PAD.bottom - barH;
+      svg += `<rect x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color}" opacity="0.85"/>`;
+    }
+  }
+  
+  // Definujeme COLORS pro fallback
+  
   
   svg += '</svg>';
   
