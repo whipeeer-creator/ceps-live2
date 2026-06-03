@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Detekce — trčící nabídky</title>
+<style>
+  :root{--bg:#fff;--ink:#1a1a1a;--muted:#888;--line:#e4e4e4;
+        --buy:#0b8a3e;--sell:#c0392b;--hl:#fff8c5}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'SF Mono',Menlo,Consolas,monospace;background:var(--bg);color:var(--ink);
+       padding:16px;max-width:720px;margin:0 auto;font-size:13px}
+  header{display:flex;align-items:center;gap:12px;margin-bottom:6px;flex-wrap:wrap}
+  h1{font-size:15px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#bbb}
+  .dot.live{background:var(--buy);animation:b 2s infinite}
+  @keyframes b{0%,100%{opacity:1}50%{opacity:.3}}
+  .sub{color:var(--muted);font-size:12px;margin-bottom:14px}
+  .card{border:1px solid var(--line);border-left:4px solid var(--line);border-radius:6px;
+        padding:12px 14px;margin-bottom:10px;animation:fade .5s}
+  @keyframes fade{from{background:var(--hl)}to{background:#fff}}
+  .card.buy{border-left-color:var(--sell)}   /* nekdo kupuje draho -> prilezitost prodat */
+  .card.sell{border-left-color:var(--buy)}   /* nekdo prodava levne -> prilezitost koupit */
+  .row1{display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap}
+  .ct{font-weight:700;font-size:14px}
+  .action{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;
+          padding:3px 8px;border-radius:4px}
+  .action.buy{background:#eafaf0;color:var(--buy)}
+  .action.sell{background:#fdeeec;color:var(--sell)}
+  .detail{margin-top:8px;display:flex;gap:18px;flex-wrap:wrap;font-size:13px;color:#444}
+  .detail b{color:var(--ink)}
+  .big{font-size:18px;font-weight:700}
+  .big.buy{color:var(--buy)} .big.sell{color:var(--sell)}
+  .empty{color:var(--muted);padding:30px;text-align:center}
+  .meta{font-size:11px;color:var(--muted);margin-left:auto}
+  .note{font-size:11px;color:var(--muted);margin-top:16px;line-height:1.5;
+        border-top:1px solid var(--line);padding-top:12px}
+</style>
+</head>
+<body>
+  <header>
+    <span class="dot" id="dot"></span>
+    <h1>Detekce trčících nabídek</h1>
+    <span class="meta" id="meta"></span>
+  </header>
+  <div class="sub">Nabídky výrazně mimo férovou cenu knihy · zkušební</div>
+
+  <div id="list"><div class="empty">načítám…</div></div>
+
+  <div class="note" id="note"></div>
+
+<script>
+const BASE = (location.origin.startsWith("http") && location.origin!=="null")
+  ? location.origin : "https://ceps-live2.onrender.com";
+const ENDPOINT = BASE + "/vdt/orderbook";
+
+function fmtCt(k){
+  if(!k) return '?';
+  const d=(k.date||''), f=(k.from||'');
+  // date YYYYMMDD -> DD.MM, + cas
+  const dd = d? d.slice(6,8)+'.'+d.slice(4,6)+'. ':'';
+  return dd + f + (k.type==='H'?' (H)':'');
+}
+
+async function tick(){
+  const dot=document.getElementById('dot');
+  const list=document.getElementById('list');
+  try{
+    const res=await fetch(ENDPOINT,{cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data=await res.json();
+    const rows=data.rows||[];
+
+    // posbirej vsechny trcici nabidky napric kontrakty
+    const hits=[];
+    for(const r of rows){
+      const odd=r.odd||[];
+      for(const o of odd){
+        hits.push({ct:r.kontrakt, fair:r.fair, vol:r.vol||0, ...o});
+      }
+    }
+    // serad podle velikosti odchylky
+    hits.sort((a,b)=>b.diff-a.diff);
+
+    dot.className='dot live';
+    document.getElementById('meta').textContent =
+      hits.length+' nálezů · '+rows.length+' kontraktů';
+
+    if(hits.length===0){
+      list.innerHTML='<div class="empty">žádné trčící nabídky teď — kniha je v normálu</div>';
+      return;
+    }
+
+    list.innerHTML = hits.map(h=>{
+      // SELL = nekdo prodava levne -> ty KOUPIS. BUY = nekdo kupuje draze -> ty PRODAS.
+      const isSell = h.side==='SELL';
+      const action = isSell ? 'KUP' : 'PRODEJ';
+      const aCls = isSell ? 'buy' : 'sell';
+      return `<div class="card ${h.side.toLowerCase()}">
+        <div class="row1">
+          <span class="ct">${fmtCt(h.ct)}</span>
+          <span class="action ${aCls}">${action} @ ${h.px}</span>
+        </div>
+        <div class="detail">
+          <span>odchylka <span class="big ${aCls}">${h.diff>0?'+':''}${h.diff}</span> €</span>
+          <span>férová <b>${h.fair??'–'}</b></span>
+          <span>množství <b>${h.qty}</b> MW</span>
+          <span>denní objem <b>${h.vol}</b></span>
+        </div>
+      </div>`;
+    }).join('');
+  }catch(e){
+    dot.className='dot';
+    list.innerHTML='<div class="empty">odpojeno — běží bot? ('+e.message+')</div>';
+  }
+}
+
+document.getElementById('note').textContent =
+  'Pozn.: SELL nález = někdo prodává pod férovou cenou → příležitost koupit. '+
+  'BUY nález = někdo kupuje nad férovou → příležitost prodat. '+
+  'Reálně sebratelné hlavně u kontraktů s malým denním objemem (tenká kniha) — '+
+  'tam, kde algoboti nehlídají.';
+
+tick();
+setInterval(tick, 1500);
+</script>
+</body>
+</html>
