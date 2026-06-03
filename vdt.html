@@ -3,336 +3,192 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VDT Live</title>
+<title>VDT Live — OTE</title>
 <style>
-  :root {
-    --bg: #f0f0f0;
-    --card: #ffffff;
-    --border: #c0c0c0;
-    --text: #000;
-    --muted: #666;
-    --buy: #1976d2;
-    --sell: #c62828;
-    --highlight: #fff59d;
-    --row-h: #eaeaea;
-    --row-qh: #fff;
-    --row-hover: #e3f2fd;
-    --current: #ffebee;
+  :root{
+    --bg:#ffffff; --ink:#1a1a1a; --muted:#8a8a8a;
+    --line:#e4e4e4; --hour-bg:#f4f4f4;
+    --bid:#0b8a3e; --bid-bg:#eafaf0;
+    --ask:#c0392b; --ask-bg:#fdeeec;
+    --stale:#bbb; --live:#0b8a3e;
   }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body {
-    font-family: 'Segoe UI', system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    font-size: 12px;
-    padding: 8px;
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font-family:'SF Mono',Menlo,Consolas,'DejaVu Sans Mono',monospace;
+    font-size:13px; padding:14px;
   }
-  
-  .header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 12px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    margin-bottom: 8px;
+  header{
+    display:flex; align-items:center; gap:14px;
+    margin-bottom:12px; flex-wrap:wrap;
   }
-  .header h1 {
-    font-size: 14px;
-    font-weight: 600;
+  h1{font-size:15px; font-weight:700; letter-spacing:.5px}
+  .status{display:flex; align-items:center; gap:6px; font-size:12px; color:var(--muted)}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--stale)}
+  .dot.live{background:var(--live); box-shadow:0 0 0 0 rgba(11,138,62,.5); animation:p 2s infinite}
+  @keyframes p{0%{box-shadow:0 0 0 0 rgba(11,138,62,.5)}70%{box-shadow:0 0 0 6px rgba(11,138,62,0)}100%{box-shadow:0 0 0 0 rgba(11,138,62,0)}}
+  .meta{font-size:11px; color:var(--muted)}
+  table{border-collapse:collapse; width:100%; max-width:760px}
+  th{
+    text-align:right; font-size:10px; font-weight:600; color:var(--muted);
+    text-transform:uppercase; letter-spacing:.6px;
+    padding:6px 10px; border-bottom:2px solid var(--line);
   }
-  .header .stats {
-    display: flex;
-    gap: 14px;
-    color: var(--muted);
-    font-size: 11px;
-  }
-  .header .stats strong { color: var(--text); margin-left: 3px; }
-  
-  .status {
-    display: inline-block;
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: #aaa;
-    margin-right: 6px;
-    vertical-align: middle;
-  }
-  .status.live { background: #2e7d32; box-shadow: 0 0 4px #4caf50; }
-  .status.stale { background: #f57c00; }
-  .status.error { background: #c62828; }
-  
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    background: var(--card);
-    border: 1px solid var(--border);
-    font-variant-numeric: tabular-nums;
-  }
-  th, td {
-    padding: 3px 8px;
-    text-align: right;
-    border-bottom: 1px solid #e0e0e0;
-    border-right: 1px solid #e0e0e0;
-  }
-  th {
-    background: #d4d4d4;
-    font-weight: 600;
-    font-size: 11px;
-    text-align: center;
-    border-bottom: 1px solid var(--border);
-    position: sticky;
-    top: 0;
-  }
-  th.kontrakt-col, td.kontrakt-col {
-    text-align: left;
-    font-family: 'Consolas', monospace;
-  }
-  
-  /* Hodinové řádky - šedé pozadí */
-  tr.row-h td {
-    background: var(--row-h);
-    font-weight: 600;
-    font-size: 13px;
-  }
-  tr.row-h td.kontrakt-col {
-    color: #000;
-  }
-  
-  /* QH řádky - bílé, s odsazením */
-  tr.row-qh td {
-    background: var(--row-qh);
-  }
-  tr.row-qh td.kontrakt-col {
-    padding-left: 24px;
-    color: #555;
-  }
-  
-  tr.current td {
-    background: var(--current) !important;
-  }
-  tr.current.row-h td {
-    background: #ffcdd2 !important;
-    border-bottom: 2px solid #c62828;
-  }
-  
-  tr:hover td {
-    background: var(--row-hover) !important;
-  }
-  
-  .price-buy { color: var(--buy); font-weight: 600; }
-  .price-sell { color: var(--sell); font-weight: 600; }
-  .price-empty { color: #ccc; }
-  
-  .updated {
-    animation: flash 0.4s;
-  }
-  @keyframes flash {
-    0% { background: #ffeb3b !important; }
-    100% { background: transparent; }
-  }
-  
-  .empty {
-    padding: 40px;
-    text-align: center;
-    color: var(--muted);
-  }
+  th.l{text-align:left}
+  td{padding:4px 10px; text-align:right; border-bottom:1px solid var(--line); white-space:nowrap}
+  td.l{text-align:left}
+  tr.hour{background:var(--hour-bg); font-weight:700}
+  tr.hour td{border-bottom:1px solid #d8d8d8}
+  tr.qh td.l{padding-left:26px; color:#555; font-weight:400}
+  .bid{color:var(--bid)}
+  .ask{color:var(--ask)}
+  .bidcell{background:var(--bid-bg)}
+  .askcell{background:var(--ask-bg)}
+  .dim{color:var(--muted)}
+  .flash{animation:f .6s ease}
+  @keyframes f{0%{background:#fff8c5}100%{}}
+  .err{color:var(--ask); font-size:12px; margin-top:8px; max-width:760px}
+  .qtys{font-size:10px; color:var(--muted)}
 </style>
 </head>
 <body>
+  <header>
+    <h1>VDT LIVE</h1>
+    <div class="status"><span id="dot" class="dot"></span><span id="state">připojuji…</span></div>
+    <div class="meta" id="meta"></div>
+  </header>
 
-<div class="header">
-  <h1><span class="status" id="statusDot"></span>VDT Live Orderbook</h1>
-  <div class="stats">
-    <span>Kontraktů: <strong id="statKontraktu">-</strong></span>
-    <span>Update: <strong id="statTs">-</strong></span>
-    <span>Stáří: <strong id="statAge">-</strong></span>
-  </div>
-</div>
-
-<div id="tableContainer">
-  <div class="empty">Načítám...</div>
-</div>
+  <table id="tbl">
+    <thead>
+      <tr>
+        <th class="l">Kontrakt</th>
+        <th>Bid Qty</th>
+        <th>Bid</th>
+        <th>Ask</th>
+        <th>Ask Qty</th>
+        <th>Last</th>
+        <th>Spread</th>
+      </tr>
+    </thead>
+    <tbody id="rows">
+      <tr><td class="l dim" colspan="7">čekám na data z bota…</td></tr>
+    </tbody>
+  </table>
+  <div class="err" id="err"></div>
 
 <script>
-const API_URL = '';
-let previousData = {};
+const ENDPOINT = "http://localhost:8745/vdt";
+const REFRESH  = 1000; // ms
+let prev = {};         // pro flash pri zmene
 
-async function fetchOrderbook() {
-  try {
-    const r = await fetch(`${API_URL}/vdt/orderbook`, { cache: 'no-store' });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const data = await r.json();
-    renderTable(data);
-    updateStatus(data, true);
-  } catch (e) {
-    updateStatus(null, false, e.message);
-  }
+const fmt = (v) => (v===null||v===undefined) ? '–' : (typeof v==='number'? v.toFixed(2) : v);
+const fmtq = (v) => (v===null||v===undefined||v===0) ? '' : v;
+
+// Z routing-key / contract kodu urcime hodinu a jestli je to QH.
+// OTE kontrakty maji ruzne tvary; tridime podle parsovatelne hodiny dodavky.
+function classify(name){
+  // hledame vzor s casem dodavky napr. "...12-13..." (hodina) nebo "...12:00-12:15..." / "Q.." (QH)
+  let isQH = /(:\d{2})|Q\d|Quarter|_15|QH/i.test(name);
+  // pokus o vytazeni pocatecni hodiny pro grupovani
+  let h = null;
+  let m = name.match(/(\d{1,2}):(\d{2})/);          // 12:00
+  if(m){ h = parseInt(m[1],10); }
+  if(h===null){ m = name.match(/\b(\d{1,2})-(\d{1,2})\b/); if(m){ h = parseInt(m[1],10);} } // 12-13
+  if(h===null){ m = name.match(/_(\d{1,2})_/); if(m){ h = parseInt(m[1],10);} }
+  return {isQH, hour:h};
 }
 
-function updateStatus(data, ok, errMsg) {
-  const dot = document.getElementById('statusDot');
-  const ts = document.getElementById('statTs');
-  const age = document.getElementById('statAge');
-  const cnt = document.getElementById('statKontraktu');
-  
-  if (!ok) {
-    dot.className = 'status error';
-    ts.textContent = errMsg || 'chyba';
-    age.textContent = '-';
+function render(data){
+  const c = data.contracts || {};
+  const names = Object.keys(c);
+  if(names.length===0){
+    document.getElementById('rows').innerHTML =
+      '<tr><td class="l dim" colspan="7">žádné kontrakty (trh možná zavřený)</td></tr>';
     return;
   }
-  
-  cnt.textContent = data.total_kontraktu || 0;
-  
-  if (data.latest_ts) {
-    const d = new Date(data.latest_ts.replace('Z', '') + 'Z');
-    ts.textContent = d.toLocaleTimeString('cs-CZ');
-    const ageSec = Math.floor((Date.now() - d.getTime()) / 1000);
-    if (ageSec < 30) {
-      dot.className = 'status live';
-      age.textContent = `${ageSec}s`;
-    } else if (ageSec < 300) {
-      dot.className = 'status stale';
-      age.textContent = `${ageSec}s`;
+
+  // seskup podle hodiny; hodinovy radek + jeho QH pod nim
+  const groups = {}; // hour -> {hourRow, qhRows:[]}
+  const noHour = [];
+  for(const name of names){
+    const info = classify(name);
+    const row = {name, info, ...c[name]};
+    if(info.hour===null){ noHour.push(row); continue; }
+    groups[info.hour] = groups[info.hour] || {hour:info.hour, hourRow:null, qh:[]};
+    if(info.isQH) groups[info.hour].qh.push(row);
+    else groups[info.hour].hourRow = row;
+  }
+
+  const hours = Object.keys(groups).map(Number).sort((a,b)=>a-b);
+  let html = '';
+
+  const cell = (row, cls='') => {
+    const sp = row.spread;
+    return `
+      <td class="qtys">${fmtq(row.qty_bid)}</td>
+      <td class="bidcell"><span class="bid">${fmt(row.bid)}</span></td>
+      <td class="askcell"><span class="ask">${fmt(row.ask)}</span></td>
+      <td class="qtys">${fmtq(row.qty_ask)}</td>
+      <td>${fmt(row.last)}</td>
+      <td class="${sp!==null&&sp!==undefined?'':'dim'}">${fmt(sp)}</td>`;
+  };
+
+  const flashCls = (name, row) => {
+    const p = prev[name];
+    let f = '';
+    if(p && (p.bid!==row.bid || p.ask!==row.ask || p.last!==row.last)) f=' flash';
+    prev[name] = {bid:row.bid, ask:row.ask, last:row.last};
+    return f;
+  };
+
+  for(const h of hours){
+    const g = groups[h];
+    const label = String(h).padStart(2,'0')+':00–'+String((h+1)%24).padStart(2,'0')+':00';
+    if(g.hourRow){
+      html += `<tr class="hour${flashCls(g.hourRow.name,g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow)}</tr>`;
     } else {
-      dot.className = 'status stale';
-      age.textContent = `${Math.floor(ageSec/60)}m`;
+      html += `<tr class="hour"><td class="l">${label}</td><td colspan="6" class="dim">—</td></tr>`;
     }
-  } else {
-    dot.className = 'status stale';
-    ts.textContent = 'žádná data';
-    age.textContent = '-';
+    // QH serazene podle nazvu
+    g.qh.sort((a,b)=>a.name.localeCompare(b.name));
+    for(const q of g.qh){
+      const qlabel = (q.name.match(/(\d{1,2}:\d{2})/)||[,''])[1] || q.name;
+      html += `<tr class="qh${flashCls(q.name,q)}"><td class="l">${qlabel||q.name}</td>${cell(q)}</tr>`;
+    }
   }
+  // kontrakty bez rozpoznane hodiny dolu
+  noHour.sort((a,b)=>a.name.localeCompare(b.name));
+  for(const r of noHour){
+    html += `<tr class="qh${flashCls(r.name,r)}"><td class="l">${r.name}</td>${cell(r)}</tr>`;
+  }
+
+  document.getElementById('rows').innerHTML = html;
 }
 
-function getCurrentHour() {
-  return new Date().getHours();
-}
-
-function getCurrentQH() {
-  const d = new Date();
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const qhMin = Math.floor(m / 15) * 15;
-  return { h, m: qhMin };
-}
-
-function renderTable(data) {
-  const c = document.getElementById('tableContainer');
-  const rows = data.rows || [];
-  
-  if (!rows.length) {
-    c.innerHTML = '<div class="empty">Žádná data z ote_bridge. Je bridge spuštěný?</div>';
-    return;
+async function tick(){
+  const dot = document.getElementById('dot');
+  const state = document.getElementById('state');
+  const err = document.getElementById('err');
+  try{
+    const res = await fetch(ENDPOINT, {cache:'no-store'});
+    if(!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    render(data);
+    dot.className = 'dot live';
+    state.textContent = 'živě';
+    err.textContent = '';
+    const n = Object.keys(data.contracts||{}).length;
+    document.getElementById('meta').textContent =
+      n+' kontraktů · '+(data.updated? new Date(data.updated).toLocaleTimeString('cs-CZ') : '');
+  }catch(e){
+    dot.className = 'dot';
+    state.textContent = 'odpojeno';
+    err.textContent = 'Nelze se připojit k botu na '+ENDPOINT+
+      ' — běží ote_bot.py? ('+e.message+')';
   }
-  
-  // Index hodinových a QH kontraktů podle hodiny
-  const hourly = {};  // h → row
-  const qhByHour = {};  // h → [row, row, row, row] sorted by from time
-  
-  rows.forEach(r => {
-    const k = r.kontrakt;
-    if (!k || !k.from) return;
-    const fromH = parseInt(k.from.split(':')[0]);
-    if (k.type === 'H') {
-      hourly[fromH] = r;
-    } else if (k.type === 'QH') {
-      if (!qhByHour[fromH]) qhByHour[fromH] = [];
-      qhByHour[fromH].push(r);
-    }
-  });
-  
-  // Seřaď QH v každé hodině podle from minute
-  Object.keys(qhByHour).forEach(h => {
-    qhByHour[h].sort((a, b) => {
-      const ma = parseInt(a.kontrakt.from.split(':')[1]);
-      const mb = parseInt(b.kontrakt.from.split(':')[1]);
-      return ma - mb;
-    });
-  });
-  
-  // Najdi všechny hodiny které máme (H nebo QH)
-  const hoursSet = new Set([...Object.keys(hourly).map(Number), ...Object.keys(qhByHour).map(Number)]);
-  const hours = Array.from(hoursSet).sort((a, b) => a - b);
-  
-  const curHour = getCurrentHour();
-  const curQH = getCurrentQH();
-  
-  let html = '<table><thead><tr>';
-  html += '<th class="kontrakt-col" style="width:140px">Kontrakt</th>';
-  html += '<th style="width:120px">Cena Nákup</th>';
-  html += '<th style="width:120px">Cena Prodej</th>';
-  html += '</tr></thead><tbody>';
-  
-  function fmtCena(v, isBuy) {
-    if (v === null || v === undefined) return '<span class="price-empty">-</span>';
-    const cls = isBuy ? 'price-buy' : 'price-sell';
-    return `<span class="${cls}">${v.toFixed(2)}</span>`;
-  }
-  
-  function rowHtml(r, isHourly) {
-    const k = r.kontrakt;
-    const cls = isHourly ? 'row-h' : 'row-qh';
-    const isCurrent = isHourly 
-      ? (parseInt(k.from.split(':')[0]) === curHour)
-      : (parseInt(k.from.split(':')[0]) === curQH.h && parseInt(k.from.split(':')[1]) === curQH.m);
-    
-    const rowKey = k.raw || `${k.type}-${k.from}-${k.to}`;
-    const prev = previousData[rowKey] || {};
-    const changed = (prev.cena_buy !== r.cena_buy || prev.cena_sell !== r.cena_sell);
-    
-    const label = isHourly 
-      ? `${k.from.replace(':00','')}–${k.to.replace(':00','')} h`
-      : `${k.from}–${k.to}`;
-    
-    let h = `<tr class="${cls} ${isCurrent ? 'current' : ''} ${changed ? 'updated' : ''}">`;
-    h += `<td class="kontrakt-col">${label}</td>`;
-    h += `<td>${fmtCena(r.cena_buy, true)}</td>`;
-    h += `<td>${fmtCena(r.cena_sell, false)}</td>`;
-    h += '</tr>';
-    
-    previousData[rowKey] = { cena_buy: r.cena_buy, cena_sell: r.cena_sell };
-    return h;
-  }
-  
-  hours.forEach(h => {
-    // Hodinový kontrakt
-    if (hourly[h]) {
-      html += rowHtml(hourly[h], true);
-    } else {
-      // Placeholder řádek bez dat
-      const isCur = h === curHour;
-      html += `<tr class="row-h ${isCur ? 'current' : ''}">`;
-      html += `<td class="kontrakt-col">${h}–${h+1} h</td>`;
-      html += `<td><span class="price-empty">-</span></td>`;
-      html += `<td><span class="price-empty">-</span></td>`;
-      html += `</tr>`;
-    }
-    
-    // 4 QH pod ním
-    if (qhByHour[h]) {
-      qhByHour[h].forEach(r => {
-        html += rowHtml(r, false);
-      });
-    }
-  });
-  
-  html += '</tbody></table>';
-  c.innerHTML = html;
 }
-
-// Auto refresh
-let fetchInFlight = false;
-async function safeFetch() {
-  if (fetchInFlight) return;
-  fetchInFlight = true;
-  try { await fetchOrderbook(); }
-  finally { fetchInFlight = false; }
-}
-safeFetch();
-setInterval(safeFetch, 100);
+tick();
+setInterval(tick, REFRESH);
 </script>
-
 </body>
 </html>
