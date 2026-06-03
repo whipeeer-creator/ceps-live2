@@ -554,7 +554,14 @@ function renderDataTable(lastRec, allRecords) {
     escapeHtml: escapeHtml,
   };
   
-  // Initial render
+  // Initial render - default na aktuální hodinu
+  const nowH = new Date().getHours();
+  const targetLabel = `${String(nowH).padStart(2,'0')}:00`;
+  const sel = document.getElementById('hourSelect');
+  if (sel) {
+    const opt = [...sel.options].find(o => o.value === targetLabel);
+    if (opt) sel.value = targetLabel;
+  }
   window.renderTimeline();
 }
 
@@ -568,12 +575,17 @@ window.renderTimeline = function() {
   const el = document.getElementById('timelineChart');
   if (!el) return;
   
-  // Extrahuj všechny records: pro každý vytáhni hodnotu pro vybranou hodinu, per země
-  // Records jsou v chronologickém pořadí
-  const series = {};  // {key: [{ts, value}, ...]}
+  // FILTR: jen records z posledních 4h
+  const cutoffMs = Date.now() - 4 * 3600 * 1000;
+  const filteredRecords = st.allRecords.filter(rec => {
+    const ms = st.tsToMs(rec.ts);
+    return ms != null && ms >= cutoffMs;
+  });
+  
+  const series = {};
   for (const key of st.countryKeys) series[key] = [];
   
-  for (const rec of st.allRecords) {
+  for (const rec of filteredRecords) {
     const data = rec.data;
     let parsedRows = null;
     // Fanda formát: intervals + arrays
@@ -602,41 +614,40 @@ window.renderTimeline = function() {
     }
     if (!parsedRows) continue;
     
+    const tMs = st.tsToMs(rec.ts);
     for (const row of parsedRows) {
       const k = row.key;
       if (!(k in series)) continue;
       const v = row[hour];
       if (typeof v === 'number' && isFinite(v)) {
-        series[k].push({ ts: rec.ts, value: v });
+        series[k].push({ ts: rec.ts, tMs, value: v });
       }
     }
   }
   
-  // Najdi globální min/max
+  // Globální min/max + timestamps
   let allVals = [];
-  for (const k of Object.keys(series)) for (const p of series[k]) allVals.push(p.value);
+  const allTsSet = new Set();
+  for (const k of Object.keys(series)) {
+    for (const p of series[k]) {
+      allVals.push(p.value);
+      allTsSet.add(p.tMs);
+    }
+  }
   if (!allVals.length) {
-    el.innerHTML = '<div style="padding:20px;color:#888;">Žádná data pro tuto hodinu</div>';
+    el.innerHTML = '<div style="padding:20px;color:#888;">Žádná data pro hodinu ' + hour + ' za posledních 4h</div>';
     return;
   }
-  const maxV = Math.max(...allVals);
-  const minV = 0;  // od nuly
+  const maxV = Math.max(...allVals, 1);
+  const minV = 0;
   
-  // Společná osa časů
-  const allTs = [];
-  for (const k of Object.keys(series)) for (const p of series[k]) {
-    const ms = st.tsToMs(p.ts);
-    if (ms != null) allTs.push(ms);
-  }
-  if (!allTs.length) { el.innerHTML = '<div>Žádné timestampy</div>'; return; }
-  const tMin = Math.min(...allTs);
-  const tMax = Math.max(...allTs);
+  const tsSorted = [...allTsSet].sort((a,b)=>a-b);
+  const tMin = tsSorted[0];
+  const tMax = tsSorted[tsSorted.length - 1];
   const tR = tMax - tMin || 1;
   
   const H = 360;
-  const W = 100;  // % container
   const PAD = { left: 60, right: 20, top: 16, bottom: 50 };
-  
   const COLORS = ['#27ae60','#e74c3c','#3498db','#9b59b6','#f39c12','#1abc9c','#34495e','#e67e22'];
   
   let svg = `<svg width="100%" height="${H}" viewBox="0 0 1000 ${H}" preserveAspectRatio="none" style="background:#fafbfd;border:1px solid #e5e7eb;border-radius:6px;">`;
@@ -651,72 +662,57 @@ window.renderTimeline = function() {
   }
   svg += '</g>';
   
-  // X axis labels - timestamps pod groupami
-  svg += '<g font-size="9" fill="#7f8c8d" font-family="sans-serif">';
-  // Zobraz každý N-tý label aby se nepřekrývaly
-  const labelStep = Math.max(1, Math.ceil(tsSorted.length / 10));
-  for (let vi = 0; vi < tsSorted.length; vi++) {
-    if (vi % labelStep !== 0 && vi !== tsSorted.length - 1) continue;
-    const ts = tsSorted[vi];
-    const x = PAD.left + groupW * vi + groupW / 2;
+  // X axis - unique timestamps, deduplikace na minutu
+  // Sloučíme timestampy které jsou ve stejné minutě
+  const xLabels = [];
+  let lastLabel = null;
+  const maxLabels = 8;
+  const step = Math.max(1, Math.ceil(tsSorted.length / maxLabels));
+  for (let i = 0; i < tsSorted.length; i++) {
+    if (i % step !== 0 && i !== tsSorted.length - 1) continue;
+    const ts = tsSorted[i];
     const label = st.fmtTs(new Date(ts).toISOString());
-    svg += `<text x="${x.toFixed(1)}" y="${H - PAD.bottom + 14}" text-anchor="middle">${label}</text>`;
+    if (label === lastLabel) continue;  // dedupe
+    lastLabel = label;
+    xLabels.push({ ts, label });
+  }
+  
+  svg += '<g font-size="10" fill="#7f8c8d" font-family="sans-serif">';
+  for (const { ts, label } of xLabels) {
+    const x = PAD.left + (1000 - PAD.left - PAD.right) * ((ts - tMin) / tR);
+    svg += `<line x1="${x}" y1="${PAD.top}" x2="${x}" y2="${H - PAD.bottom}" stroke="#f0f1f4"/>`;
+    svg += `<text x="${x}" y="${H - PAD.bottom + 14}" text-anchor="middle">${label}</text>`;
   }
   svg += '</g>';
-  // Lines per key → BARS per key (histogram)
-  // X = ingest version (each record), Y = value
-  // Stacked grouped: per version 8 bars side by side
   
-  // Najdi unique timestamps (řazené)
-  const tsSorted = [...new Set(allTs)].sort((a,b)=>a-b);
-  if (tsSorted.length === 0) {
-    el.innerHTML = '<div style="padding:20px;color:#888;">Žádné timestampy</div>';
-    return;
-  }
+  // Lines per key
+  let ci = 0;
+  const legendItems = [];
   
-  // Spočítej hodnoty per [tsIndex][key]
-  const valGrid = {};  // {tsMs: {key: value}}
   for (const key of st.countryKeys) {
     const pts = series[key];
-    for (const p of pts) {
-      const tMs = st.tsToMs(p.ts);
-      if (tMs == null) continue;
-      if (!valGrid[tMs]) valGrid[tMs] = {};
-      valGrid[tMs][key] = p.value;
+    if (!pts.length) continue;
+    const dir = st.directionFor(key);
+    const color = dir === 'in' ? '#27ae60' : (dir === 'out' ? '#e74c3c' : COLORS[ci % COLORS.length]);
+    ci++;
+    
+    const sorted = [...pts].sort((a,b) => a.tMs - b.tMs);
+    const points = sorted.map(p => {
+      const x = PAD.left + (1000 - PAD.left - PAD.right) * ((p.tMs - tMin) / tR);
+      const y = PAD.top + (H - PAD.top - PAD.bottom) * (1 - (p.value - minV) / (maxV - minV || 1));
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    
+    svg += `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round"/>`;
+    
+    for (const p of sorted) {
+      const x = PAD.left + (1000 - PAD.left - PAD.right) * ((p.tMs - tMin) / tR);
+      const y = PAD.top + (H - PAD.top - PAD.bottom) * (1 - (p.value - minV) / (maxV - minV || 1));
+      svg += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="3" fill="${color}"/>`;
     }
+    
+    legendItems.push({key, color, flag: st.flagFor(key), display: st.displayKey(key)});
   }
-  
-  // Layout
-  const visibleKeys = st.countryKeys.filter(k => series[k].length > 0);
-  const numVersions = tsSorted.length;
-  const groupW = (1000 - PAD.left - PAD.right) / numVersions;
-  const barW = (groupW * 0.88) / visibleKeys.length;
-  
-  const legendItems = [];
-  let ci = 0;
-  
-  // Bars per version per country
-  for (let vi = 0; vi < numVersions; vi++) {
-    const ts = tsSorted[vi];
-    const groupX = PAD.left + groupW * vi;
-    for (let ki = 0; ki < visibleKeys.length; ki++) {
-      const key = visibleKeys[ki];
-      const dir = st.directionFor(key);
-      const color = dir === 'in' ? '#27ae60' : (dir === 'out' ? '#e74c3c' : COLORS[ki % COLORS.length]);
-      if (vi === 0) {
-        legendItems.push({key, color, flag: st.flagFor(key), display: st.displayKey(key)});
-      }
-      const val = valGrid[ts]?.[key];
-      if (val == null) continue;
-      const barH = (val / (maxV || 1)) * (H - PAD.top - PAD.bottom);
-      const barX = groupX + barW * ki + groupW * 0.06;
-      const barY = H - PAD.bottom - barH;
-      svg += `<rect x="${barX.toFixed(1)}" y="${barY.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${color}" opacity="0.85"/>`;
-    }
-  }
-  
-  // Definujeme COLORS pro fallback
-  
   
   svg += '</svg>';
   
