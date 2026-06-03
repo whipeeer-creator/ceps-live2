@@ -57,209 +57,194 @@
   .diff-pos{color:#0b8a3e}
   .diff-neg{color:#c0392b}
   .panel-label{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
+  .daytitle{font-size:14px;font-weight:700;margin:18px 0 6px;padding-bottom:4px;border-bottom:2px solid var(--ink)}
+  .daytitle:first-child{margin-top:4px}
+  .loading{padding:20px;font-size:13px}
+  table{margin-bottom:8px}
 </style>
 </head>
 <body>
   <header>
     <h1>VDT LIVE</h1>
     <div class="status"><span id="dot" class="dot"></span><span id="state">připojuji…</span></div>
-    <div class="meta" id="date" style="font-weight:700;color:var(--ink)"></div>
     <div class="meta" id="meta"></div>
   </header>
 
-  <table id="tbl">
-    <thead>
-      <tr>
-        <th class="l"></th>
-        <th class="panel-label" colspan="4" style="text-align:center;color:var(--bid)">VDT (live)</th>
-        <th class="panel-label sep dthead" colspan="2" style="text-align:center">DT spot</th>
-        <th class="dthead"></th>
-      </tr>
-      <tr>
-        <th class="l">Kontrakt</th>
-        <th>Bid</th>
-        <th>Ask</th>
-        <th>Last</th>
-        <th>Spread</th>
-        <th class="sep dthead">DT</th>
-        <th class="dthead">VDT−DT</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody id="rows">
-      <tr><td class="l dim" colspan="8">čekám na data z bota…</td></tr>
-    </tbody>
-  </table>
+  <div id="container">
+    <div class="loading dim">čekám na data z bota…</div>
+  </div>
   <div class="err" id="err"></div>
 
 <script>
-// cte z tveho server.py (Render) - stejny origin, zadny mixed-content problem
 const BASE = (location.origin.startsWith("http") && location.origin !== "null")
   ? location.origin : "https://ceps-live2.onrender.com";
 const ENDPOINT = BASE + "/vdt/orderbook";
-const REFRESH  = 1000; // ms
+const REFRESH  = 1000;
 let prev = {};
-// DT spot ceny: dtHour[h] = EUR/MWh, dtQH["HH:MM"] = EUR/MWh
-let dtHour = {};
-let dtQH = {};
-let dtLoaded = false;
+const pad = n => String(n).padStart(2,'0');
 
-const fmt = (v) => (v===null||v===undefined) ? '–' : (typeof v==='number'? v.toFixed(2) : v);
-const fmtq = (v) => (v===null||v===undefined||v===0) ? '' : v;
+// DT ceny per den: dt[YYYYMMDD] = { hour:{h:eur}, qh:{"HH:MM":eur} }
+let dt = {};
 
-// nacti DT spot ceny (hodinove + QH). Meni se 1x denne -> staci obcas.
-async function loadDT(){
+const fmt = (v) => (v===null||v===undefined) ? '\u2013' : (typeof v==='number'? v.toFixed(2) : v);
+
+function ymd(dateObj){
+  return dateObj.getFullYear().toString()+pad(dateObj.getMonth()+1)+pad(dateObj.getDate());
+}
+function isoFromYmd(y){ return y.slice(0,4)+'-'+y.slice(4,6)+'-'+y.slice(6,8); }
+function czFromYmd(y){ return y.slice(6,8)+'.'+y.slice(4,6)+'.'+y.slice(0,4); }
+
+// prazsky cas dnes/zitra
+function dayKeys(){
   const now = new Date();
-  const pad = n => String(n).padStart(2,'0');
-  const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
-  // hodinove z /ote/spot
+  const off = (now.getUTCMonth()>=3 && now.getUTCMonth()<=9) ? 2 : 1;
+  const prg = new Date(now.getTime() + off*3600*1000);
+  const today = prg.getUTCFullYear().toString()+pad(prg.getUTCMonth()+1)+pad(prg.getUTCDate());
+  const t2 = new Date(prg.getTime()+24*3600*1000);
+  const tom = t2.getUTCFullYear().toString()+pad(t2.getUTCMonth()+1)+pad(t2.getUTCDate());
+  return {today, tom};
+}
+
+// nacti DT spot ceny pro dnes i zitra
+async function loadDT(){
+  const {today, tom} = dayKeys();
+  const out = { [today]:{hour:{},qh:{}}, [tom]:{hour:{},qh:{}} };
+  // hodinove z /ote/spot (hours_today + hours_tomorrow)
   try{
     const r = await fetch(BASE+"/ote/spot", {cache:'no-store'});
     if(r.ok){
       const d = await r.json();
-      const ht = d.hours_today || d.hoursToday || [];
-      dtHour = {};
-      for(const p of ht){
-        const v = (p.priceEur ?? p.priceEUR ?? p.price_eur);
-        if(Number.isFinite(v)) dtHour[p.hour] = v;
+      for(const p of (d.hours_today||d.hoursToday||[])){
+        const v=(p.priceEur??p.priceEUR??p.price_eur); if(Number.isFinite(v)) out[today].hour[p.hour]=v;
+      }
+      for(const p of (d.hours_tomorrow||d.hoursTomorrow||[])){
+        const v=(p.priceEur??p.priceEUR??p.price_eur); if(Number.isFinite(v)) out[tom].hour[p.hour]=v;
       }
     }
-  }catch(e){ console.warn('DT hour:', e); }
-  // QH z /spot/prices
-  try{
-    const r2 = await fetch(BASE+`/spot/prices?country=CZ&date=${today}`, {cache:'no-store'});
-    if(r2.ok){
-      const d2 = await r2.json();
-      dtQH = {};
-      if(d2.data) for(const p of d2.data){
-        if(Number.isFinite(p.price_eur))
-          dtQH[`${pad(p.hour)}:${pad(p.minute)}`] = p.price_eur;
+  }catch(e){ console.warn('DT hour:',e); }
+  // QH z /spot/prices pro oba dny
+  for(const y of [today, tom]){
+    try{
+      const r2 = await fetch(BASE+`/spot/prices?country=CZ&date=${isoFromYmd(y)}`, {cache:'no-store'});
+      if(r2.ok){
+        const d2 = await r2.json();
+        if(d2.data) for(const p of d2.data){
+          if(Number.isFinite(p.price_eur)) out[y].qh[`${pad(p.hour)}:${pad(p.minute)}`]=p.price_eur;
+        }
       }
-    }
-  }catch(e){ console.warn('DT qh:', e); }
-  dtLoaded = true;
+    }catch(e){ console.warn('DT qh:',e); }
+  }
+  dt = out;
 }
 
-function render(rows){
-  if(!rows || rows.length===0){
-    document.getElementById('rows').innerHTML =
-      '<tr><td class="l dim" colspan="8">žádné kontrakty (trh možná zavřený / bot neposílá)</td></tr>';
-    return;
-  }
+const keyOf = (row) => (row.kontrakt && row.kontrakt.raw) || JSON.stringify(row);
+function flashCls(row){
+  const id=keyOf(row); const p=prev[id]; let f='';
+  if(p && (p.bid!==row.bid||p.ask!==row.ask||p.last!==row.last)) f=' flash';
+  prev[id]={bid:row.bid,ask:row.ask,last:row.last};
+  return f;
+}
 
-  // dnesni datum YYYYMMDD (prazsky cas)
-  const now = new Date();
-  const off = (now.getUTCMonth()>=3 && now.getUTCMonth()<=9) ? 2 : 1;
-  const prg = new Date(now.getTime() + off*3600*1000);
-  const TODAY = prg.getUTCFullYear().toString()
-    + String(prg.getUTCMonth()+1).padStart(2,'0')
-    + String(prg.getUTCDate()).padStart(2,'0');
+function cell(row, dtPrice){
+  const sp=row.spread;
+  // dve strany zvlast pro obchodovani:
+  // askDiff = VDT ask - DT  (zaporne = kup na VDT pod DT = LONG)
+  // bidDiff = VDT bid - DT  (kladne  = prodej na VDT nad DT = SHORT)
+  let askDiff = (row.ask!=null && dtPrice!=null) ? row.ask-dtPrice : null;
+  let bidDiff = (row.bid!=null && dtPrice!=null) ? row.bid-dtPrice : null;
+  const aCls = askDiff==null?'dim':(askDiff<0?'diff-pos':'diff-neg');
+  const bCls = bidDiff==null?'dim':(bidDiff>0?'diff-pos':'diff-neg');
+  const aStr = askDiff==null?'\u2013':(askDiff>=0?'+':'')+askDiff.toFixed(2);
+  const bStr = bidDiff==null?'\u2013':(bidDiff>=0?'+':'')+bidDiff.toFixed(2);
+  return `
+    <td class="bidcell"><span class="bid">${fmt(row.bid)}</span></td>
+    <td class="askcell"><span class="ask">${fmt(row.ask)}</span></td>
+    <td>${fmt(row.last)}</td>
+    <td class="${sp!=null?'':'dim'}">${fmt(sp)}</td>
+    <td class="sep dtcell">${fmt(dtPrice)}</td>
+    <td class="dtcell ${aCls}">${aStr}</td>
+    <td class="dtcell ${bCls}">${bStr}</td>`;
+}
 
-  // jen dnesni dodavka + seskup podle hodiny; H = hlavni radek, QH pod nim
-  const groups = {};
+// vykresli tabulku pro jeden den
+function tableFor(rows, dayY){
+  const dtDay = dt[dayY] || {hour:{},qh:{}};
+  const groups={};
   for(const row of rows){
-    const k = row.kontrakt || {};
-    if(k.date && k.date !== TODAY) continue;     // jen dnesek
-    const frm = k.from || "99:99";
-    const hh = parseInt((frm.split(":")[0]||"99"),10);
-    if(isNaN(hh) || hh>23) continue;
-    groups[hh] = groups[hh] || {hour:hh, hourRow:null, qh:[]};
-    if(k.type === "H") groups[hh].hourRow = row;
-    else groups[hh].qh.push(row);
+    const k=row.kontrakt||{};
+    if(k.date!==dayY) continue;
+    const frm=k.from||"99:99";
+    const hh=parseInt((frm.split(":")[0]||"99"),10);
+    if(isNaN(hh)||hh>23) continue;
+    groups[hh]=groups[hh]||{hour:hh,hourRow:null,qh:[]};
+    if(k.type==="H") groups[hh].hourRow=row; else groups[hh].qh.push(row);
   }
-
-  const hours = Object.keys(groups).map(Number).sort((a,b)=>a-b);
-  // datum do hlavicky (z TODAY YYYYMMDD -> DD.MM.YYYY)
-  document.getElementById('date').textContent =
-    TODAY.slice(6,8)+'.'+TODAY.slice(4,6)+'.'+TODAY.slice(0,4);
+  const hours=Object.keys(groups).map(Number).sort((a,b)=>a-b);
+  const thead = `
+    <thead>
+      <tr>
+        <th class="l"></th>
+        <th class="panel-label" colspan="4" style="text-align:center;color:var(--bid)">VDT (live)</th>
+        <th class="panel-label sep dthead" colspan="3" style="text-align:center">DT spot</th>
+      </tr>
+      <tr>
+        <th class="l">Kontrakt</th><th>Bid</th><th>Ask</th><th>Last</th><th>Spread</th>
+        <th class="sep dthead">DT</th><th class="dthead">Ask\u2212DT</th><th class="dthead">Bid\u2212DT</th>
+      </tr>
+    </thead>`;
   if(hours.length===0){
-    document.getElementById('rows').innerHTML =
-      '<tr><td class="l dim" colspan="8">žádná dnešní data</td></tr>';
-    return;
+    return `<table>${thead}<tbody><tr><td class="l dim" colspan="8">žádná data</td></tr></tbody></table>`;
   }
-  let html = '';
-
-  const cell = (row, dtPrice) => {
-    const sp = row.spread;
-    // VDT referencni cena pro porovnani s DT: last, jinak mid (bid+ask)/2
-    let vdtRef = row.last;
-    if(vdtRef===null||vdtRef===undefined){
-      if(row.bid!=null && row.ask!=null) vdtRef = (row.bid+row.ask)/2;
-    }
-    let diff = null;
-    if(vdtRef!=null && dtPrice!=null) diff = vdtRef - dtPrice;
-    const diffCls = diff==null ? 'dim' : (diff>=0 ? 'diff-pos' : 'diff-neg');
-    const diffStr = diff==null ? '–' : (diff>=0?'+':'')+diff.toFixed(2);
-    return `
-      <td class="bidcell"><span class="bid">${fmt(row.bid)}</span></td>
-      <td class="askcell"><span class="ask">${fmt(row.ask)}</span></td>
-      <td>${fmt(row.last)}</td>
-      <td class="${sp!==null&&sp!==undefined?'':'dim'}">${fmt(sp)}</td>
-      <td class="sep dtcell">${fmt(dtPrice)}</td>
-      <td class="dtcell ${diffCls}">${diffStr}</td>
-      <td></td>`;
-  };
-
-  const keyOf = (row) => (row.kontrakt && row.kontrakt.raw) || JSON.stringify(row);
-  const flashCls = (row) => {
-    const id = keyOf(row); const p = prev[id]; let f='';
-    if(p && (p.bid!==row.bid || p.ask!==row.ask || p.last!==row.last)) f=' flash';
-    prev[id] = {bid:row.bid, ask:row.ask, last:row.last};
-    return f;
-  };
-
+  let body='';
   for(const h of hours){
-    const g = groups[h];
-    const label = String(h).padStart(2,'0')+':00–'+String((h+1)%24).padStart(2,'0')+':00';
-    const dtH = dtHour[h] ?? null;
+    const g=groups[h];
+    const label=pad(h)+':00\u2013'+pad((h+1)%24)+':00';
+    const dtH=dtDay.hour[h]??null;
     if(g.hourRow){
-      html += `<tr class="hour${flashCls(g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow, dtH)}</tr>`;
-    } else {
-      const dtStr = dtH!=null ? dtH.toFixed(2) : '—';
-      html += `<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">—</td><td class="sep dtcell">${dtStr}</td><td class="dtcell dim">–</td><td></td></tr>`;
+      body+=`<tr class="hour${flashCls(g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow,dtH)}</tr>`;
+    }else{
+      const s=dtH!=null?dtH.toFixed(2):'\u2014';
+      body+=`<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">\u2014</td><td class="sep dtcell">${s}</td><td class="dtcell dim">\u2013</td><td class="dtcell dim">\u2013</td></tr>`;
     }
     g.qh.sort((a,b)=>((a.kontrakt&&a.kontrakt.from)||'').localeCompare((b.kontrakt&&b.kontrakt.from)||''));
     for(const q of g.qh){
-      const frm = (q.kontrakt && q.kontrakt.from) || '?';
-      let qlabel = frm;
-      const mm = frm.match(/^(\d{2}):(\d{2})$/);
-      if(mm){
-        let hh=parseInt(mm[1],10), mi=parseInt(mm[2],10)+15;
-        if(mi>=60){ mi-=60; hh=(hh+1)%24; }
-        qlabel = frm+'-'+String(hh).padStart(2,'0')+':'+String(mi).padStart(2,'0');
-      }
-      const dtQ = dtQH[frm] ?? null;
-      html += `<tr class="qh${flashCls(q)}"><td class="l">${qlabel}</td>${cell(q, dtQ)}</tr>`;
+      const frm=(q.kontrakt&&q.kontrakt.from)||'?';
+      let ql=frm; const mm=frm.match(/^(\d{2}):(\d{2})$/);
+      if(mm){ let hh=parseInt(mm[1],10),mi=parseInt(mm[2],10)+15; if(mi>=60){mi-=60;hh=(hh+1)%24;} ql=frm+'-'+pad(hh)+':'+pad(mi); }
+      body+=`<tr class="qh${flashCls(q)}"><td class="l">${ql}</td>${cell(q, dtDay.qh[frm]??null)}</tr>`;
     }
   }
+  return `<table>${thead}<tbody>${body}</tbody></table>`;
+}
 
-  document.getElementById('rows').innerHTML = html;
+function render(rows){
+  const {today, tom} = dayKeys();
+  const c = document.getElementById('container');
+  c.innerHTML =
+    `<div class="daytitle">DNES \u00b7 ${czFromYmd(today)}</div>` + tableFor(rows, today) +
+    `<div class="daytitle">ZÍTRA \u00b7 ${czFromYmd(tom)}</div>` + tableFor(rows, tom);
 }
 
 async function tick(){
-  const dot = document.getElementById('dot');
-  const state = document.getElementById('state');
-  const err = document.getElementById('err');
+  const dot=document.getElementById('dot');
+  const state=document.getElementById('state');
+  const err=document.getElementById('err');
   try{
-    const res = await fetch(ENDPOINT, {cache:'no-store'});
+    const res=await fetch(ENDPOINT,{cache:'no-store'});
     if(!res.ok) throw new Error('HTTP '+res.status);
-    const data = await res.json();
-    const rows = data.rows || [];
+    const data=await res.json();
+    const rows=data.rows||[];
     render(rows);
-    dot.className = 'dot live';
-    state.textContent = 'živě';
-    err.textContent = '';
-    document.getElementById('meta').textContent =
-      (data.total_kontraktu||rows.length)+' kontraktů · '+
-      (data.latest_ts? ('aktualizace '+data.latest_ts) : '');
+    dot.className='dot live'; state.textContent='živě'; err.textContent='';
+    document.getElementById('meta').textContent=
+      (data.total_kontraktu||rows.length)+' kontraktů'+(data.latest_ts?(' \u00b7 '+data.latest_ts):'');
   }catch(e){
-    dot.className = 'dot';
-    state.textContent = 'odpojeno';
-    err.textContent = 'Nelze načíst '+ENDPOINT+' — běží ote_bot.py a posílá na /ingest? ('+e.message+')';
+    dot.className='dot'; state.textContent='odpojeno';
+    err.textContent='Nelze načíst '+ENDPOINT+' \u2014 běží ote_bot.py a posílá na /ingest? ('+e.message+')';
   }
 }
-loadDT();                       // DT spot ceny hned
-setInterval(loadDT, 5*60*1000); // DT obnovuj kazdych 5 min (meni se 1x denne)
+loadDT();
+setInterval(loadDT, 5*60*1000);
 tick();
 setInterval(tick, REFRESH);
 </script>
