@@ -77,52 +77,41 @@
   <div class="err" id="err"></div>
 
 <script>
-const ENDPOINT = "http://localhost:8745/vdt";
+// cte z tveho server.py (Render) - stejny origin, zadny mixed-content problem
+const ENDPOINT = (location.origin.startsWith("http") && location.origin !== "null")
+  ? location.origin + "/vdt/orderbook"
+  : "https://ceps-live2.onrender.com/vdt/orderbook";
 const REFRESH  = 1000; // ms
-let prev = {};         // pro flash pri zmene
+let prev = {};
 
 const fmt = (v) => (v===null||v===undefined) ? '–' : (typeof v==='number'? v.toFixed(2) : v);
 const fmtq = (v) => (v===null||v===undefined||v===0) ? '' : v;
 
-// Z routing-key / contract kodu urcime hodinu a jestli je to QH.
-// OTE kontrakty maji ruzne tvary; tridime podle parsovatelne hodiny dodavky.
-function classify(name){
-  // hledame vzor s casem dodavky napr. "...12-13..." (hodina) nebo "...12:00-12:15..." / "Q.." (QH)
-  let isQH = /(:\d{2})|Q\d|Quarter|_15|QH/i.test(name);
-  // pokus o vytazeni pocatecni hodiny pro grupovani
-  let h = null;
-  let m = name.match(/(\d{1,2}):(\d{2})/);          // 12:00
-  if(m){ h = parseInt(m[1],10); }
-  if(h===null){ m = name.match(/\b(\d{1,2})-(\d{1,2})\b/); if(m){ h = parseInt(m[1],10);} } // 12-13
-  if(h===null){ m = name.match(/_(\d{1,2})_/); if(m){ h = parseInt(m[1],10);} }
-  return {isQH, hour:h};
-}
-
-function render(data){
-  const c = data.contracts || {};
-  const names = Object.keys(c);
-  if(names.length===0){
+function render(rows){
+  if(!rows || rows.length===0){
     document.getElementById('rows').innerHTML =
-      '<tr><td class="l dim" colspan="7">žádné kontrakty (trh možná zavřený)</td></tr>';
+      '<tr><td class="l dim" colspan="7">žádné kontrakty (trh možná zavřený / bot neposílá)</td></tr>';
     return;
   }
 
-  // seskup podle hodiny; hodinovy radek + jeho QH pod nim
-  const groups = {}; // hour -> {hourRow, qhRows:[]}
+  // seskup podle hodiny z kontrakt.from; hodinovy radek (type H) + QH pod nim
+  const groups = {};
   const noHour = [];
-  for(const name of names){
-    const info = classify(name);
-    const row = {name, info, ...c[name]};
-    if(info.hour===null){ noHour.push(row); continue; }
-    groups[info.hour] = groups[info.hour] || {hour:info.hour, hourRow:null, qh:[]};
-    if(info.isQH) groups[info.hour].qh.push(row);
-    else groups[info.hour].hourRow = row;
+  for(const row of rows){
+    const k = row.kontrakt || {};
+    const frm = k.from || "99:99";
+    const isQH = (k.type === "QH");
+    const hh = parseInt((frm.split(":")[0]||"99"),10);
+    if(isNaN(hh) || hh>23){ noHour.push(row); continue; }
+    groups[hh] = groups[hh] || {hour:hh, hourRow:null, qh:[]};
+    if(isQH) groups[hh].qh.push(row);
+    else groups[hh].hourRow = row;
   }
 
   const hours = Object.keys(groups).map(Number).sort((a,b)=>a-b);
   let html = '';
 
-  const cell = (row, cls='') => {
+  const cell = (row) => {
     const sp = row.spread;
     return `
       <td class="qtys">${fmtq(row.qty_bid)}</td>
@@ -133,11 +122,11 @@ function render(data){
       <td class="${sp!==null&&sp!==undefined?'':'dim'}">${fmt(sp)}</td>`;
   };
 
-  const flashCls = (name, row) => {
-    const p = prev[name];
-    let f = '';
+  const keyOf = (row) => (row.kontrakt && row.kontrakt.raw) || JSON.stringify(row);
+  const flashCls = (row) => {
+    const id = keyOf(row); const p = prev[id]; let f='';
     if(p && (p.bid!==row.bid || p.ask!==row.ask || p.last!==row.last)) f=' flash';
-    prev[name] = {bid:row.bid, ask:row.ask, last:row.last};
+    prev[id] = {bid:row.bid, ask:row.ask, last:row.last};
     return f;
   };
 
@@ -145,21 +134,19 @@ function render(data){
     const g = groups[h];
     const label = String(h).padStart(2,'0')+':00–'+String((h+1)%24).padStart(2,'0')+':00';
     if(g.hourRow){
-      html += `<tr class="hour${flashCls(g.hourRow.name,g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow)}</tr>`;
+      html += `<tr class="hour${flashCls(g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow)}</tr>`;
     } else {
       html += `<tr class="hour"><td class="l">${label}</td><td colspan="6" class="dim">—</td></tr>`;
     }
-    // QH serazene podle nazvu
-    g.qh.sort((a,b)=>a.name.localeCompare(b.name));
+    g.qh.sort((a,b)=>((a.kontrakt&&a.kontrakt.from)||'').localeCompare((b.kontrakt&&b.kontrakt.from)||''));
     for(const q of g.qh){
-      const qlabel = (q.name.match(/(\d{1,2}:\d{2})/)||[,''])[1] || q.name;
-      html += `<tr class="qh${flashCls(q.name,q)}"><td class="l">${qlabel||q.name}</td>${cell(q)}</tr>`;
+      const qlabel = (q.kontrakt && q.kontrakt.from) || (q.kontrakt && q.kontrakt.raw) || '?';
+      html += `<tr class="qh${flashCls(q)}"><td class="l">${qlabel}</td>${cell(q)}</tr>`;
     }
   }
-  // kontrakty bez rozpoznane hodiny dolu
-  noHour.sort((a,b)=>a.name.localeCompare(b.name));
+  noHour.sort((a,b)=>keyOf(a).localeCompare(keyOf(b)));
   for(const r of noHour){
-    html += `<tr class="qh${flashCls(r.name,r)}"><td class="l">${r.name}</td>${cell(r)}</tr>`;
+    html += `<tr class="qh${flashCls(r)}"><td class="l">${keyOf(r)}</td>${cell(r)}</tr>`;
   }
 
   document.getElementById('rows').innerHTML = html;
@@ -173,18 +160,18 @@ async function tick(){
     const res = await fetch(ENDPOINT, {cache:'no-store'});
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
-    render(data);
+    const rows = data.rows || [];
+    render(rows);
     dot.className = 'dot live';
     state.textContent = 'živě';
     err.textContent = '';
-    const n = Object.keys(data.contracts||{}).length;
     document.getElementById('meta').textContent =
-      n+' kontraktů · '+(data.updated? new Date(data.updated).toLocaleTimeString('cs-CZ') : '');
+      (data.total_kontraktu||rows.length)+' kontraktů · '+
+      (data.latest_ts? ('aktualizace '+data.latest_ts) : '');
   }catch(e){
     dot.className = 'dot';
     state.textContent = 'odpojeno';
-    err.textContent = 'Nelze se připojit k botu na '+ENDPOINT+
-      ' — běží ote_bot.py? ('+e.message+')';
+    err.textContent = 'Nelze načíst '+ENDPOINT+' — běží ote_bot.py a posílá na /ingest? ('+e.message+')';
   }
 }
 tick();
