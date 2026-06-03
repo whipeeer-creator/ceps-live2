@@ -62,16 +62,14 @@
     <thead>
       <tr>
         <th class="l">Kontrakt</th>
-        <th>Bid Qty</th>
         <th>Bid</th>
         <th>Ask</th>
-        <th>Ask Qty</th>
         <th>Last</th>
         <th>Spread</th>
       </tr>
     </thead>
     <tbody id="rows">
-      <tr><td class="l dim" colspan="7">čekám na data z bota…</td></tr>
+      <tr><td class="l dim" colspan="5">čekám na data z bota…</td></tr>
     </tbody>
   </table>
   <div class="err" id="err"></div>
@@ -90,34 +88,44 @@ const fmtq = (v) => (v===null||v===undefined||v===0) ? '' : v;
 function render(rows){
   if(!rows || rows.length===0){
     document.getElementById('rows').innerHTML =
-      '<tr><td class="l dim" colspan="7">žádné kontrakty (trh možná zavřený / bot neposílá)</td></tr>';
+      '<tr><td class="l dim" colspan="5">žádné kontrakty (trh možná zavřený / bot neposílá)</td></tr>';
     return;
   }
 
-  // seskup podle hodiny z kontrakt.from; hodinovy radek (type H) + QH pod nim
+  // dnesni datum YYYYMMDD (prazsky cas)
+  const now = new Date();
+  const off = (now.getUTCMonth()>=3 && now.getUTCMonth()<=9) ? 2 : 1;
+  const prg = new Date(now.getTime() + off*3600*1000);
+  const TODAY = prg.getUTCFullYear().toString()
+    + String(prg.getUTCMonth()+1).padStart(2,'0')
+    + String(prg.getUTCDate()).padStart(2,'0');
+
+  // jen dnesni dodavka + seskup podle hodiny; H = hlavni radek, QH pod nim
   const groups = {};
-  const noHour = [];
   for(const row of rows){
     const k = row.kontrakt || {};
+    if(k.date && k.date !== TODAY) continue;     // jen dnesek
     const frm = k.from || "99:99";
-    const isQH = (k.type === "QH");
     const hh = parseInt((frm.split(":")[0]||"99"),10);
-    if(isNaN(hh) || hh>23){ noHour.push(row); continue; }
+    if(isNaN(hh) || hh>23) continue;
     groups[hh] = groups[hh] || {hour:hh, hourRow:null, qh:[]};
-    if(isQH) groups[hh].qh.push(row);
-    else groups[hh].hourRow = row;
+    if(k.type === "H") groups[hh].hourRow = row;
+    else groups[hh].qh.push(row);
   }
 
   const hours = Object.keys(groups).map(Number).sort((a,b)=>a-b);
+  if(hours.length===0){
+    document.getElementById('rows').innerHTML =
+      '<tr><td class="l dim" colspan="5">žádná dnešní data</td></tr>';
+    return;
+  }
   let html = '';
 
   const cell = (row) => {
     const sp = row.spread;
     return `
-      <td class="qtys">${fmtq(row.qty_bid)}</td>
       <td class="bidcell"><span class="bid">${fmt(row.bid)}</span></td>
       <td class="askcell"><span class="ask">${fmt(row.ask)}</span></td>
-      <td class="qtys">${fmtq(row.qty_ask)}</td>
       <td>${fmt(row.last)}</td>
       <td class="${sp!==null&&sp!==undefined?'':'dim'}">${fmt(sp)}</td>`;
   };
@@ -136,17 +144,13 @@ function render(rows){
     if(g.hourRow){
       html += `<tr class="hour${flashCls(g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow)}</tr>`;
     } else {
-      html += `<tr class="hour"><td class="l">${label}</td><td colspan="6" class="dim">—</td></tr>`;
+      html += `<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">—</td></tr>`;
     }
     g.qh.sort((a,b)=>((a.kontrakt&&a.kontrakt.from)||'').localeCompare((b.kontrakt&&b.kontrakt.from)||''));
     for(const q of g.qh){
-      const qlabel = (q.kontrakt && q.kontrakt.from) || (q.kontrakt && q.kontrakt.raw) || '?';
+      const qlabel = (q.kontrakt && q.kontrakt.from) || '?';
       html += `<tr class="qh${flashCls(q)}"><td class="l">${qlabel}</td>${cell(q)}</tr>`;
     }
-  }
-  noHour.sort((a,b)=>keyOf(a).localeCompare(keyOf(b)));
-  for(const r of noHour){
-    html += `<tr class="qh${flashCls(r)}"><td class="l">${keyOf(r)}</td>${cell(r)}</tr>`;
   }
 
   document.getElementById('rows').innerHTML = html;
