@@ -147,23 +147,23 @@ function flashCls(row){
 
 function cell(row, dtPrice){
   const sp=row.spread;
-  // dve strany zvlast pro obchodovani:
-  // askDiff = VDT ask - DT  (zaporne = kup na VDT pod DT = LONG)
-  // bidDiff = VDT bid - DT  (kladne  = prodej na VDT nad DT = SHORT)
-  let askDiff = (row.ask!=null && dtPrice!=null) ? row.ask-dtPrice : null;
-  let bidDiff = (row.bid!=null && dtPrice!=null) ? row.bid-dtPrice : null;
-  const aCls = askDiff==null?'dim':(askDiff<0?'diff-pos':'diff-neg');
-  const bCls = bidDiff==null?'dim':(bidDiff>0?'diff-pos':'diff-neg');
-  const aStr = askDiff==null?'\u2013':(askDiff>=0?'+':'')+askDiff.toFixed(2);
-  const bStr = bidDiff==null?'\u2013':(bidDiff>=0?'+':'')+bidDiff.toFixed(2);
+  // KLADNE = vyhodne, ZAPORNE = nevyhodne (jednotne pro obe strany)
+  // Long spread  = DT - ask  (kladne = kup na VDT pod DT = zisk)
+  // Short spread = bid - DT  (kladne = prodej na VDT nad DT = zisk)
+  let longSp  = (row.ask!=null && dtPrice!=null) ? dtPrice-row.ask : null;
+  let shortSp = (row.bid!=null && dtPrice!=null) ? row.bid-dtPrice : null;
+  const lCls = longSp==null?'dim':(longSp>=0?'diff-pos':'diff-neg');
+  const sCls = shortSp==null?'dim':(shortSp>=0?'diff-pos':'diff-neg');
+  const lStr = longSp==null?'\u2013':(longSp>=0?'+':'')+longSp.toFixed(2);
+  const sStr = shortSp==null?'\u2013':(shortSp>=0?'+':'')+shortSp.toFixed(2);
   return `
     <td class="bidcell"><span class="bid">${fmt(row.bid)}</span></td>
     <td class="askcell"><span class="ask">${fmt(row.ask)}</span></td>
     <td>${fmt(row.last)}</td>
     <td class="${sp!=null?'':'dim'}">${fmt(sp)}</td>
     <td class="sep dtcell">${fmt(dtPrice)}</td>
-    <td class="dtcell ${aCls}">${aStr}</td>
-    <td class="dtcell ${bCls}">${bStr}</td>`;
+    <td class="dtcell ${sCls}">${sStr}</td>
+    <td class="dtcell ${lCls}">${lStr}</td>`;
 }
 
 // vykresli tabulku pro jeden den
@@ -189,7 +189,7 @@ function tableFor(rows, dayY){
       </tr>
       <tr>
         <th class="l">Kontrakt</th><th>Bid</th><th>Ask</th><th>Last</th><th>Spread</th>
-        <th class="sep dthead">DT</th><th class="dthead">Ask\u2212DT</th><th class="dthead">Bid\u2212DT</th>
+        <th class="sep dthead">DT</th><th class="dthead">Short spread</th><th class="dthead">Long spread</th>
       </tr>
     </thead>`;
   if(hours.length===0){
