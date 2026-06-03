@@ -28,7 +28,7 @@
   .dot.live{background:var(--live); box-shadow:0 0 0 0 rgba(11,138,62,.5); animation:p 2s infinite}
   @keyframes p{0%{box-shadow:0 0 0 0 rgba(11,138,62,.5)}70%{box-shadow:0 0 0 6px rgba(11,138,62,0)}100%{box-shadow:0 0 0 0 rgba(11,138,62,0)}}
   .meta{font-size:11px; color:var(--muted)}
-  table{border-collapse:collapse; width:100%; max-width:760px}
+  table{border-collapse:collapse; width:100%; max-width:1000px}
   th{
     text-align:right; font-size:10px; font-weight:600; color:var(--muted);
     text-transform:uppercase; letter-spacing:.6px;
@@ -47,48 +47,103 @@
   .dim{color:var(--muted)}
   .flash{animation:f .6s ease}
   @keyframes f{0%{background:#fff8c5}100%{}}
-  .err{color:var(--ask); font-size:12px; margin-top:8px; max-width:760px}
+  .err{color:var(--ask); font-size:12px; margin-top:8px; max-width:900px}
   .qtys{font-size:10px; color:var(--muted)}
+  /* oddeleni panelu VDT | DT */
+  .sep{border-left:3px solid #c9c9c9 !important}
+  th.dthead{color:#2a4d8f}
+  td.dtcell{background:#f3f6fc}
+  tr.hour td.dtcell{background:#e7eefb}
+  .diff-pos{color:#0b8a3e}
+  .diff-neg{color:#c0392b}
+  .panel-label{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
 </style>
 </head>
 <body>
   <header>
     <h1>VDT LIVE</h1>
     <div class="status"><span id="dot" class="dot"></span><span id="state">připojuji…</span></div>
+    <div class="meta" id="date" style="font-weight:700;color:var(--ink)"></div>
     <div class="meta" id="meta"></div>
   </header>
 
   <table id="tbl">
     <thead>
       <tr>
+        <th class="l"></th>
+        <th class="panel-label" colspan="4" style="text-align:center;color:var(--bid)">VDT (live)</th>
+        <th class="panel-label sep dthead" colspan="2" style="text-align:center">DT spot</th>
+        <th class="dthead"></th>
+      </tr>
+      <tr>
         <th class="l">Kontrakt</th>
         <th>Bid</th>
         <th>Ask</th>
         <th>Last</th>
         <th>Spread</th>
+        <th class="sep dthead">DT</th>
+        <th class="dthead">VDT−DT</th>
+        <th></th>
       </tr>
     </thead>
     <tbody id="rows">
-      <tr><td class="l dim" colspan="5">čekám na data z bota…</td></tr>
+      <tr><td class="l dim" colspan="8">čekám na data z bota…</td></tr>
     </tbody>
   </table>
   <div class="err" id="err"></div>
 
 <script>
 // cte z tveho server.py (Render) - stejny origin, zadny mixed-content problem
-const ENDPOINT = (location.origin.startsWith("http") && location.origin !== "null")
-  ? location.origin + "/vdt/orderbook"
-  : "https://ceps-live2.onrender.com/vdt/orderbook";
+const BASE = (location.origin.startsWith("http") && location.origin !== "null")
+  ? location.origin : "https://ceps-live2.onrender.com";
+const ENDPOINT = BASE + "/vdt/orderbook";
 const REFRESH  = 1000; // ms
 let prev = {};
+// DT spot ceny: dtHour[h] = EUR/MWh, dtQH["HH:MM"] = EUR/MWh
+let dtHour = {};
+let dtQH = {};
+let dtLoaded = false;
 
 const fmt = (v) => (v===null||v===undefined) ? '–' : (typeof v==='number'? v.toFixed(2) : v);
 const fmtq = (v) => (v===null||v===undefined||v===0) ? '' : v;
 
+// nacti DT spot ceny (hodinove + QH). Meni se 1x denne -> staci obcas.
+async function loadDT(){
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  // hodinove z /ote/spot
+  try{
+    const r = await fetch(BASE+"/ote/spot", {cache:'no-store'});
+    if(r.ok){
+      const d = await r.json();
+      const ht = d.hours_today || d.hoursToday || [];
+      dtHour = {};
+      for(const p of ht){
+        const v = (p.priceEur ?? p.priceEUR ?? p.price_eur);
+        if(Number.isFinite(v)) dtHour[p.hour] = v;
+      }
+    }
+  }catch(e){ console.warn('DT hour:', e); }
+  // QH z /spot/prices
+  try{
+    const r2 = await fetch(BASE+`/spot/prices?country=CZ&date=${today}`, {cache:'no-store'});
+    if(r2.ok){
+      const d2 = await r2.json();
+      dtQH = {};
+      if(d2.data) for(const p of d2.data){
+        if(Number.isFinite(p.price_eur))
+          dtQH[`${pad(p.hour)}:${pad(p.minute)}`] = p.price_eur;
+      }
+    }
+  }catch(e){ console.warn('DT qh:', e); }
+  dtLoaded = true;
+}
+
 function render(rows){
   if(!rows || rows.length===0){
     document.getElementById('rows').innerHTML =
-      '<tr><td class="l dim" colspan="5">žádné kontrakty (trh možná zavřený / bot neposílá)</td></tr>';
+      '<tr><td class="l dim" colspan="8">žádné kontrakty (trh možná zavřený / bot neposílá)</td></tr>';
     return;
   }
 
@@ -114,20 +169,35 @@ function render(rows){
   }
 
   const hours = Object.keys(groups).map(Number).sort((a,b)=>a-b);
+  // datum do hlavicky (z TODAY YYYYMMDD -> DD.MM.YYYY)
+  document.getElementById('date').textContent =
+    TODAY.slice(6,8)+'.'+TODAY.slice(4,6)+'.'+TODAY.slice(0,4);
   if(hours.length===0){
     document.getElementById('rows').innerHTML =
-      '<tr><td class="l dim" colspan="5">žádná dnešní data</td></tr>';
+      '<tr><td class="l dim" colspan="8">žádná dnešní data</td></tr>';
     return;
   }
   let html = '';
 
-  const cell = (row) => {
+  const cell = (row, dtPrice) => {
     const sp = row.spread;
+    // VDT referencni cena pro porovnani s DT: last, jinak mid (bid+ask)/2
+    let vdtRef = row.last;
+    if(vdtRef===null||vdtRef===undefined){
+      if(row.bid!=null && row.ask!=null) vdtRef = (row.bid+row.ask)/2;
+    }
+    let diff = null;
+    if(vdtRef!=null && dtPrice!=null) diff = vdtRef - dtPrice;
+    const diffCls = diff==null ? 'dim' : (diff>=0 ? 'diff-pos' : 'diff-neg');
+    const diffStr = diff==null ? '–' : (diff>=0?'+':'')+diff.toFixed(2);
     return `
       <td class="bidcell"><span class="bid">${fmt(row.bid)}</span></td>
       <td class="askcell"><span class="ask">${fmt(row.ask)}</span></td>
       <td>${fmt(row.last)}</td>
-      <td class="${sp!==null&&sp!==undefined?'':'dim'}">${fmt(sp)}</td>`;
+      <td class="${sp!==null&&sp!==undefined?'':'dim'}">${fmt(sp)}</td>
+      <td class="sep dtcell">${fmt(dtPrice)}</td>
+      <td class="dtcell ${diffCls}">${diffStr}</td>
+      <td></td>`;
   };
 
   const keyOf = (row) => (row.kontrakt && row.kontrakt.raw) || JSON.stringify(row);
@@ -141,15 +211,25 @@ function render(rows){
   for(const h of hours){
     const g = groups[h];
     const label = String(h).padStart(2,'0')+':00–'+String((h+1)%24).padStart(2,'0')+':00';
+    const dtH = dtHour[h] ?? null;
     if(g.hourRow){
-      html += `<tr class="hour${flashCls(g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow)}</tr>`;
+      html += `<tr class="hour${flashCls(g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow, dtH)}</tr>`;
     } else {
-      html += `<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">—</td></tr>`;
+      const dtStr = dtH!=null ? dtH.toFixed(2) : '—';
+      html += `<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">—</td><td class="sep dtcell">${dtStr}</td><td class="dtcell dim">–</td><td></td></tr>`;
     }
     g.qh.sort((a,b)=>((a.kontrakt&&a.kontrakt.from)||'').localeCompare((b.kontrakt&&b.kontrakt.from)||''));
     for(const q of g.qh){
-      const qlabel = (q.kontrakt && q.kontrakt.from) || '?';
-      html += `<tr class="qh${flashCls(q)}"><td class="l">${qlabel}</td>${cell(q)}</tr>`;
+      const frm = (q.kontrakt && q.kontrakt.from) || '?';
+      let qlabel = frm;
+      const mm = frm.match(/^(\d{2}):(\d{2})$/);
+      if(mm){
+        let hh=parseInt(mm[1],10), mi=parseInt(mm[2],10)+15;
+        if(mi>=60){ mi-=60; hh=(hh+1)%24; }
+        qlabel = frm+'-'+String(hh).padStart(2,'0')+':'+String(mi).padStart(2,'0');
+      }
+      const dtQ = dtQH[frm] ?? null;
+      html += `<tr class="qh${flashCls(q)}"><td class="l">${qlabel}</td>${cell(q, dtQ)}</tr>`;
     }
   }
 
@@ -178,6 +258,8 @@ async function tick(){
     err.textContent = 'Nelze načíst '+ENDPOINT+' — běží ote_bot.py a posílá na /ingest? ('+e.message+')';
   }
 }
+loadDT();                       // DT spot ceny hned
+setInterval(loadDT, 5*60*1000); // DT obnovuj kazdych 5 min (meni se 1x denne)
 tick();
 setInterval(tick, REFRESH);
 </script>
