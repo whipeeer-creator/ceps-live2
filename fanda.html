@@ -246,8 +246,29 @@ function renderDataTable(lastRec, allRecords) {
       formatHint = `Array of ${data.length} hodnot`;
     }
   } else if (data && typeof data === 'object') {
+    // FANDA FORMÁT: { intervals: [ts1, ts2, ...], hub_xx_yy: [v1, v2, ...], updated: ... }
+    if (Array.isArray(data.intervals) && data.intervals.length > 0) {
+      const intervals = data.intervals;
+      // Hodina labels z intervalů: "2026-06-03 01:00:00+02:00" → "01:00"
+      const hourLabels = intervals.map(s => {
+        const m = String(s).match(/(\d{1,2}):(\d{2})/);
+        return m ? `${String(m[1]).padStart(2,'0')}:${m[2]}` : String(s);
+      });
+      rows = [];
+      for (const k of Object.keys(data)) {
+        const v = data[k];
+        if (k === 'intervals' || !Array.isArray(v)) continue;  // skip intervals + metadata fields
+        const row = { key: k };
+        v.forEach((val, i) => {
+          const label = hourLabels[i] || `t${i}`;
+          row[label] = (typeof val === 'number') ? Math.round(val * 10) / 10 : val;
+        });
+        rows.push(row);
+      }
+      formatHint = `Fanda formát (${rows.length} keys × ${hourLabels.length} hodin)`;
+    }
     // Format B: object with "rows" key
-    if (Array.isArray(data.rows)) {
+    else if (Array.isArray(data.rows)) {
       rows = data.rows;
       formatHint = `Object.rows array (${data.rows.length})`;
     } else if (Array.isArray(data.data)) {
@@ -375,13 +396,15 @@ function renderDataTable(lastRec, allRecords) {
     </svg>`;
   }
   
-  // Format hour label "1" → "00:00 - 01:00"
+  // Format hour label
   function fmtHour(h) {
-    const num = parseInt(String(h).replace(/[^\d]/g, ''));
-    if (!isFinite(num) || num < 1 || num > 24) return String(h);
-    const start = String(num - 1).padStart(2, '0');
-    const end = String(num % 24).padStart(2, '0');
-    return `${start}:00`;
+    const s = String(h);
+    // Už ve formátu "HH:MM"
+    if (s.match(/^\d{2}:\d{2}$/)) return s;
+    // Číslo 1-24
+    const num = parseInt(s.replace(/[^\d]/g, ''));
+    if (!isFinite(num) || num < 1 || num > 24) return s;
+    return `${String(num - 1).padStart(2, '0')}:00`;
   }
   // Format timestamp - akceptuje různé formáty
   function fmtTs(ts) {
@@ -440,7 +463,7 @@ function renderDataTable(lastRec, allRecords) {
   </div>`;
   
   // TRANSPONOVANÁ TABULKA: řádky = hodiny, sloupce = země (in/out)
-  const IGNORE_COLS = new Set(['intervals','interval','intervaly','date','ts','timestamp','time','datum','cas']);
+  const IGNORE_COLS = new Set(['intervals','interval','intervaly','date','ts','timestamp','time','datum','cas','updated','updated_at','update','updateat','last_update','lastupdate','modified']);
   const hourCols = colsArr.filter(c => c !== 'key' && !IGNORE_COLS.has(String(c).toLowerCase().trim()));
   const countryKeys = rows.map(r => r.key).filter(k => k != null);
   
@@ -537,11 +560,28 @@ window.renderTimeline = function() {
   for (const rec of st.allRecords) {
     const data = rec.data;
     let parsedRows = null;
-    if (Array.isArray(data?.rows)) parsedRows = data.rows;
+    // Fanda formát: intervals + arrays
+    if (data && Array.isArray(data.intervals) && data.intervals.length > 0) {
+      const hourLabels = data.intervals.map(s => {
+        const m = String(s).match(/(\d{1,2}):(\d{2})/);
+        return m ? `${String(m[1]).padStart(2,'0')}:${m[2]}` : String(s);
+      });
+      parsedRows = [];
+      for (const k of Object.keys(data)) {
+        const v = data[k];
+        if (k === 'intervals' || !Array.isArray(v)) continue;
+        const row = { key: k };
+        v.forEach((val, i) => {
+          const label = hourLabels[i] || `t${i}`;
+          row[label] = (typeof val === 'number') ? Math.round(val * 10) / 10 : val;
+        });
+        parsedRows.push(row);
+      }
+    }
+    else if (Array.isArray(data?.rows)) parsedRows = data.rows;
     else if (Array.isArray(data?.data)) parsedRows = data.data;
     else if (Array.isArray(data)) parsedRows = data;
     else if (data && typeof data === 'object') {
-      // Pivot: keys as rows
       parsedRows = Object.keys(data).map(k => ({ key: k, ...data[k] }));
     }
     if (!parsedRows) continue;
