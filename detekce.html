@@ -92,7 +92,8 @@ async function tick(){
     }
 
     list.innerHTML = hits.map(h=>{
-      // SELL = nekdo prodava levne -> ty KOUPIS. BUY = nekdo kupuje draze -> ty PRODAS.
+      // SELL = nekdo prodava levne (ask pod VWAP) -> ty KOUPIS.
+      // BUY  = nekdo kupuje draho (bid nad VWAP)  -> ty PRODAS.
       const isSell = h.side==='SELL';
       const action = isSell ? 'KUP' : 'PRODEJ';
       const aCls = isSell ? 'buy' : 'sell';
@@ -102,8 +103,8 @@ async function tick(){
           <span class="action ${aCls}">${action} @ ${h.px}</span>
         </div>
         <div class="detail">
-          <span>odchylka <span class="big ${aCls}">${h.diff>0?'+':''}${h.diff}</span> €</span>
-          <span>férová <b>${h.fair??'–'}</b></span>
+          <span>výhoda <span class="big ${aCls}">+${h.diff}</span> €</span>
+          <span>VWAP <b>${h.ref??'–'}</b></span>
           <span>množství <b>${h.qty}</b> MW</span>
           <span>denní objem <b>${h.vol}</b></span>
         </div>
@@ -116,10 +117,10 @@ async function tick(){
 }
 
 document.getElementById('note').textContent =
-  'Pozn.: SELL nález = někdo prodává pod férovou cenou → příležitost koupit. '+
-  'BUY nález = někdo kupuje nad férovou → příležitost prodat. '+
-  'Reálně sebratelné hlavně u kontraktů s malým denním objemem (tenká kniha) — '+
-  'tam, kde algoboti nehlídají.';
+  'Pozn.: SELL nález = někdo prodává pod VWAP → příležitost koupit pod reálnou cenou. '+
+  'BUY nález = někdo kupuje nad VWAP → příležitost prodat nad reálnou cenou. '+
+  'VWAP = vážený průměr dnešních obchodů (reálná cena, neovlivněná tou nabídkou). '+
+  'Reálně sebratelné hlavně u kontraktů s malým denním objemem — tam, kde algoboti nehlídají.';
 
 tick();
 setInterval(tick, 1500);
