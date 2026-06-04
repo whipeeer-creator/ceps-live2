@@ -380,6 +380,49 @@ canvas { max-width: 100%; display: block; }
     </div>
   </div>
 
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;">
+          <span class="flag-de" title="Germany"></span>
+          DE výroba · MAGMA forecast (wind + solar)
+        </div>
+        <div class="panel-sub">MetDesk MAGMA model · DE wind a solar výroba · 15min · čas CET · bez zpoždění</div>
+      </div>
+      <div id="magmaGenStat" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#555;display:flex;gap:14px;"></div>
+    </div>
+    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;">
+      <canvas id="magmaGenCanvas" height="280" style="width:100%;height:280px;display:block;"></canvas>
+      <div id="magmaGenTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);line-height:1.4;"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#8e44ad;"></span>wind [MW]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#f39c12;"></span>solar [MW]</span>
+      <span class="pleg" style="color:#666;">svislá čára = teď</span>
+    </div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;">
+          <span class="flag-de" title="Germany"></span>
+          DE vítr · MAGMA forecast
+        </div>
+        <div class="panel-sub">MetDesk MAGMA model · celý DE vítr · 15min · čas CET · bez zpoždění</div>
+      </div>
+      <div id="magmaWindStat" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#555;"></div>
+    </div>
+    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;">
+      <canvas id="magmaWindCanvas" height="260" style="width:100%;height:260px;display:block;"></canvas>
+      <div id="magmaWindTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);line-height:1.4;"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#8e44ad;"></span>MAGMA wind forecast [MW]</span>
+      <span class="pleg" style="color:#666;">svislá čára = teď</span>
+    </div>
+  </div>
+
   <!-- ===================================================================== -->
   <!-- aFRR Energy Bids · DE+AT (regelleistung.net) — merit-order ladder graf -->
   <!-- ===================================================================== -->
@@ -4172,6 +4215,8 @@ async function loadAll() {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
       tasks.push(loadWindFc());
+      tasks.push(loadMagmaWind());
+      tasks.push(loadMagmaGen());
     }
     // VDT KPI karta - throttle 5min (data se mění s ~1h zpožděním)
     if (now - _lastVdtKpiLoad > VDT_KPI_THROTTLE_MS) {
@@ -4799,6 +4844,225 @@ function recolorAllKpis() {
 }
 setInterval(recolorAllKpis, 500);
 document.addEventListener('DOMContentLoaded', recolorAllKpis);
+
+
+let _magmaWindMeta = null;
+
+async function loadMagmaWind() {
+  try {
+    const d = await fetch(`${API_URL}/metdesk/magma?model=magma&country=DE&generation_type=wind`, { cache:'no-store' })
+      .then(r => r.ok ? r.json() : null).catch(() => null);
+    if (!d || !d.points || !d.points.length) {
+      const st = document.getElementById('magmaWindStat');
+      if (st) st.innerHTML = '<span style="color:#888;">žádná MAGMA data</span>';
+      return;
+    }
+    const now = new Date();
+    const off = (now.getMonth()+1) >= 4 && (now.getMonth()+1) <= 10 ? 2 : 1;
+    // ts je UTC -> hodina dne v CET jako frakce, jen dnesni den (CET)
+    const pad = n => String(n).padStart(2,'0');
+    const todayCet = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+    const pts = [];
+    d.points.forEach(p => {
+      if (!p.ts || p.value == null) return;
+      const utcH = parseInt(p.ts.slice(11,13),10);
+      const utcM = parseInt(p.ts.slice(14,16),10);
+      // prepocet UTC -> CET datum a hodina
+      const dt = new Date(p.ts);
+      const cet = new Date(dt.getTime() + off*3600*1000);
+      const cetYmd = `${cet.getUTCFullYear()}-${pad(cet.getUTCMonth()+1)}-${pad(cet.getUTCDate())}`;
+      if (cetYmd !== todayCet) return;            // jen dnesek (CET)
+      const t = cet.getUTCHours() + cet.getUTCMinutes()/60;
+      pts.push({ t, v: p.value });
+    });
+    pts.sort((a,b)=>a.t-b.t);
+
+    drawMagmaWind(document.getElementById('magmaWindCanvas'), pts);
+
+    const st = document.getElementById('magmaWindStat');
+    if (st && pts.length) {
+      const f = now.getHours() + now.getMinutes()/60;
+      let cur = null; for (const p of pts) if (p.t <= f+0.01) cur = p;
+      cur = cur || pts[0];
+      st.innerHTML = `nyní <b>${Math.round(cur.v).toLocaleString('cs')}</b> MW`;
+    }
+  } catch(e) { console.warn('magmaWind:', e); }
+}
+
+function drawMagmaWind(canvas, pts) {
+  if (!canvas) return;
+  const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||260);
+  const PAD = { top: 14, right: 16, bottom: 30, left: 56 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+  ctx.fillStyle = '#dce8f5'; ctx.fillRect(PAD.left, PAD.top, cW, cH);
+
+  if (!pts || !pts.length) {
+    ctx.fillStyle='#888'; ctx.font='12px Inter, sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Žádná data', W/2, H/2); _magmaWindMeta=null; return;
+  }
+
+  const vals = pts.map(p=>p.v);
+  let vMax = Math.max(...vals)*1.1, vMin = Math.min(0, ...vals);
+  const vR = (vMax - vMin) || 1;
+  const xP = t => PAD.left + (t/24)*cW;
+  const yP = v => PAD.top + cH - ((v - vMin)/vR)*cH;
+
+  ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=1;
+  ctx.fillStyle='#6688aa'; ctx.font='10px JetBrains Mono, monospace'; ctx.textAlign='right';
+  for (let i=0;i<=4;i++){ const v=vMin+(vR*i/4), y=yP(v);
+    ctx.beginPath(); ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+cW,y); ctx.stroke();
+    ctx.fillText((v/1000).toFixed(1)+'k', PAD.left-5, y+3); }
+
+  ctx.textAlign='center'; ctx.fillStyle='#7090b0';
+  for (let h=0;h<=24;h+=3){ const x=xP(h);
+    if (h%6===0 && h<24){ ctx.strokeStyle='rgba(80,120,180,0.35)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(x,PAD.top); ctx.lineTo(x,PAD.top+cH); ctx.stroke(); }
+    ctx.fillText(String(h).padStart(2,'0'), x, PAD.top+cH+16); }
+  ctx.textAlign='right'; ctx.fillText('h (CET)', PAD.left+cW, PAD.top+cH+26);
+
+  ctx.strokeStyle='#8e44ad'; ctx.lineWidth=2; ctx.beginPath(); let st=false;
+  pts.forEach(p=>{ const x=xP(p.t),y=yP(p.v); if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y); });
+  ctx.stroke();
+
+  const now=new Date(); const f=now.getHours()+now.getMinutes()/60; const xN=xP(f);
+  ctx.strokeStyle='rgba(192,57,43,0.6)'; ctx.lineWidth=1.2; ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(xN,PAD.top); ctx.lineTo(xN,PAD.top+cH); ctx.stroke(); ctx.setLineDash([]);
+
+  _magmaWindMeta = { pts, PAD, cW, cH, xP, yP };
+}
+
+(function(){
+  const canvas = document.getElementById('magmaWindCanvas'); if (!canvas) return;
+  const tip = document.getElementById('magmaWindTip');
+  canvas.addEventListener('mousemove', e => {
+    if (!_magmaWindMeta) return;
+    const rect = canvas.getBoundingClientRect(); const mx = e.clientX - rect.left;
+    const { pts, PAD, cW } = _magmaWindMeta;
+    if (mx < PAD.left || mx > PAD.left + cW){ tip.style.display='none'; return; }
+    const tf = ((mx-PAD.left)/cW)*24; let best=pts[0],bd=Infinity;
+    for (const p of pts){ const dd=Math.abs(p.t-tf); if(dd<bd){bd=dd;best=p;} }
+    if (!best){ tip.style.display='none'; return; }
+    const hh=Math.floor(best.t), mm=Math.round((best.t-hh)*60);
+    tip.innerHTML = `<b style="color:#fff;">${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')} CET</b><br>wind <b>${Math.round(best.v).toLocaleString('cs')} MW</b>`;
+    tip.style.display='block';
+    const left = mx+12+140>rect.width ? mx-148 : mx+12; tip.style.left = left+'px';
+  });
+  canvas.addEventListener('mouseleave', ()=>{ tip.style.display='none'; });
+})();
+
+
+let _magmaGenMeta = null;
+
+async function loadMagmaGen() {
+  try {
+    const [winD, solD] = await Promise.all([
+      fetch(`${API_URL}/metdesk/magma?model=magma&country=DE&generation_type=wind`, { cache:'no-store' }).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/metdesk/magma?model=magma&country=DE&generation_type=solar`, { cache:'no-store' }).then(r=>r.ok?r.json():null).catch(()=>null),
+    ]);
+    const now = new Date();
+    const off = (now.getMonth()+1) >= 4 && (now.getMonth()+1) <= 10 ? 2 : 1;
+    const pad = n => String(n).padStart(2,'0');
+    const todayCet = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+
+    const toPts = (d) => {
+      const pts = [];
+      if (!d || !d.points) return pts;
+      d.points.forEach(p => {
+        if (!p.ts || p.value == null) return;
+        const dt = new Date(p.ts);
+        const cet = new Date(dt.getTime() + off*3600*1000);
+        const ymd = `${cet.getUTCFullYear()}-${pad(cet.getUTCMonth()+1)}-${pad(cet.getUTCDate())}`;
+        if (ymd !== todayCet) return;
+        pts.push({ t: cet.getUTCHours() + cet.getUTCMinutes()/60, v: p.value });
+      });
+      pts.sort((a,b)=>a.t-b.t);
+      return pts;
+    };
+    const wind = toPts(winD), solar = toPts(solD);
+
+    drawMagmaGen(document.getElementById('magmaGenCanvas'), wind, solar);
+
+    const st = document.getElementById('magmaGenStat');
+    if (st) {
+      const f = now.getHours() + now.getMinutes()/60;
+      const last = (pts) => { if(!pts.length) return null; let c=null; for(const p of pts) if(p.t<=f+0.01) c=p; return c||pts[0]; };
+      const w = last(wind), s = last(solar);
+      let html = '';
+      if (w) html += `<span style="color:#8e44ad;">wind <b>${Math.round(w.v).toLocaleString('cs')}</b> MW</span>`;
+      if (s) html += `<span style="color:#f39c12;">solar <b>${Math.round(s.v).toLocaleString('cs')}</b> MW</span>`;
+      st.innerHTML = html;
+    }
+  } catch(e) { console.warn('magmaGen:', e); }
+}
+
+function drawMagmaGen(canvas, wind, solar) {
+  if (!canvas) return;
+  const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||280);
+  const PAD = { top: 14, right: 16, bottom: 30, left: 56 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+  ctx.fillStyle = '#dce8f5'; ctx.fillRect(PAD.left, PAD.top, cW, cH);
+
+  const allV = [...wind.map(p=>p.v), ...solar.map(p=>p.v)];
+  if (!allV.length) {
+    ctx.fillStyle='#888'; ctx.font='12px Inter, sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Žádná data', W/2, H/2); _magmaGenMeta=null; return;
+  }
+  let vMax = Math.max(...allV)*1.1, vMin = 0;
+  const vR = (vMax - vMin) || 1;
+  const xP = t => PAD.left + (t/24)*cW;
+  const yP = v => PAD.top + cH - ((v - vMin)/vR)*cH;
+
+  ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=1;
+  ctx.fillStyle='#6688aa'; ctx.font='10px JetBrains Mono, monospace'; ctx.textAlign='right';
+  for (let i=0;i<=4;i++){ const v=vMin+(vR*i/4), y=yP(v);
+    ctx.beginPath(); ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+cW,y); ctx.stroke();
+    ctx.fillText((v/1000).toFixed(1)+'k', PAD.left-5, y+3); }
+
+  ctx.textAlign='center'; ctx.fillStyle='#7090b0';
+  for (let h=0;h<=24;h+=3){ const x=xP(h);
+    if (h%6===0 && h<24){ ctx.strokeStyle='rgba(80,120,180,0.35)'; ctx.lineWidth=1;
+      ctx.beginPath(); ctx.moveTo(x,PAD.top); ctx.lineTo(x,PAD.top+cH); ctx.stroke(); }
+    ctx.fillText(String(h).padStart(2,'0'), x, PAD.top+cH+16); }
+  ctx.textAlign='right'; ctx.fillText('h (CET)', PAD.left+cW, PAD.top+cH+26);
+
+  const line = (pts, color) => {
+    ctx.strokeStyle=color; ctx.lineWidth=2; ctx.beginPath(); let st=false;
+    pts.forEach(p=>{ const x=xP(p.t),y=yP(p.v); if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y); });
+    ctx.stroke();
+  };
+  line(wind, '#8e44ad');
+  line(solar, '#f39c12');
+
+  const now=new Date(); const f=now.getHours()+now.getMinutes()/60; const xN=xP(f);
+  ctx.strokeStyle='rgba(192,57,43,0.6)'; ctx.lineWidth=1.2; ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(xN,PAD.top); ctx.lineTo(xN,PAD.top+cH); ctx.stroke(); ctx.setLineDash([]);
+
+  _magmaGenMeta = { wind, solar, PAD, cW, cH, xP, yP };
+}
+
+(function(){
+  const canvas = document.getElementById('magmaGenCanvas'); if (!canvas) return;
+  const tip = document.getElementById('magmaGenTip');
+  canvas.addEventListener('mousemove', e => {
+    if (!_magmaGenMeta) return;
+    const rect = canvas.getBoundingClientRect(); const mx = e.clientX - rect.left;
+    const { wind, solar, PAD, cW } = _magmaGenMeta;
+    if (mx < PAD.left || mx > PAD.left + cW){ tip.style.display='none'; return; }
+    const tf = ((mx-PAD.left)/cW)*24;
+    const nearest = (pts) => { let best=null,bd=Infinity; for(const p of pts){const dd=Math.abs(p.t-tf);if(dd<bd){bd=dd;best=p;}} return best; };
+    const w = nearest(wind), s = nearest(solar);
+    const ref = w || s; if (!ref){ tip.style.display='none'; return; }
+    const hh=Math.floor(ref.t), mm=Math.round((ref.t-hh)*60);
+    let html = `<b style="color:#fff;">${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')} CET</b>`;
+    if (w) html += `<br><span style="color:#b388d9;">wind:</span> <b>${Math.round(w.v).toLocaleString('cs')} MW</b>`;
+    if (s) html += `<br><span style="color:#f7c873;">solar:</span> <b>${Math.round(s.v).toLocaleString('cs')} MW</b>`;
+    tip.innerHTML = html; tip.style.display='block';
+    const left = mx+12+150>rect.width ? mx-158 : mx+12; tip.style.left = left+'px';
+  });
+  canvas.addEventListener('mouseleave', ()=>{ tip.style.display='none'; });
+})();
 
 </script>
 </body>
