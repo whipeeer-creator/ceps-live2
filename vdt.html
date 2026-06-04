@@ -79,7 +79,7 @@
 const BASE = (location.origin.startsWith("http") && location.origin !== "null")
   ? location.origin : "https://ceps-live2.onrender.com";
 const ENDPOINT = BASE + "/vdt/orderbook";
-const REFRESH  = 1000;
+const REFRESH  = 1500;
 let prev = {};
 const pad = n => String(n).padStart(2,'0');
 
@@ -234,6 +234,13 @@ async function tick(){
     if(!res.ok) throw new Error('HTTP '+res.status);
     const data=await res.json();
     const rows=data.rows||[];
+    // pojistka: kdyz prijde podezrele malo kontraktu (orezana odpoved pri zatizeni),
+    // nepřepisuj dobry stav - pockej na dalsi plnou odpoved
+    if(window._lastRowCount && rows.length>0 && rows.length < window._lastRowCount*0.6){
+      dot.className='dot live'; state.textContent='živě';
+      return;  // ignoruj tento neuplny snapshot
+    }
+    if(rows.length>0) window._lastRowCount = Math.max(window._lastRowCount||0, rows.length);
     render(rows);
     dot.className='dot live'; state.textContent='živě'; err.textContent='';
     document.getElementById('meta').textContent=
@@ -245,8 +252,14 @@ async function tick(){
 }
 loadDT();
 setInterval(loadDT, 5*60*1000);
-tick();
-setInterval(tick, REFRESH);
+
+// smycka co posle dalsi request az PO dokonceni predchoziho
+// (zabranuje navrseni requestu pri pomalem serveru / vice oknech)
+async function loop(){
+  await tick();
+  setTimeout(loop, REFRESH);
+}
+loop();
 </script>
 </body>
 </html>
