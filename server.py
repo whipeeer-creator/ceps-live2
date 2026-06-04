@@ -1055,6 +1055,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/metdesk/magma":
             self._metdesk_magma(qs); return
 
+        if parsed.path == "/metdesk/weather":
+            self._metdesk_weather(qs); return
+
         if parsed.path == "/metdesk/debug":
             # Debug: ukaz co je v env var (bez prozrazeni klice)
             k = os.environ.get("METDESK_API_KEY", "")
@@ -3082,6 +3085,103 @@ class Handler(BaseHTTPRequestHandler):
             self._json(out)
         except Exception as e:
             print(f"  -> POWER ERROR: {e}", flush=True)
+            self._json({"error": str(e)}, 502)
+
+    def _metdesk_weather(self, qs):
+        """MetDesk MAGMA Weather API v1 - meteo forecast (vitr, solar rad, teplota...).
+        Cache 1h. Forecast se vydava kazdou hodinu, horizont 15 dni.
+        Query: ?location=DE&elements=ff_100m,rad,tt&interval=60
+          location  - kod lokace (napr. DE, GB, nebo konkretni misto z /locations)
+          elements  - carkou oddeleny seznam element kodu (default: ff_100m,rad,tt,nt)
+          interval  - 60 | 30 | 15 (default 60)
+        Vraci: {location, issue, interval, points:[{ts, <element>:val, ...}], elements:[...]}
+        """
+        try:
+            import urllib.request, urllib.error, re
+            api_key = os.environ.get("METDESK_API_KEY", "")
+            api_key = re.sub(r'\s+', ' ', api_key).strip()
+            if not api_key:
+                self._json({"error": "METDESK_API_KEY not configured"}, 200); return
+
+            if "_WEATHER_CACHE" not in globals():
+                globals()["_WEATHER_CACHE"] = {}
+
+            location = qs.get("location", ["DE"])[0]
+            elements = qs.get("elements", ["ff_100m,rad,tt,nt"])[0]
+            interval = qs.get("interval", ["60"])[0]
+            el_list = [e.strip() for e in elements.split(",") if e.strip()]
+
+            cache_key = f"{location}|{elements}|{interval}"
+            cache_all = globals()["_WEATHER_CACHE"]
+            now = time.time()
+            if cache_key in cache_all and (now - cache_all[cache_key]["ts"]) < 3600:
+                out = dict(cache_all[cache_key]["data"]); out["_cache"] = "hit"
+                out["_age_sec"] = int(now - cache_all[cache_key]["ts"])
+                self._json(out); return
+
+            raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
+            lower = api_key.lower()
+            auth_hdr = api_key if lower.startswith("jwt ") else f"jwt {raw_token}"
+
+            BASE = "https://api.metdesk.com/get/metdesk/magmaweather/v1"
+
+            def fetch(url):
+                req = urllib.request.Request(url, headers={"Authorization": auth_hdr})
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    return json.loads(r.read().decode("utf-8"))
+
+            # 1) najdi nejnovejsi issue
+            issues_url = f"{BASE}/issues"
+            try:
+                issues_raw = fetch(issues_url)
+            except urllib.error.HTTPError as e:
+                err_body = ""
+                try: err_body = e.read().decode("utf-8")[:300]
+                except: pass
+                self._json({"error": f"issues {e.code}", "detail": err_body, "url": issues_url}, 200); return
+
+            issues_list = issues_raw.get("data", [])
+            if not issues_list:
+                self._json({"error": "no issues", "raw": issues_raw}, 200); return
+            latest_issue = issues_list[-1] if isinstance(issues_list[-1], str) else str(issues_list[-1])
+
+            # 2) stahni forecast
+            fc_url = f"{BASE}/forecasts?issue={latest_issue}&location={location}&interval={interval}"
+            try:
+                raw = fetch(fc_url)
+            except urllib.error.HTTPError as e:
+                err_body = ""
+                try: err_body = e.read().decode("utf-8")[:300]
+                except: pass
+                self._json({"error": f"forecasts {e.code}", "detail": err_body, "url": fc_url}, 200); return
+
+            data = raw.get("data", [])
+            points = []
+            for item in data:
+                dtg = item.get("dtg") or item.get("datetime")
+                if dtg is None: continue
+                pt = {"ts": dtg}
+                for el in el_list:
+                    v = item.get(el)
+                    if v is not None:
+                        try: pt[el] = float(v)
+                        except: pt[el] = v
+                points.append(pt)
+
+            out = {
+                "location": location,
+                "issue": latest_issue,
+                "interval": interval,
+                "elements": el_list,
+                "points": points,
+                "n": len(points),
+                "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss"
+            }
+            cache_all[cache_key] = {"ts": now, "data": {k: v for k, v in out.items() if k != "_cache"}}
+            self._json(out)
+        except Exception as e:
+            print(f"  -> WEATHER ERROR: {e}", flush=True)
             self._json({"error": str(e)}, 502)
 
     def _forecast_de(self, qs):
