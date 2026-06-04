@@ -366,7 +366,7 @@ canvas { max-width: 100%; display: block; }
           <span class="flag-de" title="Germany"></span>
           DE vítr · forecast vs skutečnost
         </div>
-        <div class="panel-sub">celý DE vítr (onshore+offshore) · forecast error = actual − forecast · zdroj: ENTSO-E</div>
+        <div class="panel-sub">DE wind onshore · forecast error = actual − forecast · čas CET · zdroj: ENTSO-E</div>
       </div>
       <div id="windFcStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#555;display:flex;gap:14px;flex-wrap:wrap;"></div>
     </div>
@@ -4643,17 +4643,19 @@ async function loadWindFc() {
     const bNow = new Date(now.getTime() + (off*60 - now.getTimezoneOffset())*60000);
     const day = `${bNow.getFullYear()}-${pad(bNow.getMonth()+1)}-${pad(bNow.getDate())}`;
 
-    const [resid, won, woff] = await Promise.all([
+    const [resid, won] = await Promise.all([
       fetch(`${API_URL}/entsoe/residual-load?days_back=0`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`${API_URL}/entsoe/actual?country=DE&type=wind_onshore&day=${day}`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`${API_URL}/entsoe/actual?country=DE&type=wind_offshore&day=${day}`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
     if (!resid || !resid.data) return;
+
+    // Den prebereme primo ze serveru (won.day), aby filtr sedel s daty
+    const dayKey = (won && won.day) || day;
 
     const fc = {};
     resid.data.forEach(dp => {
       const bt = dp.berlin_time || '';
-      if (bt.slice(0,10) !== day) return;
+      if (bt.slice(0,10) !== dayKey) return;
       const h = parseInt(bt.slice(11,13), 10);
       if (Number.isFinite(h) && dp.wind_mw != null) fc[h] = dp.wind_mw;
     });
@@ -4675,12 +4677,7 @@ async function loadWindFc() {
       });
       return out;
     };
-    const actOn = hourlyAvg(won), actOff = hourlyAvg(woff);
-    const act = {};
-    for (let h = 0; h < 24; h++) {
-      const has = (h in actOn) || (h in actOff);
-      if (has) act[h] = (actOn[h] || 0) + (actOff[h] || 0);
-    }
+    const act = hourlyAvg(won);  // jen onshore - forecast wind_mw je rovnez de-facto onshore
 
     const hours = [];
     for (let h = 0; h < 24; h++) {
@@ -4701,7 +4698,7 @@ async function loadWindFc() {
       let html = '';
       if (cur && cur.e != null) {
         const c = cur.e >= 0 ? '#2e7d32' : '#c0392b';
-        html += `<span>teď ${pad(nowH)}:00 · error <b style="color:${c};">${cur.e>=0?'+':''}${Math.round(cur.e)}</b> MW</span>`;
+        html += `<span>teď ${pad(nowH)}:00 CET · error <b style="color:${c};">${cur.e>=0?'+':''}${Math.round(cur.e)}</b> MW</span>`;
       }
       if (avgE != null) {
         const c = avgE >= 0 ? '#2e7d32' : '#c0392b';
@@ -4746,6 +4743,10 @@ function drawWindFc(canvas, hours) {
     }
     ctx.fillText(String(Math.min(h,23)).padStart(2,'0'), x, PAD.top + cH + 16);
   }
+  // popisek casove osy
+  ctx.fillStyle = '#7090b0'; ctx.font = '9px JetBrains Mono, monospace'; ctx.textAlign = 'right';
+  ctx.fillText('hodina (CET)', PAD.left + cW, PAD.top + cH + 26);
+  ctx.textAlign = 'center';
 
   windFcLine(ctx, hours, 'f', xP, yMW, '#5b8fc9', true);
   windFcLine(ctx, hours, 'a', xP, yMW, '#16a085', false);
@@ -4779,7 +4780,7 @@ function windFcLine(ctx, hours, key, xP, yMW, color, dashed) {
     const h = Math.max(0, Math.min(23, Math.round((mx - PAD.left) / cW * 23)));
     const x = hours[h];
     if (!x) { tip.style.display='none'; return; }
-    let html = `<b style="color:#fff;">${String(h).padStart(2,'0')}:00</b><br>`;
+    let html = `<b style="color:#fff;">${String(h).padStart(2,'0')}:00 CET</b><br>`;
     html += `<span style="color:#8ab4e8;">forecast:</span> <b>${x.f!=null?Math.round(x.f):'—'} MW</b><br>`;
     html += `<span style="color:#3ec9a0;">actual:</span> <b>${x.a!=null?Math.round(x.a):'—'} MW</b>`;
     if (x.e != null) {
