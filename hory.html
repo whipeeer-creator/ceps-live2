@@ -359,6 +359,30 @@ canvas { max-width: 100%; display: block; }
     </div>
   </div>
 
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;">
+          <span class="flag-de" title="Germany"></span>
+          DE vítr · forecast vs skutečnost
+        </div>
+        <div class="panel-sub">celý DE vítr (onshore+offshore) · forecast error = actual − forecast · zdroj: ENTSO-E</div>
+      </div>
+      <div id="windFcStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#555;display:flex;gap:14px;flex-wrap:wrap;"></div>
+    </div>
+    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;" id="windFcWrap">
+      <canvas id="windFcCanvas" height="280" style="width:100%;height:280px;display:block;"></canvas>
+      <div id="windFcTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);line-height:1.4;"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#5b8fc9;"></span>forecast (A69 day-ahead)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#16a085;"></span>actual (A75)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:rgba(39,174,96,.5);"></span>error + (víc větru)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:rgba(229,57,53,.5);"></span>error − (míň větru)</span>
+      <span class="pleg" style="color:#666;">actual má zpoždění ~1h</span>
+    </div>
+  </div>
+
   <!-- ===================================================================== -->
   <!-- aFRR Energy Bids · DE+AT (regelleistung.net) — merit-order ladder graf -->
   <!-- ===================================================================== -->
@@ -4150,6 +4174,7 @@ async function loadAll() {
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
+      tasks.push(loadWindFc());
     }
     // VDT KPI karta - throttle 5min (data se mění s ~1h zpožděním)
     if (now - _lastVdtKpiLoad > VDT_KPI_THROTTLE_MS) {
@@ -4610,6 +4635,170 @@ async function loadHistSpreadTable() {
     window._histSpreadLoading = false;
   }
 }
+
+let _windFcMeta = null;
+
+async function loadWindFc() {
+  try {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const off = (now.getMonth()+1) >= 4 && (now.getMonth()+1) <= 10 ? 2 : 1;
+    const bNow = new Date(now.getTime() + (off*60 - now.getTimezoneOffset())*60000);
+    const day = `${bNow.getFullYear()}-${pad(bNow.getMonth()+1)}-${pad(bNow.getDate())}`;
+
+    const [resid, won, woff] = await Promise.all([
+      fetch(`${API_URL}/entsoe/residual-load?days_back=0`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_URL}/entsoe/actual?country=DE&type=wind_onshore&day=${day}`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_URL}/entsoe/actual?country=DE&type=wind_offshore&day=${day}`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]);
+    if (!resid || !resid.data) return;
+
+    const fc = {};
+    resid.data.forEach(dp => {
+      const bt = dp.berlin_time || '';
+      if (bt.slice(0,10) !== day) return;
+      const h = parseInt(bt.slice(11,13), 10);
+      if (Number.isFinite(h) && dp.wind_mw != null) fc[h] = dp.wind_mw;
+    });
+
+    const act = {};
+    const addActual = (d) => {
+      if (!d || !d.points) return;
+      d.points.forEach(p => {
+        if (!p.ts || p.value == null) return;
+        const utcH = parseInt(p.ts.slice(11,13), 10);
+        let h = utcH + off; if (h >= 24) h -= 24;
+        act[h] = (act[h] || 0) + p.value;
+      });
+    };
+    addActual(won); addActual(woff);
+
+    const hours = [];
+    for (let h = 0; h < 24; h++) {
+      const f = (h in fc) ? fc[h] : null;
+      const a = (h in act) ? act[h] : null;
+      const e = (f != null && a != null) ? (a - f) : null;
+      hours.push({ h, f, a, e });
+    }
+
+    drawWindFc(document.getElementById('windFcCanvas'), hours);
+
+    const statsEl = document.getElementById('windFcStats');
+    if (statsEl) {
+      const nowH = (now.getUTCHours() + off) % 24;
+      const cur = hours.find(x => x.h === nowH);
+      const withE = hours.filter(x => x.e != null);
+      const avgE = withE.length ? withE.reduce((s,x)=>s+x.e,0)/withE.length : null;
+      let html = '';
+      if (cur && cur.e != null) {
+        const c = cur.e >= 0 ? '#2e7d32' : '#c0392b';
+        html += `<span>teď ${pad(nowH)}:00 · error <b style="color:${c};">${cur.e>=0?'+':''}${Math.round(cur.e)}</b> MW</span>`;
+      }
+      if (avgE != null) {
+        const c = avgE >= 0 ? '#2e7d32' : '#c0392b';
+        html += `<span>⌀ dnes <b style="color:${c};">${avgE>=0?'+':''}${Math.round(avgE)}</b> MW</span>`;
+      }
+      html += `<span style="color:#888;">actual ${withE.length}/24 h</span>`;
+      statsEl.innerHTML = html;
+    }
+  } catch (e) { console.warn('windFc:', e); }
+}
+
+function drawWindFc(canvas, hours) {
+  if (!canvas) return;
+  const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||280);
+  const PAD = { top: 16, right: 54, bottom: 28, left: 50 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+
+  ctx.fillStyle = '#dce8f5';
+  ctx.fillRect(PAD.left, PAD.top, cW, cH);
+
+  const mwVals = [];
+  hours.forEach(x => { if (x.f != null) mwVals.push(x.f); if (x.a != null) mwVals.push(x.a); });
+  const mwMax = mwVals.length ? Math.max(...mwVals) * 1.1 : 1;
+  const errVals = hours.filter(x => x.e != null).map(x => Math.abs(x.e));
+  const errMax = errVals.length ? Math.max(...errVals) * 1.25 : 1;
+
+  const xP = h => PAD.left + (h / 23) * cW;
+  const yMW = v => PAD.top + cH - (v / mwMax) * cH;
+  const midY = PAD.top + cH / 2;
+  const yErr = v => midY - (v / errMax) * (cH / 2);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
+  ctx.fillStyle = '#6688aa'; ctx.font = '10px JetBrains Mono, monospace'; ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const v = mwMax * i / 4, y = yMW(v);
+    ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + cW, y); ctx.stroke();
+    ctx.fillText((v/1000).toFixed(1) + 'k', PAD.left - 5, y + 3);
+  }
+
+  ctx.textAlign = 'center'; ctx.fillStyle = '#7090b0';
+  for (let h = 0; h <= 24; h += 3) {
+    const x = xP(Math.min(h, 23));
+    if (h % 6 === 0) {
+      ctx.strokeStyle = 'rgba(80,120,180,0.35)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, PAD.top); ctx.lineTo(x, PAD.top + cH); ctx.stroke();
+    }
+    ctx.fillText(String(Math.min(h,23)).padStart(2,'0'), x, PAD.top + cH + 16);
+  }
+
+  const bw = Math.max(3, (cW / 24) * 0.5);
+  hours.forEach(x => {
+    if (x.e == null) return;
+    const px = xP(x.h);
+    ctx.fillStyle = x.e >= 0 ? 'rgba(39,174,96,0.5)' : 'rgba(229,57,53,0.5)';
+    const y = yErr(Math.abs(x.e));
+    ctx.fillRect(px - bw/2, x.e >= 0 ? y : midY, bw, Math.abs(midY - y));
+  });
+
+  windFcLine(ctx, hours, 'f', xP, yMW, '#5b8fc9', true);
+  windFcLine(ctx, hours, 'a', xP, yMW, '#16a085', false);
+
+  _windFcMeta = { hours, PAD, cW, cH, xP };
+}
+
+function windFcLine(ctx, hours, key, xP, yMW, color, dashed) {
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  ctx.setLineDash(dashed ? [5,4] : []);
+  ctx.beginPath(); let started = false;
+  hours.forEach(x => {
+    const v = x[key];
+    if (v == null) { started = false; return; }
+    const px = xP(x.h), py = yMW(v);
+    if (!started) { ctx.moveTo(px, py); started = true; } else ctx.lineTo(px, py);
+  });
+  ctx.stroke(); ctx.setLineDash([]);
+}
+
+(function() {
+  const canvas = document.getElementById('windFcCanvas');
+  if (!canvas) return;
+  const tip = document.getElementById('windFcTip');
+  canvas.addEventListener('mousemove', e => {
+    if (!_windFcMeta) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const { hours, PAD, cW } = _windFcMeta;
+    if (mx < PAD.left || mx > PAD.left + cW) { tip.style.display='none'; return; }
+    const h = Math.max(0, Math.min(23, Math.round((mx - PAD.left) / cW * 23)));
+    const x = hours[h];
+    if (!x) { tip.style.display='none'; return; }
+    let html = `<b style="color:#fff;">${String(h).padStart(2,'0')}:00</b><br>`;
+    html += `<span style="color:#8ab4e8;">forecast:</span> <b>${x.f!=null?Math.round(x.f):'—'} MW</b><br>`;
+    html += `<span style="color:#3ec9a0;">actual:</span> <b>${x.a!=null?Math.round(x.a):'—'} MW</b>`;
+    if (x.e != null) {
+      const c = x.e >= 0 ? '#7fff7f' : '#ff7f7f';
+      html += `<br><span style="color:${c};">error:</span> <b>${x.e>=0?'+':''}${Math.round(x.e)} MW</b>`;
+    }
+    tip.innerHTML = html;
+    tip.style.display = 'block';
+    const left = mx + 12 + 140 > rect.width ? mx - 148 : mx + 12;
+    tip.style.left = left + 'px';
+  });
+  canvas.addEventListener('mouseleave', () => { tip.style.display='none'; });
+})();
+
 </script>
 </body>
 </html>
