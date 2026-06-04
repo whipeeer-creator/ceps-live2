@@ -4648,8 +4648,6 @@ async function loadWindFc() {
       fetch(`${API_URL}/entsoe/actual?country=DE&type=wind_onshore&day=${day}`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
     if (!resid || !resid.data) return;
-
-    // Den prebereme primo ze serveru (won.day), aby filtr sedel s daty
     const dayKey = (won && won.day) || day;
 
     const fc = {};
@@ -4660,24 +4658,15 @@ async function loadWindFc() {
       if (Number.isFinite(h) && dp.wind_mw != null) fc[h] = dp.wind_mw;
     });
 
-    // A75 vraci 15min kroky (4 body/h) -> pro hodinu vezmi PRUMER, ne soucet.
-    // Pak onshore + offshore secti.
-    const hourlyAvg = (d) => {
-      const buckets = {}; // h -> [vals]
-      if (d && d.points) d.points.forEach(p => {
-        if (!p.ts || p.value == null) return;
-        const utcH = parseInt(p.ts.slice(11,13), 10);
-        let h = utcH + off; if (h >= 24) h -= 24;
-        (buckets[h] = buckets[h] || []).push(p.value);
-      });
-      const out = {};
-      Object.keys(buckets).forEach(h => {
-        const a = buckets[h];
-        out[h] = a.reduce((s,v)=>s+v,0) / a.length;
-      });
-      return out;
-    };
-    const act = hourlyAvg(won);  // jen onshore - forecast wind_mw je rovnez de-facto onshore
+    const buckets = {};
+    if (won && won.points) won.points.forEach(p => {
+      if (!p.ts || p.value == null) return;
+      const utcH = parseInt(p.ts.slice(11,13), 10);
+      let h = utcH + off; if (h >= 24) h -= 24;
+      (buckets[h] = buckets[h] || []).push(p.value);
+    });
+    const act = {};
+    Object.keys(buckets).forEach(h => { const a = buckets[h]; act[h] = a.reduce((s,v)=>s+v,0)/a.length; });
 
     const hours = [];
     for (let h = 0; h < 24; h++) {
@@ -4743,7 +4732,6 @@ function drawWindFc(canvas, hours) {
     }
     ctx.fillText(String(Math.min(h,23)).padStart(2,'0'), x, PAD.top + cH + 16);
   }
-  // popisek casove osy
   ctx.fillStyle = '#7090b0'; ctx.font = '9px JetBrains Mono, monospace'; ctx.textAlign = 'right';
   ctx.fillText('hodina (CET)', PAD.left + cW, PAD.top + cH + 26);
   ctx.textAlign = 'center';
@@ -4794,6 +4782,23 @@ function windFcLine(ctx, hours, key, xP, yMW, color, dashed) {
   });
   canvas.addEventListener('mouseleave', () => { tip.style.display='none'; });
 })();
+
+
+// === GLOBAL: vsechny KPI karty - zaporna hodnota cerveny text, kladna zeleny ===
+function recolorAllKpis() {
+  document.querySelectorAll('.kpi-v').forEach(el => {
+    // text bez jednotky (kpi-u span) a bez '—'
+    let txt = '';
+    el.childNodes.forEach(n => { if (n.nodeType === 3) txt += n.textContent; });
+    txt = txt.trim();
+    if (!txt || txt === '\u2014') return;            // prazdne / pomlcka -> nech byt
+    const num = parseFloat(txt.replace(/\s/g,'').replace(',', '.'));
+    if (!Number.isFinite(num)) return;
+    el.style.color = num < 0 ? '#c0392b' : '#2e7d32';
+  });
+}
+setInterval(recolorAllKpis, 500);
+document.addEventListener('DOMContentLoaded', recolorAllKpis);
 
 </script>
 </body>
