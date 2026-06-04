@@ -105,35 +105,36 @@ function dayKeys(){
   return {today, tom};
 }
 
-// nacti DT spot ceny pro dnes i zitra
+// nacti DT spot ceny pro dnes i zitra — stejny zdroj jako hory.html (/ote/dt15 = OTE XLSX)
 async function loadDT(){
   const {today, tom} = dayKeys();
   const out = { [today]:{hour:{},qh:{}}, [tom]:{hour:{},qh:{}} };
-  // hodinove z /ote/spot (hours_today + hours_tomorrow)
-  try{
-    const r = await fetch(BASE+"/ote/spot", {cache:'no-store'});
-    if(r.ok){
-      const d = await r.json();
-      for(const p of (d.hours_today||d.hoursToday||[])){
-        const v=(p.priceEur??p.priceEUR??p.price_eur); if(Number.isFinite(v)) out[today].hour[p.hour]=v;
-      }
-      for(const p of (d.hours_tomorrow||d.hoursTomorrow||[])){
-        const v=(p.priceEur??p.priceEUR??p.price_eur); if(Number.isFinite(v)) out[tom].hour[p.hour]=v;
-      }
+  const parseDt15 = (d, key) => {
+    if (!d || !d.data) return;
+    for (const p of d.data) {
+      // dt15 vraci: hour(int) + minute(int) + interval("HH:MM-HH:MM") + price_eur
+      const hh = p.hour ?? null, mi = p.minute ?? null;
+      if (hh === null || mi === null) continue;
+      const v = p.price_eur ?? p.priceEur ?? p.price ?? null;
+      if (!Number.isFinite(v)) continue;
+      out[key].qh[pad(hh)+':'+pad(mi)] = v;
+      if (!out[key].hour[hh]) out[key].hour[hh] = { sum: 0, n: 0 };
+      out[key].hour[hh].sum += v;
+      out[key].hour[hh].n += 1;
     }
-  }catch(e){ console.warn('DT hour:',e); }
-  // QH z /spot/prices pro oba dny
-  for(const y of [today, tom]){
-    try{
-      const r2 = await fetch(BASE+`/spot/prices?country=CZ&date=${isoFromYmd(y)}`, {cache:'no-store'});
-      if(r2.ok){
-        const d2 = await r2.json();
-        if(d2.data) for(const p of d2.data){
-          if(Number.isFinite(p.price_eur)) out[y].qh[`${pad(p.hour)}:${pad(p.minute)}`]=p.price_eur;
-        }
-      }
-    }catch(e){ console.warn('DT qh:',e); }
-  }
+    for (const hh of Object.keys(out[key].hour)) {
+      const o = out[key].hour[hh];
+      if (o && o.n) out[key].hour[hh] = o.sum / o.n;
+    }
+  };
+  try {
+    const [d0, d1] = await Promise.all([
+      fetch(BASE+'/ote/dt15?day=0', {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(BASE+'/ote/dt15?day=1', {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+    ]);
+    parseDt15(d0, today);
+    parseDt15(d1, tom);
+  } catch(e) { console.warn('DT dt15:', e); }
   dt = out;
 }
 
