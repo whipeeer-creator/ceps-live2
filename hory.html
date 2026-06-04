@@ -376,10 +376,7 @@ canvas { max-width: 100%; display: block; }
     </div>
     <div class="panel-legend">
       <span class="pleg"><span class="pleg-sq" style="background:#5b8fc9;"></span>forecast (A69 day-ahead)</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#16a085;"></span>actual (A75)</span>
-      <span class="pleg"><span class="pleg-sq" style="background:rgba(39,174,96,.5);"></span>error + (víc větru)</span>
-      <span class="pleg"><span class="pleg-sq" style="background:rgba(229,57,53,.5);"></span>error − (míň větru)</span>
-      <span class="pleg" style="color:#666;">actual má zpoždění ~1h</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#16a085;"></span>actual (A75) · zpoždění ~1h</span>
     </div>
   </div>
 
@@ -4661,17 +4658,29 @@ async function loadWindFc() {
       if (Number.isFinite(h) && dp.wind_mw != null) fc[h] = dp.wind_mw;
     });
 
-    const act = {};
-    const addActual = (d) => {
-      if (!d || !d.points) return;
-      d.points.forEach(p => {
+    // A75 vraci 15min kroky (4 body/h) -> pro hodinu vezmi PRUMER, ne soucet.
+    // Pak onshore + offshore secti.
+    const hourlyAvg = (d) => {
+      const buckets = {}; // h -> [vals]
+      if (d && d.points) d.points.forEach(p => {
         if (!p.ts || p.value == null) return;
         const utcH = parseInt(p.ts.slice(11,13), 10);
         let h = utcH + off; if (h >= 24) h -= 24;
-        act[h] = (act[h] || 0) + p.value;
+        (buckets[h] = buckets[h] || []).push(p.value);
       });
+      const out = {};
+      Object.keys(buckets).forEach(h => {
+        const a = buckets[h];
+        out[h] = a.reduce((s,v)=>s+v,0) / a.length;
+      });
+      return out;
     };
-    addActual(won); addActual(woff);
+    const actOn = hourlyAvg(won), actOff = hourlyAvg(woff);
+    const act = {};
+    for (let h = 0; h < 24; h++) {
+      const has = (h in actOn) || (h in actOff);
+      if (has) act[h] = (actOn[h] || 0) + (actOff[h] || 0);
+    }
 
     const hours = [];
     for (let h = 0; h < 24; h++) {
@@ -4717,13 +4726,8 @@ function drawWindFc(canvas, hours) {
   const mwVals = [];
   hours.forEach(x => { if (x.f != null) mwVals.push(x.f); if (x.a != null) mwVals.push(x.a); });
   const mwMax = mwVals.length ? Math.max(...mwVals) * 1.1 : 1;
-  const errVals = hours.filter(x => x.e != null).map(x => Math.abs(x.e));
-  const errMax = errVals.length ? Math.max(...errVals) * 1.25 : 1;
-
   const xP = h => PAD.left + (h / 23) * cW;
   const yMW = v => PAD.top + cH - (v / mwMax) * cH;
-  const midY = PAD.top + cH / 2;
-  const yErr = v => midY - (v / errMax) * (cH / 2);
 
   ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
   ctx.fillStyle = '#6688aa'; ctx.font = '10px JetBrains Mono, monospace'; ctx.textAlign = 'right';
@@ -4742,15 +4746,6 @@ function drawWindFc(canvas, hours) {
     }
     ctx.fillText(String(Math.min(h,23)).padStart(2,'0'), x, PAD.top + cH + 16);
   }
-
-  const bw = Math.max(3, (cW / 24) * 0.5);
-  hours.forEach(x => {
-    if (x.e == null) return;
-    const px = xP(x.h);
-    ctx.fillStyle = x.e >= 0 ? 'rgba(39,174,96,0.5)' : 'rgba(229,57,53,0.5)';
-    const y = yErr(Math.abs(x.e));
-    ctx.fillRect(px - bw/2, x.e >= 0 ? y : midY, bw, Math.abs(midY - y));
-  });
 
   windFcLine(ctx, hours, 'f', xP, yMW, '#5b8fc9', true);
   windFcLine(ctx, hours, 'a', xP, yMW, '#16a085', false);
