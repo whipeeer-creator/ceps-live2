@@ -2019,12 +2019,12 @@ function renderResStats(rows, cols, daPoints, idPoints) {
       if (Math.abs(diff) < 50) {
         color = '#666'; bgColor = '#f5f5f5'; signal = 'shoda';
       } else if (diff > 0) {
-        // Actual > Forecast = vic OZE nez cekano = PREBYTEK = SHORT bias na cenu
-        color = '#c62828'; bgColor = '#ffebee'; 
+        // kladna = zelena
+        color = '#2e7d32'; bgColor = '#e8f5e9';
         signal = diff > 200 ? 'silný PŘEBYTEK ⚡⚡' : 'PŘEBYTEK';
       } else {
-        // Actual < Forecast = mene OZE = DEFICIT = LONG bias na cenu
-        color = '#2e7d32'; bgColor = '#e8f5e9';
+        // zaporna = cervena
+        color = '#c62828'; bgColor = '#ffebee';
         signal = diff < -200 ? 'silný DEFICIT ⚡⚡' : 'DEFICIT';
       }
       
