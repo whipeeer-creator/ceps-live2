@@ -110,8 +110,8 @@ async function loadDT(){
   const {today, tom} = dayKeys();
   const out = { [today]:{hour:{},qh:{}}, [tom]:{hour:{},qh:{}} };
   const parseDt15 = (d, key) => {
-    if (!d || !d.data) return;
-    for (const p of d.data) {
+    if (!d || !d.qh) return;
+    for (const p of d.qh) {
       // dt15 vraci: hour(int) + minute(int) + interval("HH:MM-HH:MM") + price_eur
       const hh = p.hour ?? null, mi = p.minute ?? null;
       if (hh === null || mi === null) continue;
