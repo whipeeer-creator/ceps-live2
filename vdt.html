@@ -105,36 +105,35 @@ function dayKeys(){
   return {today, tom};
 }
 
-// nacti DT spot ceny pro dnes i zitra — stejny zdroj jako hory.html (/ote/dt15 = OTE XLSX)
+// nacti DT spot ceny pro dnes i zitra
 async function loadDT(){
   const {today, tom} = dayKeys();
   const out = { [today]:{hour:{},qh:{}}, [tom]:{hour:{},qh:{}} };
-  const parseDt15 = (d, key) => {
-    if (!d || !d.qh) return;
-    for (const p of d.qh) {
-      // dt15 vraci: hour(int) + minute(int) + interval("HH:MM-HH:MM") + price_eur
-      const hh = p.hour ?? null, mi = p.minute ?? null;
-      if (hh === null || mi === null) continue;
-      const v = p.price_eur ?? p.priceEur ?? p.price ?? null;
-      if (!Number.isFinite(v)) continue;
-      out[key].qh[pad(hh)+':'+pad(mi)] = v;
-      if (!out[key].hour[hh]) out[key].hour[hh] = { sum: 0, n: 0 };
-      out[key].hour[hh].sum += v;
-      out[key].hour[hh].n += 1;
+  // hodinove z /ote/spot (hours_today + hours_tomorrow)
+  try{
+    const r = await fetch(BASE+"/ote/spot", {cache:'no-store'});
+    if(r.ok){
+      const d = await r.json();
+      for(const p of (d.hours_today||d.hoursToday||[])){
+        const v=(p.priceEur??p.priceEUR??p.price_eur); if(Number.isFinite(v)) out[today].hour[p.hour]=v;
+      }
+      for(const p of (d.hours_tomorrow||d.hoursTomorrow||[])){
+        const v=(p.priceEur??p.priceEUR??p.price_eur); if(Number.isFinite(v)) out[tom].hour[p.hour]=v;
+      }
     }
-    for (const hh of Object.keys(out[key].hour)) {
-      const o = out[key].hour[hh];
-      if (o && o.n) out[key].hour[hh] = o.sum / o.n;
-    }
-  };
-  try {
-    const [d0, d1] = await Promise.all([
-      fetch(BASE+'/ote/dt15?day=0', {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
-      fetch(BASE+'/ote/dt15?day=1', {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
-    ]);
-    parseDt15(d0, today);
-    parseDt15(d1, tom);
-  } catch(e) { console.warn('DT dt15:', e); }
+  }catch(e){ console.warn('DT hour:',e); }
+  // QH z /spot/prices pro oba dny
+  for(const y of [today, tom]){
+    try{
+      const r2 = await fetch(BASE+`/spot/prices?country=CZ&date=${isoFromYmd(y)}`, {cache:'no-store'});
+      if(r2.ok){
+        const d2 = await r2.json();
+        if(d2.data) for(const p of d2.data){
+          if(Number.isFinite(p.price_eur)) out[y].qh[`${pad(p.hour)}:${pad(p.minute)}`]=p.price_eur;
+        }
+      }
+    }catch(e){ console.warn('DT qh:',e); }
+  }
   dt = out;
 }
 
@@ -180,9 +179,7 @@ function tableFor(rows, dayY){
     groups[hh]=groups[hh]||{hour:hh,hourRow:null,qh:[]};
     if(k.type==="H") groups[hh].hourRow=row; else groups[hh].qh.push(row);
   }
-  const nowH = new Date().getHours();
-  const isToday = dayY === dayKeys().today;
-  const hours=Object.keys(groups).map(Number).sort((a,b)=>a-b).filter(h => !isToday || h >= nowH);
+  const hours=Object.keys(groups).map(Number).sort((a,b)=>a-b);
   const thead = `
     <thead>
       <tr>
@@ -222,10 +219,19 @@ function tableFor(rows, dayY){
 
 function render(rows){
   const {today, tom} = dayKeys();
+  // Zjisti ktere dny jsou realne v datech
+  const datesInData = [...new Set(rows.map(r => r.kontrakt && r.kontrakt.date).filter(Boolean))].sort();
   const c = document.getElementById('container');
-  c.innerHTML =
-    `<div class="daytitle">DNES \u00b7 ${czFromYmd(today)}</div>` + tableFor(rows, today) +
-    `<div class="daytitle">ZÍTRA \u00b7 ${czFromYmd(tom)}</div>` + tableFor(rows, tom);
+  let html = '';
+  // Vzdy zobraz today a tom (i kdyz prazdne)
+  const days = [...new Set([...datesInData, today, tom])].sort();
+  for (const day of days) {
+    const isToday = day === today;
+    const isTom = day === tom;
+    const label = isToday ? `DNES \u00b7 ${czFromYmd(day)}` : (isTom ? `ZÍTRA \u00b7 ${czFromYmd(day)}` : czFromYmd(day));
+    html += `<div class="daytitle">${label}</div>` + tableFor(rows, day);
+  }
+  c.innerHTML = html;
 }
 
 async function tick(){
@@ -253,16 +259,15 @@ async function tick(){
     err.textContent='Nelze načíst '+ENDPOINT+' \u2014 běží ote_bot.py a posílá na /ingest? ('+e.message+')';
   }
 }
-loadDT();
+// nacti DT nejdriv, pak spust loop - jinak dt={} kdyz se vykresli prvni tabulka
+loadDT().then(() => {
+  async function loop(){
+    await tick();
+    setTimeout(loop, REFRESH);
+  }
+  loop();
+});
 setInterval(loadDT, 5*60*1000);
-
-// smycka co posle dalsi request az PO dokonceni predchoziho
-// (zabranuje navrseni requestu pri pomalem serveru / vice oknech)
-async function loop(){
-  await tick();
-  setTimeout(loop, REFRESH);
-}
-loop();
 </script>
 </body>
 </html>
