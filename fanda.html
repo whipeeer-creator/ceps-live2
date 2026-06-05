@@ -473,8 +473,10 @@ function renderDataTable(lastRec, allRecords) {
   }
   
   // Build HTML
+  const updatedRaw = lastRec.data?.updated ?? lastRec.data?.Updated ?? lastRec.data?.update ?? null;
+  const updatedStr = updatedRaw ? ` · data: <b style="color:#1565c0;">${String(updatedRaw).trim()}</b>` : '';
   let html = `<div style="padding:8px 12px;font-size:11px;color:#666;display:flex;justify-content:space-between;align-items:center;">
-    <span><b>${lastRec.source}</b> · ${lastRec.type} · ${fmtTs(lastRec.ts)}</span>
+    <span><b>${lastRec.source}</b> · ${lastRec.type} · přijato ${fmtTs(lastRec.ts)}${updatedStr}</span>
     <span style="color:#999;">${formatHint} · ${allRecords.length} verzí historie</span>
   </div>`;
   
