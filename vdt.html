@@ -180,7 +180,9 @@ function tableFor(rows, dayY){
     groups[hh]=groups[hh]||{hour:hh,hourRow:null,qh:[]};
     if(k.type==="H") groups[hh].hourRow=row; else groups[hh].qh.push(row);
   }
-  const hours=Object.keys(groups).map(Number).sort((a,b)=>a-b);
+  const nowH = new Date().getHours();
+  const isToday = dayY === dayKeys().today;
+  const hours=Object.keys(groups).map(Number).sort((a,b)=>a-b).filter(h => !isToday || h >= nowH);
   const thead = `
     <thead>
       <tr>
