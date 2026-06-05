@@ -107,8 +107,10 @@ async function loadList() {
     const sourceSel = document.getElementById('sourceSelect');
     const currentSrc = sourceSel.value;
     sourceSel.innerHTML = '<option value="">-- vyberte --</option>';
+    const HIDDEN_SOURCES = ['ote-com-bridge','OTE-COM-BRIDGE','ote_com_bridge'];
     if (d.sources) {
       for (const src of Object.keys(d.sources).sort()) {
+        if (HIDDEN_SOURCES.includes(src)) continue;
         const info = d.sources[src];
         const opt = document.createElement('option');
         opt.value = src;
@@ -146,6 +148,7 @@ async function loadList() {
     } else {
       let html = '';
       for (const src of Object.keys(d.sources).sort()) {
+        if (HIDDEN_SOURCES.includes(src)) continue;
         const info = d.sources[src];
         const ts = info.latest_ts || '—';
         const tsFmt = ts === '—' ? '—' : ts.replace(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/, '$1-$2-$3 $4:$5:$6');
@@ -497,10 +500,9 @@ function renderDataTable(lastRec, allRecords) {
     const dir = directionFor(key);
     const dirLabel = dir === 'in' ? 'in' : (dir === 'out' ? 'out' : '');
     const cls = dir === 'in' ? 'green' : (dir === 'out' ? 'red' : '');
-    html += `<th class="${cls}" style="text-align:center;padding:4px 2px;line-height:1.3;overflow:hidden;">
-      <div style="font-size:10px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(name)}</div>
-      <div style="font-size:15px;margin:1px 0;">${flag || ''}</div>
-      <div style="font-size:10px;font-weight:700;">${dirLabel}</div>
+    html += `<th class="${cls}" style="text-align:right;padding:4px 6px;line-height:1.4;overflow:hidden;white-space:nowrap;">
+      <div style="font-size:9px;font-weight:600;text-align:center;">${escapeHtml(name)} ${flag || ''}</div>
+      <div style="font-size:10px;font-weight:700;text-align:center;">${dirLabel}</div>
     </th>`;
   }
   html += '</tr></thead><tbody>';
