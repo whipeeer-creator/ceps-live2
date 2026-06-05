@@ -500,9 +500,10 @@ function renderDataTable(lastRec, allRecords) {
     const dir = directionFor(key);
     const dirLabel = dir === 'in' ? 'in' : (dir === 'out' ? 'out' : '');
     const cls = dir === 'in' ? 'green' : (dir === 'out' ? 'red' : '');
-    html += `<th class="${cls}" style="text-align:right;padding:4px 6px;line-height:1.4;overflow:hidden;white-space:nowrap;">
-      <div style="font-size:9px;font-weight:600;text-align:center;">${escapeHtml(name)} ${flag || ''}</div>
-      <div style="font-size:10px;font-weight:700;text-align:center;">${dirLabel}</div>
+    html += `<th class="${cls}" style="text-align:center;padding:4px 4px;line-height:1.6;overflow:hidden;">
+      <div style="font-size:9px;font-weight:600;">${escapeHtml(name)}</div>
+      <div style="font-size:13px;">${flag || '&nbsp;'}</div>
+      <div style="font-size:9px;font-weight:700;">${dirLabel || '&nbsp;'}</div>
     </th>`;
   }
   html += '</tr></thead><tbody>';
@@ -522,7 +523,7 @@ function renderDataTable(lastRec, allRecords) {
         cls = dir === 'in' ? 'green' : (dir === 'out' ? 'red' : '');
         cellHtml = v.toFixed(Number.isInteger(v) ? 0 : 1);
       }
-      html += `<td class="${cls}" style="text-align:right;padding:5px 6px;overflow:hidden;">${cellHtml}</td>`;
+      html += `<td class="${cls}" style="text-align:center;padding:5px 4px;overflow:hidden;">${cellHtml}</td>`;
     }
     html += '</tr>';
   }
