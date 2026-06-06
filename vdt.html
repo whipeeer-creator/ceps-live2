@@ -8,8 +8,8 @@
   :root{
     --bg:#ffffff; --ink:#1a1a1a; --muted:#8a8a8a;
     --line:#e4e4e4; --hour-bg:#f4f4f4;
-    --bid:#c0392b; --bid-bg:#fdeeec;
-    --ask:#0b8a3e; --ask-bg:#eafaf0;
+    --bid:#0b8a3e; --bid-bg:#eafaf0;
+    --ask:#c0392b; --ask-bg:#fdeeec;
     --stale:#bbb; --live:#0b8a3e;
   }
   *{box-sizing:border-box;margin:0;padding:0}
@@ -219,19 +219,10 @@ function tableFor(rows, dayY){
 
 function render(rows){
   const {today, tom} = dayKeys();
-  // Zjisti ktere dny jsou realne v datech
-  const datesInData = [...new Set(rows.map(r => r.kontrakt && r.kontrakt.date).filter(Boolean))].sort();
   const c = document.getElementById('container');
-  let html = '';
-  // Vzdy zobraz today a tom (i kdyz prazdne)
-  const days = [...new Set([...datesInData, today, tom])].sort();
-  for (const day of days) {
-    const isToday = day === today;
-    const isTom = day === tom;
-    const label = isToday ? `DNES \u00b7 ${czFromYmd(day)}` : (isTom ? `ZÍTRA \u00b7 ${czFromYmd(day)}` : czFromYmd(day));
-    html += `<div class="daytitle">${label}</div>` + tableFor(rows, day);
-  }
-  c.innerHTML = html;
+  c.innerHTML =
+    `<div class="daytitle">DNES \u00b7 ${czFromYmd(today)}</div>` + tableFor(rows, today) +
+    `<div class="daytitle">ZÍTRA \u00b7 ${czFromYmd(tom)}</div>` + tableFor(rows, tom);
 }
 
 async function tick(){
@@ -259,15 +250,16 @@ async function tick(){
     err.textContent='Nelze načíst '+ENDPOINT+' \u2014 běží ote_bot.py a posílá na /ingest? ('+e.message+')';
   }
 }
-// nacti DT nejdriv, pak spust loop - jinak dt={} kdyz se vykresli prvni tabulka
-loadDT().then(() => {
-  async function loop(){
-    await tick();
-    setTimeout(loop, REFRESH);
-  }
-  loop();
-});
+loadDT();
 setInterval(loadDT, 5*60*1000);
+
+// smycka co posle dalsi request az PO dokonceni predchoziho
+// (zabranuje navrseni requestu pri pomalem serveru / vice oknech)
+async function loop(){
+  await tick();
+  setTimeout(loop, REFRESH);
+}
+loop();
 </script>
 </body>
 </html>
