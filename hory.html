@@ -180,8 +180,8 @@ canvas { max-width: 100%; display: block; }
   </div>
 
   <div class="kpi-row">
-    <div class="kpi" id="crd-OZE5" style="grid-column: span 2;"><div class="kpi-l"><span class="flag-de" style="vertical-align:middle;margin-right:5px;"></span>DE vítr forecast · příštích 5 hodin (ENTSO-E A69)</div><div class="kpi-v" id="dv-OZE5">—<span class="kpi-u">MW prům</span></div><div class="kpi-s" id="ds-OZE5">—</div></div>
-    <div class="kpi" id="crd-OZEDIFF" style="grid-column: span 2;"><div class="kpi-l"><span class="flag-de" style="vertical-align:middle;margin-right:5px;"></span>DE vítr · actual vs forecast (právě teď)</div><div class="kpi-v" id="dv-OZEDIFF">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-OZEDIFF">—</div></div>
+    <div class="kpi" id="crd-OZE5" style="grid-column: span 2;"><div class="kpi-l"><span class="flag-de" style="vertical-align:middle;margin-right:5px;"></span>DE residual load forecast · příštích 5 hodin</div><div class="kpi-v" id="dv-OZE5">—<span class="kpi-u">MW prům</span></div><div class="kpi-s" id="ds-OZE5">—</div></div>
+    <div class="kpi" id="crd-OZEDIFF" style="grid-column: span 2;"><div class="kpi-l"><span class="flag-de" style="vertical-align:middle;margin-right:5px;"></span>DE residual load · actual vs forecast</div><div class="kpi-v" id="dv-OZEDIFF">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-OZEDIFF">—</div></div>
   </div>
 
   <div class="chart-panel">
@@ -331,10 +331,10 @@ canvas { max-width: 100%; display: block; }
       </div>
       <div id="magmaMeta" style="font-size:11px;color:#666;"></div>
     </div>
-    <div class="panel-body">
+    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;">
       <canvas id="magmaCanvas" height="380" style="width:100%;height:380px;display:block;"></canvas>
-      <div id="magmaLegend" style="display:flex;gap:15px;flex-wrap:wrap;font-size:11px;margin-top:8px;justify-content:center;"></div>
     </div>
+    <div id="magmaLegend" style="display:flex;gap:15px;flex-wrap:wrap;font-size:11px;margin:6px 12px;justify-content:center;"></div>
   </div>
 
   <div class="chart-panel">
@@ -404,6 +404,28 @@ canvas { max-width: 100%; display: block; }
 
 
   <!-- ===================================================================== -->
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;">
+          <span class="flag-de" title="Germany"></span>
+          DE Residual Load · forecast vs actual
+        </div>
+        <div class="panel-sub">ENTSO-E A69 forecast (demand−wind−solar) vs SMARD actual · čas CET · ~30min zpoždění actual</div>
+      </div>
+      <div id="resLoadStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#555;display:flex;gap:14px;flex-wrap:wrap;"></div>
+    </div>
+    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;">
+      <canvas id="resLoadCanvas" height="280" style="width:100%;height:280px;display:block;"></canvas>
+      <div id="resLoadTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);line-height:1.4;"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#5b8fc9;"></span>forecast (ENTSO-E) [GW]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#e74c3c;"></span>actual (SMARD) [GW]</span>
+      <span class="pleg" style="color:#666;">svislá čára = teď</span>
+    </div>
+  </div>
+
   <!-- aFRR Energy Bids · DE+AT (regelleistung.net) — merit-order ladder graf -->
   <!-- ===================================================================== -->
   <div class="chart-panel">
@@ -485,7 +507,7 @@ if (apiFromUrl) document.getElementById('apiInput').value = apiFromUrl;
           try { if (typeof initRegelleistungAfrr === 'function') initRegelleistungAfrr(); } catch(e){ console.warn(e); }
           try { if (typeof loadAll === 'function') loadAll(); } catch(e){ console.warn(e); }
           // Volat MAGMA Power Generation primo
-          try { if (typeof loadMagma === 'function') { loadMagma(); setInterval(loadMagma, 3600000); } } catch(e){ console.warn(e); }
+          try { if (typeof loadMagma === 'function') { setTimeout(() => { loadMagma(); setInterval(loadMagma, 3600000); }, 200); } } catch(e){ console.warn(e); }
           try {
             const r = document.getElementById('rsel');
             if (r && typeof setRefresh === 'function') setRefresh(+r.value);
@@ -4195,6 +4217,7 @@ async function loadAll() {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
       tasks.push(loadWindFc());
+      tasks.push(loadResidualLoad());
       tasks.push(loadMagmaGen());
     }
     // VDT KPI karta - throttle 5min (data se mění s ~1h zpožděním)
@@ -5100,6 +5123,202 @@ function drawMagmaGen(canvas, wind, solar) {
     const left = mx+12+150>rect.width ? mx-158 : mx+12; tip.style.left = left+'px';
   });
   canvas.addEventListener('mouseleave', ()=>{ tip.style.display='none'; });
+})();
+
+
+let _resLoadMeta = null;
+
+async function loadResidualLoad() {
+  try {
+    const [fcRes, actRes] = await Promise.all([
+      fetch(`${API_URL}/entsoe/residual-load?days_back=0`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/smard/residual-load`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+    ]);
+
+    const now = new Date();
+    const off = (now.getUTCMonth()+1) >= 4 && (now.getUTCMonth()+1) <= 10 ? 2 : 1;
+    const pad = n => String(n).padStart(2,'0');
+    const cetNow = new Date(now.getTime() + off*3600*1000);
+    const todayCet = `${cetNow.getUTCFullYear()}-${pad(cetNow.getUTCMonth()+1)}-${pad(cetNow.getUTCDate())}`;
+
+    // Forecast body - berlin_time format "YYYY-MM-DDTHH:MM"
+    const fcPts = [];
+    if (fcRes && fcRes.data) {
+      fcRes.data.forEach(p => {
+        const bt = p.berlin_time || '';
+        if (bt.slice(0,10) !== todayCet) return;
+        const h = parseInt(bt.slice(11,13),10);
+        const m = parseInt(bt.slice(14,16),10);
+        if (!Number.isFinite(h)) return;
+        fcPts.push({ t: h + m/60, v: p.residual_load_mw / 1000, ts: p.ts }); // GW
+      });
+    }
+    fcPts.sort((a,b)=>a.t-b.t);
+
+    // Actual body - ts je ms, berlin_time ma format "YYYY-MM-DDTHH:MM:SSZ"
+    const actPts = [];
+    if (actRes && actRes.data) {
+      actRes.data.forEach(p => {
+        const bt = p.berlin_time || '';
+        // berlin_time format: "2026-06-07T13:45:00Z" - vezmeme prvnich 16 znaku
+        const btDate = bt.slice(0,10);
+        if (btDate !== todayCet) return;
+        const h = parseInt(bt.slice(11,13),10);
+        const m = parseInt(bt.slice(14,16),10);
+        if (!Number.isFinite(h)) return;
+        actPts.push({ t: h + m/60, v: p.residual_load_actual_mw / 1000 }); // GW
+      });
+    }
+    actPts.sort((a,b)=>a.t-b.t);
+
+    drawResLoad(document.getElementById('resLoadCanvas'), fcPts, actPts);
+
+    // Stats header
+    const statsEl = document.getElementById('resLoadStats');
+    if (statsEl) {
+      const nowT = now.getUTCHours() + off/1 + now.getUTCMinutes()/60;
+      const curFc = fcPts.reduce((b,p) => Math.abs(p.t-nowT) < Math.abs((b||{t:99}).t-nowT) ? p : b, null);
+      const curAct = actPts.length ? actPts[actPts.length-1] : null;
+      let s = '';
+      if (curFc) s += `<span>forecast <b>${curFc.v.toFixed(1)}</b> GW</span>`;
+      if (curAct) s += `<span>actual <b>${curAct.v.toFixed(1)}</b> GW @ ${pad(Math.floor(curAct.t))}:${pad(Math.round((curAct.t%1)*60))}</span>`;
+      statsEl.innerHTML = s;
+    }
+
+    // === KPI karty ===
+    // 1) Forecast 5h
+    const nowMs = now.getTime();
+    const horizon = nowMs + 5*3600*1000;
+    const cetBase = new Date(cetNow); cetBase.setUTCHours(0,0,0,0);
+    const next5 = fcPts.filter(p => {
+      const pMs = cetBase.getTime() + p.t*3600*1000 - off*3600*1000;
+      return pMs >= nowMs && pMs <= horizon;
+    });
+    const dvE = document.getElementById('dv-OZE5');
+    const dsE = document.getElementById('ds-OZE5');
+    if (dvE && dsE) {
+      if (!next5.length) {
+        dvE.innerHTML = '<span style="color:#999;">—</span>';
+        dsE.innerHTML = '<span style="color:#888;">žádná forecast data</span>';
+      } else {
+        const vals = next5.map(p=>p.v);
+        const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+        const peak = Math.max(...vals);
+        const peakH = next5[vals.indexOf(peak)];
+        dvE.innerHTML = `${avg.toFixed(1)}<span class="kpi-u">GW · peak ${peak.toFixed(1)} v ${pad(Math.floor(peakH.t))}:00</span>`;
+        dsE.innerHTML = `🇩🇪 DE residual load · ENTSO-E · ${next5.length} hodin`;
+      }
+    }
+
+    // 2) Actual vs forecast diff
+    const dvD = document.getElementById('dv-OZEDIFF');
+    const dsD = document.getElementById('ds-OZEDIFF');
+    const crd = document.getElementById('crd-OZEDIFF');
+    const lastAct = actPts.length ? actPts[actPts.length-1] : null;
+    if (dvD && lastAct) {
+      const nearFc = fcPts.reduce((b,p) => Math.abs(p.t-lastAct.t) < Math.abs((b||{t:99}).t-lastAct.t) ? p : b, null);
+      if (nearFc) {
+        const diff = lastAct.v - nearFc.v; // GW
+        const pct = nearFc.v !== 0 ? (diff/Math.abs(nearFc.v)*100) : 0;
+        let color, bgColor, signal;
+        if (Math.abs(diff) < 0.5) { color='#666'; bgColor='#f5f5f5'; signal='shoda'; }
+        else if (diff > 0) { color='#c62828'; bgColor='#ffebee'; signal=diff>2?'silně VYŠŠÍ':'VYŠŠÍ'; }
+        else { color='#2e7d32'; bgColor='#e8f5e9'; signal=diff<-2?'silně NIŽŠÍ':'NIŽŠÍ'; }
+        dvD.innerHTML = `<span style="color:${color};">${diff>=0?'+':''}${diff.toFixed(1)}</span><span class="kpi-u">GW · ${signal}</span>`;
+        if (dsD) dsD.innerHTML = `🇩🇪 actual ${lastAct.v.toFixed(1)} vs fc ${nearFc.v.toFixed(1)} GW @ ${pad(Math.floor(lastAct.t))}:${pad(Math.round((lastAct.t%1)*60))} CET · ${pct>=0?'+':''}${pct.toFixed(0)}%`;
+        if (crd) crd.style.background = bgColor;
+      }
+    } else if (dvD) {
+      dvD.innerHTML = '<span style="color:#999;">—</span>';
+      if (dsD) dsD.innerHTML = '<span style="color:#888;">čekám na SMARD actual (~30min zpoždění)</span>';
+      if (crd) crd.style.background = '';
+    }
+
+  } catch(e) { console.warn('resLoad:', e); }
+}
+
+function drawResLoad(canvas, fcPts, actPts) {
+  if (!canvas) return;
+  const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||280);
+  const PAD = { top:14, right:16, bottom:30, left:52 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
+  ctx.fillStyle = '#dce8f5'; ctx.fillRect(PAD.left, PAD.top, cW, cH);
+
+  const allV = [...fcPts.map(p=>p.v), ...actPts.map(p=>p.v)];
+  if (!allV.length) {
+    ctx.fillStyle='#888'; ctx.font='12px Inter,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Žádná data', W/2, H/2); _resLoadMeta=null; return;
+  }
+  const vMax = Math.max(...allV)*1.08, vMin = Math.min(0,...allV)*1.05;
+  const vR = (vMax-vMin)||1;
+  const xP = t => PAD.left + (t/24)*cW;
+  const yP = v => PAD.top + cH - ((v-vMin)/vR)*cH;
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=1;
+  ctx.fillStyle='#6688aa'; ctx.font='10px JetBrains Mono,monospace'; ctx.textAlign='right';
+  for (let i=0;i<=4;i++) {
+    const v=vMin+(vR*i/4), y=yP(v);
+    ctx.beginPath(); ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+cW,y); ctx.stroke();
+    ctx.fillText(v.toFixed(1)+'G', PAD.left-4, y+3);
+  }
+  ctx.textAlign='center'; ctx.fillStyle='#7090b0';
+  for (let h=0;h<=24;h+=3) {
+    const x=xP(h);
+    if (h%6===0&&h<24){ctx.strokeStyle='rgba(80,120,180,0.35)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,PAD.top);ctx.lineTo(x,PAD.top+cH);ctx.stroke();}
+    ctx.fillText(String(h).padStart(2,'0'), x, PAD.top+cH+16);
+  }
+  ctx.textAlign='right'; ctx.fillStyle='#7090b0'; ctx.font='9px JetBrains Mono,monospace';
+  ctx.fillText('h (CET)', PAD.left+cW, PAD.top+cH+26);
+
+  // Forecast (modra cara)
+  if (fcPts.length) {
+    ctx.strokeStyle='#5b8fc9'; ctx.lineWidth=2; ctx.setLineDash([5,3]);
+    ctx.beginPath(); let st=false;
+    fcPts.forEach(p=>{const x=xP(p.t),y=yP(p.v);if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y);});
+    ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // Actual (cervena cara)
+  if (actPts.length) {
+    ctx.strokeStyle='#e74c3c'; ctx.lineWidth=2;
+    ctx.beginPath(); let st=false;
+    actPts.forEach(p=>{const x=xP(p.t),y=yP(p.v);if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y);});
+    ctx.stroke();
+  }
+
+  // Ted cara
+  const now=new Date(); const off=(now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
+  const f=(now.getUTCHours()+off)+now.getUTCMinutes()/60; const xN=xP(f);
+  ctx.strokeStyle='rgba(192,57,43,0.6)'; ctx.lineWidth=1.2; ctx.setLineDash([4,3]);
+  ctx.beginPath(); ctx.moveTo(xN,PAD.top); ctx.lineTo(xN,PAD.top+cH); ctx.stroke(); ctx.setLineDash([]);
+
+  _resLoadMeta = { fcPts, actPts, PAD, cW, cH, xP, yP };
+}
+
+(function(){
+  const canvas = document.getElementById('resLoadCanvas'); if (!canvas) return;
+  const tip = document.getElementById('resLoadTip');
+  canvas.addEventListener('mousemove', e => {
+    if (!_resLoadMeta) return;
+    const rect = canvas.getBoundingClientRect(); const mx = e.clientX - rect.left;
+    const { fcPts, actPts, PAD, cW } = _resLoadMeta;
+    if (mx < PAD.left || mx > PAD.left+cW) { tip.style.display='none'; return; }
+    const tf = ((mx-PAD.left)/cW)*24;
+    const nb = (pts) => { let b=null,bd=Infinity; for(const p of pts){const d=Math.abs(p.t-tf);if(d<bd){bd=d;b=p;}} return b; };
+    const fc=nb(fcPts), act=nb(actPts);
+    const ref=fc||act; if(!ref){tip.style.display='none';return;}
+    const hh=Math.floor(ref.t), mm=Math.round((ref.t-hh)*60);
+    const pad=n=>String(n).padStart(2,'0');
+    let s=`<b style="color:#fff;">${pad(hh)}:${pad(mm)} CET</b>`;
+    if(fc) s+=`<br><span style="color:#8ab4e8;">forecast:</span> <b>${fc.v.toFixed(1)} GW</b>`;
+    if(act) s+=`<br><span style="color:#f1948a;">actual:</span> <b>${act.v.toFixed(1)} GW</b>`;
+    if(fc&&act){const d=act.v-fc.v;const c=d>0?'#f1948a':'#7dcea0';s+=`<br><span style="color:${c};">diff: ${d>=0?'+':''}${d.toFixed(1)} GW</span>`;}
+    tip.innerHTML=s; tip.style.display='block';
+    const left=mx+12+160>rect.width?mx-168:mx+12; tip.style.left=left+'px';
+  });
+  canvas.addEventListener('mouseleave',()=>{tip.style.display='none';});
 })();
 
 </script>
