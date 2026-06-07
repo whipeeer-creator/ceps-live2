@@ -414,16 +414,17 @@ window.addEventListener('resize', drawVdtChart);
   canvas.addEventListener('mouseleave', () => { tip.style.display='none'; });
 })();
 
-loadDT();
+// nacti DT nejdriv, pak spust loop + VDT chart
+loadDT().then(() => {
+  loadVdtChart();
+  async function loop(){
+    await tick();
+    setTimeout(loop, REFRESH);
+  }
+  loop();
+});
 setInterval(loadDT, 5*60*1000);
-
-// smycka co posle dalsi request az PO dokonceni predchoziho
-// (zabranuje navrseni requestu pri pomalem serveru / vice oknech)
-async function loop(){
-  await tick();
-  setTimeout(loop, REFRESH);
-}
-loop();
+setInterval(loadVdtChart, 5*60*1000);
 </script>
 
   <div style="margin-top:14px;">

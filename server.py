@@ -3534,8 +3534,8 @@ class Handler(BaseHTTPRequestHandler):
                         print(f"     headers: {[c for c in cells if isinstance(c, str) and c.strip()]}", flush=True)
                     continue
                 
-                # Data row - vytahni interval a vwap (preferred) nebo last
-                price_col_idx = vwap_col_idx if vwap_col_idx is not None else last_col_idx
+                # Data row - vytahni interval a last (preferred) nebo vwap
+                price_col_idx = last_col_idx if last_col_idx is not None else vwap_col_idx
                 if price_col_idx is not None and price_col_idx < len(cells):
                     interval = None
                     if interval_col_idx is not None and interval_col_idx < len(cells):
