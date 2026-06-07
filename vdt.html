@@ -179,7 +179,12 @@ function tableFor(rows, dayY){
     groups[hh]=groups[hh]||{hour:hh,hourRow:null,qh:[]};
     if(k.type==="H") groups[hh].hourRow=row; else groups[hh].qh.push(row);
   }
-  const hours=Object.keys(groups).map(Number).sort((a,b)=>a-b);
+  // CET aktualni hodina
+  const _cetOff = (new Date().getUTCMonth()+1)>=4 && (new Date().getUTCMonth()+1)<=10 ? 2 : 1;
+  const _cetNow = new Date(Date.now() + _cetOff*3600*1000);
+  const nowH = _cetNow.getUTCHours();
+  const isToday = dayY === dayKeys().today;
+  const hours=Object.keys(groups).map(Number).sort((a,b)=>a-b).filter(h => !isToday || h >= nowH);
   const thead = `
     <thead>
       <tr>
