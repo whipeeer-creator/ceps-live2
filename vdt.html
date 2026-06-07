@@ -242,7 +242,6 @@ async function tick(){
     }
     if(rows.length>0) window._lastRowCount = Math.max(window._lastRowCount||0, rows.length);
     render(rows);
-    updateVdtChart(rows);
     dot.className='dot live'; state.textContent='živě'; err.textContent='';
     document.getElementById('meta').textContent=
       (data.total_kontraktu||rows.length)+' kontraktů'+(data.latest_ts?(' \u00b7 '+data.latest_ts):'');
@@ -251,201 +250,16 @@ async function tick(){
     err.textContent='Nelze načíst '+ENDPOINT+' \u2014 běží ote_bot.py a posílá na /ingest? ('+e.message+')';
   }
 }
-
-let _vdtChartPts = [];
-let _vdtChartRows = [];
-
-function drawVdtChart() {
-  const canvas = document.getElementById('vdtChart');
-  if (!canvas) return;
-  const dpr = window.devicePixelRatio || 1;
-  const W = canvas.parentElement.clientWidth || 600;
-  const H = 220;
-  canvas.width = W * dpr; canvas.height = H * dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-
-  const isOn = id => { const el=document.getElementById(id); return el?el.checked:true; };
-  const showLast = isOn('tg-vdt-last');
-  const showDT   = isOn('tg-vdt-dt');
-  const showBid  = isOn('tg-vdt-bid');
-  const showAsk  = isOn('tg-vdt-ask');
-
-  const PAD = { top: 14, right: 14, bottom: 28, left: 52 };
-  const cW = W - PAD.left - PAD.right;
-  const cH = H - PAD.top - PAD.bottom;
-
-  ctx.fillStyle = '#f9f9f9';
-  ctx.fillRect(0, 0, W, H);
-
-  const {today} = dayKeys();
-  const dtDay = dt[today] || {hour:{}, qh:{}};
-
-  // DT QH krivka
-  const dtPts = [];
-  Object.entries(dtDay.qh).forEach(([key, v]) => {
-    if (!Number.isFinite(v)) return;
-    const m = key.match(/^(\d{2}):(\d{2})$/);
-    if (!m) return;
-    dtPts.push({ t: parseInt(m[1],10) + parseInt(m[2],10)/60, v });
-  });
-  dtPts.sort((a,b)=>a.t-b.t);
-
-  // Bid/Ask krivky z rows
-  const bidPts = [], askPts = [];
-  for (const row of _vdtChartRows) {
-    const k = row.kontrakt || {};
-    if (k.date !== today || k.type !== 'QH') continue;
-    const frm = k.from || '';
-    const mm = frm.match(/^(\d{2}):(\d{2})$/);
-    if (!mm) continue;
-    const t = parseInt(mm[1],10) + parseInt(mm[2],10)/60;
-    if (row.bid != null && Number.isFinite(row.bid)) bidPts.push({t, v:row.bid, lbl:frm});
-    if (row.ask != null && Number.isFinite(row.ask)) askPts.push({t, v:row.ask, lbl:frm});
-  }
-  bidPts.sort((a,b)=>a.t-b.t);
-  askPts.sort((a,b)=>a.t-b.t);
-
-  const pts = _vdtChartPts;
-
-  // Y rozsah ze vsech viditelnych krivek
-  const allV = [];
-  if (showLast) pts.forEach(p=>allV.push(p.v));
-  if (showDT)   dtPts.forEach(p=>allV.push(p.v));
-  if (!allV.length) {
-    ctx.fillStyle='#aaa'; ctx.font='12px sans-serif'; ctx.textAlign='center';
-    ctx.fillText('Žádná data', W/2, H/2); return;
-  }
-  const vMin = Math.min(...allV)*0.97, vMax = Math.max(...allV)*1.03;
-  const vR = (vMax-vMin)||1;
-  const xP = t => PAD.left + (t/24)*cW;
-  const yP = v => PAD.top + cH - ((v-vMin)/vR)*cH;
-
-  // Grid
-  ctx.strokeStyle='rgba(0,0,0,0.07)'; ctx.lineWidth=1;
-  ctx.fillStyle='#888'; ctx.font='9px SF Mono,monospace'; ctx.textAlign='right';
-  for (let i=0;i<=4;i++) {
-    const v=vMin+(vR*i/4), y=yP(v);
-    ctx.beginPath(); ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+cW,y); ctx.stroke();
-    ctx.fillText(Math.round(v), PAD.left-4, y+3);
-  }
-  ctx.fillStyle='#888'; ctx.textAlign='center';
-  for (let h=0;h<=24;h+=3) {
-    const x=xP(h);
-    ctx.strokeStyle='rgba(0,0,0,0.06)'; ctx.lineWidth=1;
-    ctx.beginPath(); ctx.moveTo(x,PAD.top); ctx.lineTo(x,PAD.top+cH); ctx.stroke();
-    ctx.fillText(String(h).padStart(2,'0'), x, PAD.top+cH+14);
-  }
-
-  const drawLine = (points, color, dash, lw) => {
-    if (!points.length) return;
-    ctx.strokeStyle=color; ctx.lineWidth=lw||2; ctx.setLineDash(dash||[]);
-    ctx.beginPath();
-    points.forEach((p,i)=>{ const x=xP(p.t),y=yP(p.v); if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y); });
-    ctx.stroke(); ctx.setLineDash([]);
-  };
-
-  if (showDT)   drawLine(dtPts,  '#e67e22', [5,3], 1.5);
-  if (showLast) {
-    drawLine(pts, '#1565c0', [], 2);
-    ctx.fillStyle='#1565c0';
-    pts.forEach(p=>{ ctx.beginPath(); ctx.arc(xP(p.t),yP(p.v),2.5,0,Math.PI*2); ctx.fill(); });
-  }
-
-  // Teď
-  const nowH = new Date().getHours()+new Date().getMinutes()/60;
-  ctx.strokeStyle='rgba(192,57,43,0.45)'; ctx.lineWidth=1; ctx.setLineDash([3,3]);
-  ctx.beginPath(); ctx.moveTo(xP(nowH),PAD.top); ctx.lineTo(xP(nowH),PAD.top+cH); ctx.stroke();
-  ctx.setLineDash([]);
-}
-
-function updateVdtChart(rows) {
-  const {today} = dayKeys();
-  _vdtChartRows = rows;
-  const pts = [];
-  for (const row of rows) {
-    const k = row.kontrakt || {};
-    if (k.date !== today) continue;
-    if (k.type !== 'QH') continue;
-    const last = row.last;
-    if (last == null || !Number.isFinite(last)) continue;
-    const frm = k.from || '';
-    const m = frm.match(/^(\d{2}):(\d{2})$/);
-    if (!m) continue;
-    const t = parseInt(m[1],10) + parseInt(m[2],10)/60;
-    pts.push({ t, v: last, lbl: frm });
-  }
-  pts.sort((a,b) => a.t - b.t);
-  _vdtChartPts = pts;
-  drawVdtChart();
-}
-
-window.addEventListener('resize', drawVdtChart);
-['tg-vdt-last','tg-vdt-dt'].forEach(id => {
-  const el = document.getElementById(id);
-  if (el) el.addEventListener('change', drawVdtChart);
-});
-
-// Hover
-(function(){
-  const canvas = document.getElementById('vdtChart');
-  const tip = document.getElementById('vdtTip');
-  if (!canvas || !tip) return;
-  canvas.addEventListener('mousemove', e => {
-    if (!_vdtChartPts.length) return;
-    const rect = canvas.getBoundingClientRect();
-    const mx = e.clientX - rect.left;
-    const PAD = {left:52, right:14, top:14, bottom:28};
-    const cW = rect.width - PAD.left - PAD.right;
-    if (mx < PAD.left || mx > PAD.left+cW) { tip.style.display='none'; return; }
-    const tf = ((mx-PAD.left)/cW)*24;
-    let best=_vdtChartPts[0], bd=Infinity;
-    for (const p of _vdtChartPts) { const d=Math.abs(p.t-tf); if(d<bd){bd=d;best=p;} }
-    const {today: td2} = dayKeys();
-    const dtDay2 = dt[td2]||{qh:{}};
-    const dtV = dtDay2.qh[best.lbl];
-    let tipHtml = `<b>${best.lbl} CET</b> · last <b>${best.v.toFixed(2)} €</b>`;
-    if (Number.isFinite(dtV)) tipHtml += ` · DT <b>${dtV.toFixed(2)} €</b>`;
-    tip.innerHTML = tipHtml;
-    tip.style.display='block';
-    const left = mx+10+130>rect.width ? mx-138 : mx+10;
-    tip.style.left=left+'px';
-  });
-  canvas.addEventListener('mouseleave', () => { tip.style.display='none'; });
-})();
-
-// nacti DT nejdriv, pak spust loop + VDT chart
-loadDT().then(() => {
-  loadVdtChart();
-  async function loop(){
-    await tick();
-    setTimeout(loop, REFRESH);
-  }
-  loop();
-});
+loadDT();
 setInterval(loadDT, 5*60*1000);
-setInterval(loadVdtChart, 5*60*1000);
+
+// smycka co posle dalsi request az PO dokonceni predchoziho
+// (zabranuje navrseni requestu pri pomalem serveru / vice oknech)
+async function loop(){
+  await tick();
+  setTimeout(loop, REFRESH);
+}
+loop();
 </script>
-
-  <div style="margin-top:14px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:6px;">
-      <div style="font-size:13px;font-weight:700;letter-spacing:.4px;">VDT · poslední cena dnes</div>
-      <div style="display:flex;gap:10px;font-size:11px;font-family:'SF Mono',monospace;">
-        <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
-          <input type="checkbox" id="tg-vdt-last" checked>
-          <span style="display:inline-block;width:12px;height:3px;background:#1565c0;vertical-align:middle;"></span> VDT last
-        </label>
-        <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
-          <input type="checkbox" id="tg-vdt-dt" checked>
-          <span style="display:inline-block;width:12px;height:3px;background:#e67e22;border-top:2px dashed #e67e22;vertical-align:middle;"></span> DT 15min
-        </label>
-
-      </div>
-    </div>
-    <div style="position:relative;background:#f9f9f9;border:1px solid var(--line);border-radius:4px;overflow:hidden;">
-      <canvas id="vdtChart" height="220" style="width:100%;height:220px;display:block;"></canvas>
-      <div id="vdtTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'SF Mono',monospace;font-size:11px;padding:4px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;"></div>
-    </div>
-  </div>
 </body>
 </html>
