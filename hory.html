@@ -390,6 +390,10 @@ canvas { max-width: 100%; display: block; }
           <input type="checkbox" id="tg-rl-dt" checked>
           <span style="display:inline-block;width:14px;height:3px;background:#2980b9;vertical-align:middle;"></span> DT cena
         </label>
+        <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="tg-rl-vdt" checked>
+          <span style="display:inline-block;width:14px;height:3px;background:#f39c12;vertical-align:middle;"></span> VDT last
+        </label>
         <button class="hbtn" onclick="loadKorel()" style="font-size:10px;">↺</button>
       </div>
     </div>
@@ -401,6 +405,7 @@ canvas { max-width: 100%; display: block; }
       <span class="pleg"><span class="pleg-sq" style="background:#e74c3c;opacity:.7;"></span>CZ residual load forecast [GW] (pravá osa)</span>
       <span class="pleg"><span class="pleg-sq" style="background:#c0392b;"></span>CZ residual load actual [GW] (pravá osa)</span>
       <span class="pleg"><span class="pleg-sq" style="background:#2980b9;"></span>DT cena [EUR/MWh] (levá osa)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#f39c12;"></span>VDT last [EUR/MWh] (levá osa)</span>
     </div>
   </div>
 
@@ -5588,10 +5593,11 @@ async function loadKorel() {
 
     if (sub) sub.textContent = 'načítám…';
 
-    const [rlRes, rlActRes, dtRes] = await Promise.allSettled([
+    const [rlRes, rlActRes, dtRes, vdtRes] = await Promise.allSettled([
       fetch(`${API_URL}/entsoe/residual-load?days_back=0`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(`${API_URL}/entsoe/cz-residual-load?day=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(`${API_URL}/ote/dt15?day=0`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/ote/vdt?date=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
     ]);
 
     // Forecast z ENTSO-E residual-load (CZ)
@@ -5634,13 +5640,27 @@ async function loadKorel() {
       });
     }
 
-    _korelData = { fcPts, actPts, dtMap };
+    // VDT last ceny
+    const vdtMap = {};
+    const vdtData = vdtRes.value;
+    if (vdtData && vdtData.data) {
+      vdtData.data.forEach(p => {
+        const ts = p.timestamp || p.ts || '';
+        const m = ts.match(/T(\d{2}):(\d{2})/);
+        if (!m) return;
+        let h = parseInt(m[1])+off; if(h>=24) h-=24;
+        const lbl = `${pad(h)}:${pad(parseInt(m[2]))}`;
+        if (p.last != null) vdtMap[lbl] = p.last;
+      });
+    }
 
-    if (sub) sub.textContent = `RL forecast ${fcPts.length} · actual ${actPts.length} · DT ${Object.keys(dtMap).length} QH · ${day}`;
+    _korelData = { fcPts, actPts, dtMap, vdtMap };
+
+    if (sub) sub.textContent = `RL forecast ${fcPts.length} · actual ${actPts.length} · DT ${Object.keys(dtMap).length} · VDT ${Object.keys(vdtMap).length} QH · ${day}`;
     drawKorel(document.getElementById('korelCanvas'));
 
     // Toggle listenery
-    ['tg-rl-fc','tg-rl-act','tg-rl-dt'].forEach(id => {
+    ['tg-rl-fc','tg-rl-act','tg-rl-dt','tg-rl-vdt'].forEach(id => {
       const el = document.getElementById(id);
       if (el && !el._korelBound) { el.addEventListener('change', () => drawKorel(document.getElementById('korelCanvas'))); el._korelBound=true; }
     });
@@ -5664,10 +5684,12 @@ function drawKorel(canvas) {
   const {fcPts, actPts, dtMap} = _korelData;
 
   // Vsechny cas body (union)
+  const showVDT = document.getElementById('tg-rl-vdt')?.checked ?? true;
   const allT = new Set();
   if (showFc)  fcPts.forEach(p=>allT.add(p.t));
   if (showAct) actPts.forEach(p=>allT.add(p.t));
   if (showDT)  Object.keys(dtMap).forEach(lbl=>{ const m=lbl.match(/^(\d{2}):(\d{2})$/); if(m) allT.add(parseInt(m[1])+parseInt(m[2])/60); });
+  if (showVDT) Object.keys(vdtMap).forEach(lbl=>{ const m=lbl.match(/^(\d{2}):(\d{2})$/); if(m) allT.add(parseInt(m[1])+parseInt(m[2])/60); });
 
   const times = Array.from(allT).sort((a,b)=>a-b);
   if (!times.length) {
@@ -5680,7 +5702,8 @@ function drawKorel(canvas) {
   const xP = i => PAD.left + (i/(n-1||1))*cW;
 
   // DT - leva osa
-  const dtVals = showDT ? Object.values(dtMap).filter(Number.isFinite) : [];
+  const dtVals = [...(showDT ? Object.values(dtMap).filter(Number.isFinite) : []),
+                  ...(showVDT ? Object.values(vdtMap).filter(Number.isFinite) : [])];
   const pMin = dtVals.length ? Math.min(...dtVals) - 5 : -10;
   const pMax = dtVals.length ? Math.max(...dtVals) + 5 : 100;
   const pR = (pMax-pMin)||1;
@@ -5764,6 +5787,24 @@ function drawKorel(canvas) {
     }
   }
 
+  // VDT krivka
+  if (showVDT) {
+    const vdtPts2 = times.map((t,i) => {
+      const lbl=`${pad(Math.floor(t))}:${pad(Math.round((t%1)*60))}`;
+      const v=vdtMap[lbl];
+      return v!=null ? {t,i,v} : null;
+    }).filter(Boolean);
+    if (vdtPts2.length) {
+      ctx.strokeStyle='#f39c12'; ctx.lineWidth=1.5; ctx.setLineDash([]);
+      ctx.beginPath(); let st=false;
+      vdtPts2.forEach(p => {
+        const x=xP(p.i), y=yP(p.v);
+        if(!st){ctx.moveTo(x,y);st=true;}else ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+    }
+  }
+
   if (showFc)  drawCurve(fcPts,  yR, 'rgba(231,76,60,0.65)', 2, [5,3]);
   if (showAct) drawCurve(actPts, yR, '#c0392b', 2);
 
@@ -5775,7 +5816,7 @@ function drawKorel(canvas) {
   ctx.strokeStyle='rgba(192,57,43,0.5)'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
   ctx.beginPath();ctx.moveTo(xP(ni),PAD.top);ctx.lineTo(xP(ni),PAD.top+cH);ctx.stroke();ctx.setLineDash([]);
 
-  _korelMeta = {times, n, PAD, cW, xP, yP, yR, fcPts, actPts, dtMap};
+  _korelMeta = {times, n, PAD, cW, xP, yP, yR, fcPts, actPts, dtMap, vdtMap};
 }
 
 // Tooltip
@@ -5785,7 +5826,7 @@ function drawKorel(canvas) {
   if(!canvas||!tip) return;
   canvas.addEventListener('mousemove', e => {
     if(!_korelMeta) return;
-    const {times,n,PAD,cW,yP,yR,fcPts,actPts,dtMap}=_korelMeta;
+    const {times,n,PAD,cW,yP,yR,fcPts,actPts,dtMap,vdtMap}=_korelMeta;
     const rect=canvas.getBoundingClientRect();
     const mx=e.clientX-rect.left;
     if(mx<PAD.left||mx>PAD.left+cW){tip.style.display='none';return;}
@@ -5800,6 +5841,8 @@ function drawKorel(canvas) {
     if(fc!=null) s+=` · RL fc <b style="color:#e74c3c;">${fc.v.toFixed(2)}GW</b>`;
     if(act!=null) s+=` · RL act <b style="color:#ff6b6b;">${act.v.toFixed(2)}GW</b>`;
     if(dt!=null) s+=` · DT <b style="color:#5dade2;">${dt.toFixed(2)}€</b>`;
+    const vdt=vdtMap?.[lbl];
+    if(vdt!=null) s+=` · VDT <b style="color:#f39c12;">${vdt.toFixed(2)}€</b>`;
     tip.innerHTML=s; tip.style.display='block';
     const left=mx+10+300>rect.width?mx-308:mx+10; tip.style.left=left+'px';
   });
