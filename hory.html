@@ -281,6 +281,18 @@ canvas { max-width: 100%; display: block; }
   <div class="chart-panel">
     <div class="panel-hdr">
       <div>
+        <div class="panel-title">Přeshraniční kapacity · Fanda data</div>
+        <div class="panel-sub" id="fandaKapSub">načítám…</div>
+      </div>
+      <button class="hbtn" onclick="loadFandaKapacity()" style="font-size:10px;">↺</button>
+    </div>
+    <div id="fandaKapContainer" style="overflow-x:auto;font-size:11px;">
+      <div style="padding:20px;color:#888;">Načítám data…</div>
+    </div>
+  </div>
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
         <div class="panel-title">15minutové bloky — průměrná regulace [MW]</div>
         <div class="panel-sub">červené číslo = průměr MW za 15 min · modrá = záporná · červená = kladná odchylka</div>
       </div>
@@ -355,18 +367,7 @@ canvas { max-width: 100%; display: block; }
   <!-- ===================================================================== -->
 
 
-  <div class="chart-panel">
-    <div class="panel-hdr">
-      <div>
-        <div class="panel-title">Přeshraniční kapacity · Fanda data</div>
-        <div class="panel-sub" id="fandaKapSub">načítám…</div>
-      </div>
-      <button class="hbtn" onclick="loadFandaKapacity()" style="font-size:10px;">↺</button>
-    </div>
-    <div id="fandaKapContainer" style="overflow-x:auto;font-size:11px;">
-      <div style="padding:20px;color:#888;">Načítám data…</div>
-    </div>
-  </div>
+
 
   <!-- aFRR Energy Bids · DE+AT (regelleistung.net) — merit-order ladder graf -->
   <!-- ===================================================================== -->
@@ -976,6 +977,7 @@ async function loadMain() {
   drawTopChart(document.getElementById('topCanvas'), topRows, colO, topSvr, colAp, colAm, colMp, colMm);
 
   const odch15 = agg15(dO.rows, colO);
+  window._odch15 = odch15; // globalni pro loadCenaTable
   const ap15   = colAp ? agg15(dS.rows, colAp) : odch15.map(b=>({lbl:b.lbl,v:0}));
   const am15   = colAm ? agg15(dS.rows, colAm) : odch15.map(b=>({lbl:b.lbl,v:0}));
   drawBotChart(document.getElementById('botCanvas'), odch15, ap15, am15);
@@ -3688,20 +3690,25 @@ async function loadCenaTable() {
     const vals = rows.map(r => r.v).filter(v => v !== 0);
     const vAbsMax = Math.max(...vals.map(v => Math.abs(v)), 1);
 
-    function cellColor(v) {
-      if (v === 0) return '#c8d8e8';
-      const ratio = Math.min(1, Math.abs(v) / vAbsMax);
-      if (v < 0) {
-        const r = Math.round(120 - ratio * 99);
-        const g = Math.round(160 - ratio * 59);
-        const b = Math.round(210 - ratio * 18);
-        return `rgb(${r},${g},${b})`;
-      } else {
-        const r = Math.round(180 + ratio * 60);
-        const g = Math.round(80 - ratio * 60);
-        const b = Math.round(80 - ratio * 60);
-        return `rgb(${r},${g},${b})`;
+    // Mapa odchylky HH:MM -> v (z 15min blokoveho grafu)
+    const odch15map = {};
+    if (window._odch15) {
+      window._odch15.forEach(b => { odch15map[b.lbl] = b.v; });
+    }
+
+    function cellColor(h, m) {
+      // Klic ve formatu "HH:MM" (zacatek QH)
+      const key = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`;
+      const odchV = odch15map[key];
+      if (odchV === undefined || odchV === null) {
+        // Fallback: pouzij znamenko ceny
+        return null; // zpracujeme nize
       }
+      // Stejna logika jako drawBotChart:
+      // v >= 0 -> modra (deficit soustava, cena vysoka)
+      // v < 0  -> cervena (prebytek soustava, cena nizka)
+      if (odchV >= 0) return 'rgba(21,101,192,0.75)';
+      else return 'rgba(229,57,53,0.75)';
     }
 
     const tbl = document.getElementById('tbl-cena');
@@ -3722,8 +3729,13 @@ async function loadCenaTable() {
         const dataH = h - 1;
         const row = rows.find(r => r.h === dataH && r.m === m);
         const v = row ? row.v : 0;
-        const bg = cellColor(v);
-        const txt = v === 0 ? '0' : Math.round(v).toString();
+        let bg = cellColor(dataH, m);
+        if (!bg) {
+          // fallback kdyz neni odchylka: modra=zap, cervena=kladna cena
+          bg = v <= 0 ? 'rgba(21,101,192,0.75)' : 'rgba(229,57,53,0.75)';
+        }
+        if (v === 0 || !row) bg = '#e8e8e8';
+        const txt = v === 0 ? '—' : Math.round(v).toString();
         const isCur = h === curHour;
         const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
         html += `<td style="padding:3px 6px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
