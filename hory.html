@@ -371,6 +371,39 @@ canvas { max-width: 100%; display: block; }
 
 
 
+  <div class="chart-panel">
+    <div class="panel-hdr" style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:6px;">
+      <div>
+        <div class="panel-title">CZ Residual Load · DT ceny · korelace</div>
+        <div class="panel-sub" id="korelSub">načítám…</div>
+      </div>
+      <div style="display:flex;gap:10px;font-size:11px;font-family:'JetBrains Mono',monospace;flex-wrap:wrap;align-items:center;">
+        <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="tg-rl-fc" checked>
+          <span style="display:inline-block;width:14px;height:3px;background:#e74c3c;vertical-align:middle;"></span> RL forecast
+        </label>
+        <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="tg-rl-act" checked>
+          <span style="display:inline-block;width:14px;height:3px;background:#c0392b;border-top:2px solid #c0392b;vertical-align:middle;"></span> RL actual
+        </label>
+        <label style="cursor:pointer;display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="tg-rl-dt" checked>
+          <span style="display:inline-block;width:14px;height:3px;background:#2980b9;vertical-align:middle;"></span> DT cena
+        </label>
+        <button class="hbtn" onclick="loadKorel()" style="font-size:10px;">↺</button>
+      </div>
+    </div>
+    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;">
+      <canvas id="korelCanvas" height="280" style="width:100%;height:280px;display:block;"></canvas>
+      <div id="korelTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#e74c3c;opacity:.7;"></span>CZ residual load forecast [GW] (pravá osa)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#c0392b;"></span>CZ residual load actual [GW] (pravá osa)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#2980b9;"></span>DT cena [EUR/MWh] (levá osa)</span>
+    </div>
+  </div>
+
   <!-- aFRR Energy Bids · DE+AT (regelleistung.net) — merit-order ladder graf -->
   <!-- ===================================================================== -->
   <div class="chart-panel">
@@ -4181,6 +4214,7 @@ async function loadAll() {
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
+      tasks.push(loadKorel());
       tasks.push(loadFandaKapacity());
       tasks.push(loadWindFc());
       tasks.push(loadResidualLoad());
@@ -5537,6 +5571,239 @@ function drawDeReg(canvas, data) {
     if(line){line.style.display='block';line.style.left=mx+'px';}
   });
   canvas.addEventListener('mouseleave',()=>{tip.style.display='none';if(line)line.style.display='none';});
+})();
+
+
+let _korelMeta = null;
+let _korelData = { fcPts: [], actPts: [], dtMap: {} };
+
+async function loadKorel() {
+  const sub = document.getElementById('korelSub');
+  try {
+    const now = new Date();
+    const off = (now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
+    const pad = n => String(n).padStart(2,'0');
+    const cetNow = new Date(now.getTime()+off*3600*1000);
+    const day = `${cetNow.getUTCFullYear()}-${pad(cetNow.getUTCMonth()+1)}-${pad(cetNow.getUTCDate())}`;
+
+    if (sub) sub.textContent = 'načítám…';
+
+    const [rlRes, rlActRes, dtRes] = await Promise.allSettled([
+      fetch(`${API_URL}/entsoe/residual-load?days_back=0`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/entsoe/cz-residual-load?day=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/ote/dt15?day=0`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+    ]);
+
+    // Forecast z ENTSO-E residual-load (CZ)
+    const fcPts = [];
+    const rlFc = rlRes.value;
+    if (rlFc && rlFc.data) {
+      rlFc.data.forEach(p => {
+        const bt = p.berlin_time || '';
+        if (!bt.startsWith(day)) return;
+        const h = parseInt(bt.slice(11,13),10);
+        const m2 = parseInt(bt.slice(14,16),10);
+        if (!Number.isFinite(h)) return;
+        const t = h + m2/60;
+        if (p.residual_load_mw != null)
+          fcPts.push({ t, lbl: `${pad(h)}:${pad(m2)}`, v: p.residual_load_mw/1000 }); // GW
+      });
+    }
+    fcPts.sort((a,b)=>a.t-b.t);
+
+    // Actual z CZ residual load
+    const actPts = [];
+    const rlAct = rlActRes.value;
+    if (rlAct && rlAct.points) {
+      rlAct.points.forEach(p => {
+        if (p.residual_mw == null) return;
+        const h = Math.floor(p.h_cet);
+        const m2 = Math.round((p.h_cet%1)*60);
+        actPts.push({ t: p.h_cet, lbl: `${pad(h)}:${pad(m2)}`, v: p.residual_mw/1000 });
+      });
+    }
+    actPts.sort((a,b)=>a.t-b.t);
+
+    // DT ceny
+    const dtMap = {};
+    const dtData = dtRes.value;
+    if (dtData && dtData.qh) {
+      dtData.qh.forEach(p => {
+        const lbl = `${pad(p.hour)}:${pad(p.minute)}`;
+        dtMap[lbl] = p.price_eur;
+      });
+    }
+
+    _korelData = { fcPts, actPts, dtMap };
+
+    if (sub) sub.textContent = `RL forecast ${fcPts.length} · actual ${actPts.length} · DT ${Object.keys(dtMap).length} QH · ${day}`;
+    drawKorel(document.getElementById('korelCanvas'));
+
+    // Toggle listenery
+    ['tg-rl-fc','tg-rl-act','tg-rl-dt'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el && !el._korelBound) { el.addEventListener('change', () => drawKorel(document.getElementById('korelCanvas'))); el._korelBound=true; }
+    });
+  } catch(e) {
+    console.warn('korel:', e);
+    if (sub) sub.textContent = `Chyba: ${e.message}`;
+  }
+}
+
+function drawKorel(canvas) {
+  if (!canvas) return;
+  const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||280);
+  const PAD = {top:14, right:56, bottom:28, left:52};
+  const cW = W-PAD.left-PAD.right;
+  const cH = H-PAD.top-PAD.bottom;
+
+  const showFc  = document.getElementById('tg-rl-fc')?.checked ?? true;
+  const showAct = document.getElementById('tg-rl-act')?.checked ?? true;
+  const showDT  = document.getElementById('tg-rl-dt')?.checked ?? true;
+
+  const {fcPts, actPts, dtMap} = _korelData;
+
+  // Vsechny cas body (union)
+  const allT = new Set();
+  if (showFc)  fcPts.forEach(p=>allT.add(p.t));
+  if (showAct) actPts.forEach(p=>allT.add(p.t));
+  if (showDT)  Object.keys(dtMap).forEach(lbl=>{ const m=lbl.match(/^(\d{2}):(\d{2})$/); if(m) allT.add(parseInt(m[1])+parseInt(m[2])/60); });
+
+  const times = Array.from(allT).sort((a,b)=>a-b);
+  if (!times.length) {
+    ctx.fillStyle='#dce8f5'; ctx.fillRect(PAD.left,PAD.top,cW,cH);
+    ctx.fillStyle='#888'; ctx.font='12px Inter'; ctx.textAlign='center';
+    ctx.fillText('Žádná data', W/2, H/2); return;
+  }
+
+  const n = times.length;
+  const xP = i => PAD.left + (i/(n-1||1))*cW;
+
+  // DT - leva osa
+  const dtVals = showDT ? Object.values(dtMap).filter(Number.isFinite) : [];
+  const pMin = dtVals.length ? Math.min(...dtVals) - 5 : -10;
+  const pMax = dtVals.length ? Math.max(...dtVals) + 5 : 100;
+  const pR = (pMax-pMin)||1;
+  const yP = v => PAD.top + cH - ((v-pMin)/pR)*cH;
+
+  // RL - prava osa
+  const rlVals = [...(showFc?fcPts.map(p=>p.v):[]), ...(showAct?actPts.map(p=>p.v):[])].filter(Number.isFinite);
+  const rMin = rlVals.length ? Math.min(...rlVals)*0.95 : 0;
+  const rMax = rlVals.length ? Math.max(...rlVals)*1.05 : 10;
+  const rR = (rMax-rMin)||1;
+  const yR = v => PAD.top + cH - ((v-rMin)/rR)*cH;
+
+  ctx.fillStyle='#dce8f5'; ctx.fillRect(PAD.left,PAD.top,cW,cH);
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++) {
+    const y=PAD.top+(cH/4)*i;
+    ctx.beginPath();ctx.moveTo(PAD.left,y);ctx.lineTo(PAD.left+cW,y);ctx.stroke();
+  }
+
+  // X labely
+  const pad=n=>String(n).padStart(2,'0');
+  ctx.fillStyle='#7090b0'; ctx.font='10px JetBrains Mono,monospace'; ctx.textAlign='center';
+  times.forEach((t,i) => {
+    if (Math.round(t*4)%4 !== 0) return;
+    const x=xP(i);
+    ctx.strokeStyle='rgba(80,120,180,0.3)'; ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(x,PAD.top);ctx.lineTo(x,PAD.top+cH);ctx.stroke();
+    ctx.fillText(pad(Math.floor(t)), x, PAD.top+cH+16);
+  });
+
+  // Y leva (DT ceny) - modra
+  if (showDT) {
+    ctx.fillStyle='#2980b9'; ctx.font='9px JetBrains Mono,monospace'; ctx.textAlign='right';
+    for(let i=0;i<=4;i++) {
+      const v=pMin+(pR*i/4);
+      ctx.fillText(Math.round(v), PAD.left-4, yP(v)+3);
+    }
+  }
+
+  // Y prava (RL) - cervena
+  if (showFc||showAct) {
+    ctx.fillStyle='#c0392b'; ctx.textAlign='left';
+    ctx.font='9px JetBrains Mono,monospace';
+    for(let i=0;i<=4;i++) {
+      const v=rMin+(rR*i/4);
+      ctx.fillText(v.toFixed(1)+'G', PAD.left+cW+4, yR(v)+3);
+    }
+  }
+
+  // Nakresli krivky
+  const drawCurve = (pts_arr, yFn, color, lw, dash) => {
+    if (!pts_arr.length) return;
+    ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.setLineDash(dash||[]);
+    ctx.beginPath(); let started=false;
+    pts_arr.forEach(p => {
+      const i=times.findIndex(t=>Math.abs(t-p.t)<0.01);
+      if(i<0) return;
+      const x=xP(i), y=yFn(p.v);
+      if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);
+    });
+    ctx.stroke(); ctx.setLineDash([]);
+  };
+
+  // DT jako step-line (schody)
+  if (showDT) {
+    const dtPts2 = times.map((t,i) => {
+      const lbl=`${pad(Math.floor(t))}:${pad(Math.round((t%1)*60))}`;
+      const v=dtMap[lbl];
+      return v!=null ? {t,i,v} : null;
+    }).filter(Boolean);
+    if (dtPts2.length) {
+      ctx.strokeStyle='#2980b9'; ctx.lineWidth=2; ctx.setLineDash([]);
+      ctx.beginPath(); let st=false;
+      dtPts2.forEach(p => {
+        const x=xP(p.i), y=yP(p.v);
+        if(!st){ctx.moveTo(x,y);st=true;}else{ctx.lineTo(x,y);}
+      });
+      ctx.stroke();
+    }
+  }
+
+  if (showFc)  drawCurve(fcPts,  yR, 'rgba(231,76,60,0.65)', 2, [5,3]);
+  if (showAct) drawCurve(actPts, yR, '#c0392b', 2);
+
+  // Ted cara
+  const now=new Date(); const off2=(now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
+  const nowT=(now.getUTCHours()+off2)+now.getUTCMinutes()/60;
+  let ni=0,nd=Infinity;
+  times.forEach((t,i)=>{const d=Math.abs(t-nowT);if(d<nd){nd=d;ni=i;}});
+  ctx.strokeStyle='rgba(192,57,43,0.5)'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+  ctx.beginPath();ctx.moveTo(xP(ni),PAD.top);ctx.lineTo(xP(ni),PAD.top+cH);ctx.stroke();ctx.setLineDash([]);
+
+  _korelMeta = {times, n, PAD, cW, xP, yP, yR, fcPts, actPts, dtMap};
+}
+
+// Tooltip
+(function(){
+  const canvas=document.getElementById('korelCanvas');
+  const tip=document.getElementById('korelTip');
+  if(!canvas||!tip) return;
+  canvas.addEventListener('mousemove', e => {
+    if(!_korelMeta) return;
+    const {times,n,PAD,cW,yP,yR,fcPts,actPts,dtMap}=_korelMeta;
+    const rect=canvas.getBoundingClientRect();
+    const mx=e.clientX-rect.left;
+    if(mx<PAD.left||mx>PAD.left+cW){tip.style.display='none';return;}
+    const idx=Math.round(((mx-PAD.left)/cW)*(n-1));
+    const t=times[Math.max(0,Math.min(idx,n-1))];
+    const pad=n=>String(n).padStart(2,'0');
+    const lbl=`${pad(Math.floor(t))}:${pad(Math.round((t%1)*60))}`;
+    const fc=fcPts.find(p=>Math.abs(p.t-t)<0.01);
+    const act=actPts.find(p=>Math.abs(p.t-t)<0.01);
+    const dt=dtMap[lbl];
+    let s=`<b>${lbl} CET</b>`;
+    if(fc!=null) s+=` · RL fc <b style="color:#e74c3c;">${fc.v.toFixed(2)}GW</b>`;
+    if(act!=null) s+=` · RL act <b style="color:#ff6b6b;">${act.v.toFixed(2)}GW</b>`;
+    if(dt!=null) s+=` · DT <b style="color:#5dade2;">${dt.toFixed(2)}€</b>`;
+    tip.innerHTML=s; tip.style.display='block';
+    const left=mx+10+300>rect.width?mx-308:mx+10; tip.style.left=left+'px';
+  });
+  canvas.addEventListener('mouseleave',()=>{tip.style.display='none';});
 })();
 
 </script>
