@@ -5082,7 +5082,7 @@ let _resLoadMeta = null;
 async function loadResidualLoad() {
   try {
     const [fcRes, actRes] = await Promise.all([
-      fetch(`${API_URL}/entsoe/residual-load?days_back=0`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/entsoe/cz-residual-forecast?day=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(`${API_URL}/smard/residual-load`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
     ]);
 
@@ -5603,16 +5603,12 @@ async function loadKorel() {
     // Forecast z ENTSO-E residual-load (CZ)
     const fcPts = [];
     const rlFc = rlRes.value;
-    if (rlFc && rlFc.data) {
-      rlFc.data.forEach(p => {
-        const bt = p.berlin_time || '';
-        if (!bt.startsWith(day)) return;
-        const h = parseInt(bt.slice(11,13),10);
-        const m2 = parseInt(bt.slice(14,16),10);
-        if (!Number.isFinite(h)) return;
-        const t = h + m2/60;
-        if (p.residual_load_mw != null)
-          fcPts.push({ t, lbl: `${pad(h)}:${pad(m2)}`, v: p.residual_load_mw/1000 }); // GW
+    if (rlFc && rlFc.points) {
+      rlFc.points.forEach(p => {
+        if (p.residual_mw == null) return;
+        const h = Math.floor(p.h_cet);
+        const m2 = Math.round((p.h_cet%1)*60);
+        fcPts.push({ t: p.h_cet, lbl: `${pad(h)}:${pad(m2)}`, v: p.residual_mw/1000 });
       });
     }
     fcPts.sort((a,b)=>a.t-b.t);
