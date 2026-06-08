@@ -3069,11 +3069,22 @@ class Handler(BaseHTTPRequestHandler):
                     except: continue
                     points.append({"ts": str(ts), "price_eur": round(price_f, 2)})
 
+            # Debug: ukaz prvni prvek series
+            series_raw = raw.get("series") or []
+            series_sample = None
+            if isinstance(series_raw, list) and len(series_raw) > 0:
+                series_sample = series_raw[0]
+            elif isinstance(series_raw, dict):
+                series_sample = {k: str(v)[:50] for k,v in list(series_raw.items())[:5]}
+
             out = {
                 "area": area,
                 "issued_at": issued_at,
                 "points": points,
                 "n": len(points),
+                "series_type": type(series_raw).__name__,
+                "series_len": len(series_raw) if isinstance(series_raw, (list,dict)) else 0,
+                "series_sample": series_sample,
                 "raw_keys": list(raw.keys()) if isinstance(raw, dict) else [],
                 "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "_cache": "miss"
