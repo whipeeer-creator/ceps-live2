@@ -204,6 +204,24 @@ canvas { max-width: 100%; display: block; }
       <span class="pleg"><span class="pleg-sq" style="background:#ff9800;opacity:.8"></span>aFRR+ [MW]</span>
     </div>
   </div>
+  <div class="chart-panel">
+    <div class="panel-hdr" style="display:flex;justify-content:space-between;align-items:flex-start;">
+      <div>
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;"><span class="flag-de" title="Germany"></span>DE Regulace · aFRR aktivace</div>
+        <div class="panel-sub" id="deRegSub">načítám · zdroj: netztransparenz.de · 15min · betrieblich</div>
+      </div>
+      <button class="hbtn" onclick="loadDeReg()" style="font-size:10px;">↺</button>
+    </div>
+    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;">
+      <canvas id="deRegCanvas" height="220" style="width:100%;height:220px;display:block;"></canvas>
+      <div id="deRegTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#ff9800;opacity:.85"></span>aFRR+ [MW]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#00b4d8;opacity:.85"></span>aFRR− [MW]</span>
+    </div>
+  </div>
+
 
   <div class="chart-panel">
     <div class="panel-hdr"><div class="panel-title">ČEPS - CENY <span id="cepsDateLabel" style="font-weight:400;color:#8590a0;font-size:12px;"></span></div></div>
@@ -4172,6 +4190,7 @@ async function loadAll() {
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
+      tasks.push(loadDeReg());
       tasks.push(loadFandaKapacity());
       tasks.push(loadWindFc());
       tasks.push(loadResidualLoad());
@@ -5345,6 +5364,129 @@ async function loadFandaKapacity() {
     if (container) container.innerHTML = `<div style="padding:12px;color:#c0392b;">Chyba: ${e.message}</div>`;
   }
 }
+
+
+let _deRegMeta = null;
+
+async function loadDeReg() {
+  const sub = document.getElementById('deRegSub');
+  try {
+    const r = await fetch(`${API_URL}/netztransparenz/activated?type=afrr`, {cache:'no-store'});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const rows = d.rows || [];
+    const now = new Date();
+    const off = (now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
+    const pad = n=>String(n).padStart(2,'0');
+    const cetNow = new Date(now.getTime()+off*3600*1000);
+    if (sub) sub.textContent = `${rows.length} QH · ${d.date} · zdroj: netztransparenz.de · ${pad(cetNow.getUTCHours())}:${pad(cetNow.getUTCMinutes())} CET`;
+    drawDeReg(document.getElementById('deRegCanvas'), rows);
+  } catch(e) {
+    console.warn('deReg:', e);
+    if (sub) sub.textContent = `Chyba: ${e.message}`;
+  }
+}
+
+function drawDeReg(canvas, rows) {
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio||1;
+  const W = canvas.parentElement.clientWidth||800;
+  const H = 220;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const PAD = {top:14,right:16,bottom:28,left:52};
+  const cW = W-PAD.left-PAD.right;
+  const cH = H-PAD.top-PAD.bottom;
+  ctx.fillStyle='#dce8f5'; ctx.fillRect(PAD.left,PAD.top,cW,cH);
+
+  if (!rows.length) {
+    ctx.fillStyle='#888'; ctx.font='12px Inter,sans-serif'; ctx.textAlign='center';
+    ctx.fillText('Žádná data', W/2, H/2); _deRegMeta=null; return;
+  }
+
+  // Cas z lbl "HH:MM" -> t v hodinach
+  const pts = rows.filter(r=>r.lbl).map(r=>{
+    const m=r.lbl.match(/^(\d{2}):(\d{2})$/);
+    const t = m ? parseInt(m[1])+parseInt(m[2])/60 : 0;
+    return {t, up: r.pos||0, dn: r.neg||0, lbl: r.lbl};
+  }).sort((a,b)=>a.t-b.t);
+
+  const allV = pts.flatMap(p=>[p.up, -p.dn]).filter(Number.isFinite);
+  const vMax = Math.max(...allV, 1);
+  const vMin = Math.min(...allV, -1);
+  const vR = (vMax-vMin)||1;
+  const xP = t => PAD.left + (t/24)*cW;
+  const yP = v => PAD.top + cH - ((v-vMin)/vR)*cH;
+  const y0 = yP(0);
+  const now = new Date();
+  const off = (now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1;
+  ctx.fillStyle='#6688aa'; ctx.font='10px JetBrains Mono,monospace'; ctx.textAlign='right';
+  for(let i=0;i<=4;i++){
+    const v=vMin+(vR*i/4); const y=yP(v);
+    ctx.beginPath();ctx.moveTo(PAD.left,y);ctx.lineTo(PAD.left+cW,y);ctx.stroke();
+    ctx.fillText(Math.round(v), PAD.left-4, y+3);
+  }
+  ctx.textAlign='center'; ctx.fillStyle='#7090b0';
+  for(let h=0;h<=24;h+=3){
+    const x=xP(h);
+    ctx.strokeStyle='rgba(80,120,180,0.25)';ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(x,PAD.top);ctx.lineTo(x,PAD.top+cH);ctx.stroke();
+    ctx.fillText(String(h).padStart(2,'0'),x,PAD.top+cH+16);
+  }
+  // Nula
+  ctx.strokeStyle='rgba(26,26,46,0.4)';ctx.lineWidth=1.5;ctx.setLineDash([]);
+  ctx.beginPath();ctx.moveTo(PAD.left,y0);ctx.lineTo(PAD.left+cW,y0);ctx.stroke();
+
+  const bW = Math.max(2,(cW/96)*0.8);
+  // aFRR+ oranzova
+  ctx.fillStyle='rgba(255,152,0,0.85)';
+  for(const p of pts){
+    if(!(p.up>0))continue;
+    const x=xP(p.t)-bW/2,y=yP(p.up),h=y0-y;
+    if(h>0) ctx.fillRect(x,y,bW,h);
+  }
+  // aFRR- modra
+  ctx.fillStyle='rgba(0,180,216,0.85)';
+  for(const p of pts){
+    if(!(p.dn>0))continue;
+    const x=xP(p.t)-bW/2,y=y0,h=yP(-p.dn)-y0;
+    if(h>0) ctx.fillRect(x,y,bW,h);
+  }
+  // Ted cara
+  const f=(now.getUTCHours()+off)+now.getUTCMinutes()/60;
+  ctx.strokeStyle='rgba(192,57,43,0.6)';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
+  ctx.beginPath();ctx.moveTo(xP(f),PAD.top);ctx.lineTo(xP(f),PAD.top+cH);ctx.stroke();
+  ctx.setLineDash([]);
+
+  _deRegMeta = {pts, PAD, cW, cH, xP, yP};
+}
+
+// Tooltip
+(function(){
+  const canvas=document.getElementById('deRegCanvas');
+  const tip=document.getElementById('deRegTip');
+  if(!canvas||!tip) return;
+  canvas.addEventListener('mousemove',e=>{
+    if(!_deRegMeta) return;
+    const {pts,PAD,cW}=_deRegMeta;
+    const rect=canvas.getBoundingClientRect();
+    const mx=e.clientX-rect.left;
+    if(mx<PAD.left||mx>PAD.left+cW){tip.style.display='none';return;}
+    const tf=((mx-PAD.left)/cW)*24;
+    let b=pts[0],bd=Infinity;
+    for(const p of pts){const d=Math.abs(p.t-tf);if(d<bd){bd=d;b=p;}}
+    const pad=n=>String(n).padStart(2,'0');
+    tip.innerHTML=`<b>${b.lbl} CET</b> · aFRR+ <b style="color:#ff9800;">${(b.up||0).toFixed(0)}</b> · aFRR− <b style="color:#00b4d8;">${(b.dn||0).toFixed(0)}</b> MW`;
+    tip.style.display='block';
+    const left=mx+10+220>rect.width?mx-228:mx+10;
+    tip.style.left=left+'px';
+  });
+  canvas.addEventListener('mouseleave',()=>{tip.style.display='none';});
+})();
 
 </script>
 </body>
