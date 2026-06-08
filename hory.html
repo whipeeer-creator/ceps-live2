@@ -204,27 +204,7 @@ canvas { max-width: 100%; display: block; }
       <span class="pleg"><span class="pleg-sq" style="background:#ff9800;opacity:.8"></span>aFRR+ [MW]</span>
     </div>
   </div>
-  <div class="chart-panel">
-    <div class="panel-hdr" style="display:flex;justify-content:space-between;align-items:flex-start;">
-      <div>
-        <div class="panel-title" style="display:flex;align-items:center;gap:8px;"><span class="flag-de" title="Germany"></span>DE Regulace · NRV saldo + aFRR/mFRR aktivace</div>
-        <div class="panel-sub" id="deRegSub">načítám · zdroj: netztransparenz.de · betrieblich</div>
-      </div>
-      <button class="hbtn" onclick="loadDeReg()" style="font-size:10px;">↺</button>
-    </div>
-    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;" id="deRegWrap">
-      <canvas id="deRegCanvas" height="260" style="width:100%;height:260px;display:block;"></canvas>
-      <div id="deRegTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);"></div>
-      <div id="deRegLine" style="position:absolute;display:none;pointer-events:none;width:1px;background:rgba(26,26,46,0.3);top:0;bottom:0;z-index:9;"></div>
-    </div>
-    <div class="panel-legend">
-      <span class="pleg"><span class="pleg-sq" style="background:#4caf50;opacity:.8"></span>mFRR− [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#f44336;opacity:.8"></span>mFRR+ [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#00b4d8;opacity:.8"></span>aFRR− [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#ff9800;opacity:.8"></span>aFRR+ [MW]</span>
-      <span class="pleg" style="color:#666;">černá = NRV saldo · 15min</span>
-    </div>
-  </div>
+
 
 
   <div class="chart-panel">
@@ -390,25 +370,6 @@ canvas { max-width: 100%; display: block; }
 
 
 
-
-  <div class="chart-panel">
-    <div class="panel-hdr">
-      <div>
-        <div class="panel-title">CZ korelace · residual load vs DT vs VDT ceny</div>
-        <div class="panel-sub" id="korelSub">načítám…</div>
-      </div>
-      <button class="hbtn" onclick="loadKorel()" style="font-size:10px;">↺</button>
-    </div>
-    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;">
-      <canvas id="korelCanvas" height="300" style="width:100%;height:300px;display:block;"></canvas>
-      <div id="korelTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;"></div>
-    </div>
-    <div class="panel-legend">
-      <span class="pleg"><span class="pleg-sq" style="background:#e74c3c;"></span>CZ residual load [MW] (pravá osa)</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#2980b9;"></span>DT cena [EUR/MWh]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#f39c12;"></span>VDT last [EUR/MWh]</span>
-    </div>
-  </div>
 
   <!-- aFRR Energy Bids · DE+AT (regelleistung.net) — merit-order ladder graf -->
   <!-- ===================================================================== -->
@@ -4220,8 +4181,6 @@ async function loadAll() {
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
-      tasks.push(loadKorel());
-      tasks.push(loadDeReg());
       tasks.push(loadFandaKapacity());
       tasks.push(loadWindFc());
       tasks.push(loadResidualLoad());
@@ -5138,54 +5097,7 @@ async function loadResidualLoad() {
       statsEl.innerHTML = s;
     }
 
-    // === KPI karty ===
-    // 1) Forecast 5h
-    const nowMs = now.getTime();
-    const horizon = nowMs + 5*3600*1000;
-    const cetBase = new Date(cetNow); cetBase.setUTCHours(0,0,0,0);
-    const next5 = fcPts.filter(p => {
-      const pMs = cetBase.getTime() + p.t*3600*1000 - off*3600*1000;
-      return pMs >= nowMs && pMs <= horizon;
-    });
-    const dvE = document.getElementById('dv-OZE5');
-    const dsE = document.getElementById('ds-OZE5');
-    if (dvE && dsE) {
-      if (!next5.length) {
-        dvE.innerHTML = '<span style="color:#999;">—</span>';
-        dsE.innerHTML = '<span style="color:#888;">žádná forecast data</span>';
-      } else {
-        const vals = next5.map(p=>p.v);
-        const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
-        const peak = Math.max(...vals);
-        const peakH = next5[vals.indexOf(peak)];
-        dvE.innerHTML = `${avg.toFixed(1)}<span class="kpi-u">GW · peak ${peak.toFixed(1)} v ${pad(Math.floor(peakH.t))}:00</span>`;
-        dsE.innerHTML = `🇩🇪 DE residual load · ENTSO-E · ${next5.length} hodin`;
-      }
-    }
-
-    // 2) Actual vs forecast diff
-    const dvD = document.getElementById('dv-OZEDIFF');
-    const dsD = document.getElementById('ds-OZEDIFF');
-    const crd = document.getElementById('crd-OZEDIFF');
-    const lastAct = actPts.length ? actPts[actPts.length-1] : null;
-    if (dvD && lastAct) {
-      const nearFc = fcPts.reduce((b,p) => Math.abs(p.t-lastAct.t) < Math.abs((b||{t:99}).t-lastAct.t) ? p : b, null);
-      if (nearFc) {
-        const diff = lastAct.v - nearFc.v; // GW
-        const pct = nearFc.v !== 0 ? (diff/Math.abs(nearFc.v)*100) : 0;
-        let color, bgColor, signal;
-        if (Math.abs(diff) < 0.5) { color='#666'; bgColor='#f5f5f5'; signal='shoda'; }
-        else if (diff > 0) { color='#c62828'; bgColor='#ffebee'; signal=diff>2?'silně VYŠŠÍ':'VYŠŠÍ'; }
-        else { color='#2e7d32'; bgColor='#e8f5e9'; signal=diff<-2?'silně NIŽŠÍ':'NIŽŠÍ'; }
-        dvD.innerHTML = `<span style="color:${color};">${diff>=0?'+':''}${diff.toFixed(1)}</span><span class="kpi-u">GW · ${signal}</span>`;
-        if (dsD) dsD.innerHTML = `🇩🇪 actual ${lastAct.v.toFixed(1)} vs fc ${nearFc.v.toFixed(1)} GW @ ${pad(Math.floor(lastAct.t))}:${pad(Math.round((lastAct.t%1)*60))} CET · ${pct>=0?'+':''}${pct.toFixed(0)}%`;
-        if (crd) crd.style.background = bgColor;
-      }
-    } else if (dvD) {
-      dvD.innerHTML = '<span style="color:#999;">—</span>';
-      if (dsD) dsD.innerHTML = '<span style="color:#888;">čekám na SMARD actual (~30min zpoždění)</span>';
-      if (crd) crd.style.background = '';
-    }
+    // KPI karty plni loadWindFc
 
   } catch(e) { console.warn('resLoad:', e); }
 }
@@ -5326,6 +5238,10 @@ async function loadFandaKapacity() {
     if (!rows.length) { container.innerHTML = '<div style="padding:12px;color:#888;">Prázdná data</div>'; return; }
 
     const hourCols = hourLabels;
+    // ms pro kazdy interval pro presne porovnani
+    const intervalMs = intervals.map(s => {
+      try { return new Date(String(s).replace(' ', 'T')).getTime(); } catch(e) { return 0; }
+    });
     const countryKeys = rows.map(r => r.key).filter(Boolean);
 
     const FLAGS = {CZ:'🇨🇿',DE:'🇩🇪',AT:'🇦🇹',SK:'🇸🇰',PL:'🇵🇱',HU:'🇭🇺'};
@@ -5344,14 +5260,7 @@ async function loadFandaKapacity() {
     const flagFor = k => { const c=countryOf(k); return c ? (FLAGS[c]||'') : ''; };
 
     // Filter na aktualni + budouci hodiny CET
-    const cetOff = (new Date().getUTCMonth()+1)>=4 && (new Date().getUTCMonth()+1)<=10 ? 2 : 1;
-    const cetNow = new Date(Date.now()+cetOff*3600*1000);
-    const nowT = cetNow.getUTCHours()*60 + cetNow.getUTCMinutes();
-    const filteredHours = hourCols.filter(h => {
-      const m = h.match(/^(\d{2}):(\d{2})$/);
-      if (!m) return true;
-      return parseInt(m[1])*60 + parseInt(m[2]) >= nowT;
-    });
+    const filteredHours = hourCols;
 
     let cg = '<colgroup><col style="width:58px;">';
     for (const key of countryKeys) cg += '<col style="width:72px;">';
@@ -5373,8 +5282,20 @@ async function loadFandaKapacity() {
     const rowByKey = {};
     for (const r of rows) rowByKey[r.key] = r;
 
+    // Zvyrazneni - slot nejblizsi k casu +1h
+    const _targetMs = Date.now() + 3600*1000;
+    let _curSlot = null, _minDiff = Infinity;
+    for (let _i = 0; _i < hourCols.length; _i++) {
+      if (!intervalMs[_i]) continue;
+      const _d = Math.abs(intervalMs[_i] - _targetMs);
+      if (_d < _minDiff) { _minDiff = _d; _curSlot = hourCols[_i]; }
+    }
+
     for (const h of filteredHours) {
-      t += `<tr><td style="padding:3px 6px;background:#f8f9fa;border:1px solid #eee;font-weight:600;">${h}</td>`;
+      const isCur = h === _curSlot;
+      const rowBg = isCur ? 'background:#fff3cd;' : 'background:#f8f9fa;';
+      const rowBorder = isCur ? 'border:2px solid #f0a500;' : 'border:1px solid #eee;';
+      t += `<tr style="${isCur?'font-weight:700;':''}"><td style="padding:3px 6px;${rowBg}${rowBorder}font-weight:600;${isCur?'color:#b36b00;':''}">${h}${isCur?' ◀':''}</td>`;
       for (const key of countryKeys) {
         const v = rowByKey[key]?.[h];
         const dir = dirOf(key);
@@ -5383,7 +5304,7 @@ async function loadFandaKapacity() {
           cls = dir==='in' ? 'color:#2e7d32;' : dir==='out' ? 'color:#c62828;' : '';
           txt = v.toFixed(v % 1 === 0 ? 0 : 1);
         }
-        t += `<td style="padding:3px 4px;text-align:center;border:1px solid #eee;${cls}">${txt}</td>`;
+        t += `<td style="padding:3px 4px;text-align:center;${isCur?'border:2px solid #f0a500;':'border:1px solid #eee;'}${cls}">${txt}</td>`;
       }
       t += '</tr>';
     }
@@ -5616,197 +5537,6 @@ function drawDeReg(canvas, data) {
     if(line){line.style.display='block';line.style.left=mx+'px';}
   });
   canvas.addEventListener('mouseleave',()=>{tip.style.display='none';if(line)line.style.display='none';});
-})();
-
-
-let _korelMeta = null;
-
-async function loadKorel() {
-  const sub = document.getElementById('korelSub');
-  try {
-    const now = new Date();
-    const off = (now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
-    const pad = n => String(n).padStart(2,'0');
-    const cetNow = new Date(now.getTime()+off*3600*1000);
-    const day = `${cetNow.getUTCFullYear()}-${pad(cetNow.getUTCMonth()+1)}-${pad(cetNow.getUTCDate())}`;
-
-    if (sub) sub.textContent = 'načítám residual load + DT + VDT…';
-
-    const [rlRes, dtRes, vdtRes] = await Promise.allSettled([
-      fetch(`${API_URL}/entsoe/cz-residual-load?day=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
-      fetch(`${API_URL}/ote/dt15?day=0`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
-      fetch(`${API_URL}/ote/vdt?date=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
-    ]);
-
-    const rl = rlRes.value;
-    const dtData = dtRes.value;
-    const vdtData = vdtRes.value;
-
-    // DT: qh -> price map "HH:MM" -> eur
-    const dtMap = {};
-    if (dtData && dtData.qh) {
-      dtData.qh.forEach(p => {
-        const lbl = `${pad(p.hour)}:${pad(p.minute)}`;
-        dtMap[lbl] = p.price_eur;
-      });
-    }
-
-    // VDT: ts -> last price
-    const vdtMap = {};
-    if (vdtData && vdtData.data) {
-      vdtData.data.forEach(p => {
-        const ts = p.timestamp || p.ts || '';
-        const m = ts.match(/T(\d{2}):(\d{2})/);
-        if (!m) return;
-        let h = parseInt(m[1])+off; if(h>=24) h-=24;
-        const lbl = `${pad(h)}:${pad(parseInt(m[2]))}`;
-        if (p.last != null) vdtMap[lbl] = p.last;
-      });
-    }
-
-    // Spoj po 15min intervalech
-    const pts = [];
-    if (rl && rl.points) {
-      rl.points.forEach(p => {
-        if (p.residual_mw == null) return;
-        const h = Math.floor(p.h_cet);
-        const m = Math.round((p.h_cet % 1) * 60);
-        const lbl = `${pad(h)}:${pad(m)}`;
-        pts.push({
-          t: p.h_cet,
-          lbl,
-          rl: p.residual_mw,
-          dt: dtMap[lbl] ?? null,
-          vdt: vdtMap[lbl] ?? null,
-        });
-      });
-    }
-    pts.sort((a,b)=>a.t-b.t);
-
-    const nRL = pts.filter(p=>p.rl!=null).length;
-    const nDT = pts.filter(p=>p.dt!=null).length;
-    const nVDT = pts.filter(p=>p.vdt!=null).length;
-    if (sub) sub.textContent = `residual ${nRL} · DT ${nDT} · VDT ${nVDT} bodů · ${day}`;
-
-    drawKorel(document.getElementById('korelCanvas'), pts);
-  } catch(e) {
-    console.warn('korel:', e);
-    if (sub) sub.textContent = `Chyba: ${e.message}`;
-  }
-}
-
-function drawKorel(canvas, pts) {
-  if (!canvas) return;
-  const dpr = window.devicePixelRatio||1;
-  const W = canvas.parentElement.clientWidth||800;
-  const H = 300;
-  canvas.width = W*dpr; canvas.height = H*dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  const PAD = {top:16, right:60, bottom:28, left:60};
-  const cW = W-PAD.left-PAD.right;
-  const cH = H-PAD.top-PAD.bottom;
-
-  ctx.fillStyle='#dce8f5'; ctx.fillRect(PAD.left,PAD.top,cW,cH);
-
-  if (!pts.length) {
-    ctx.fillStyle='#888'; ctx.font='12px Inter'; ctx.textAlign='center';
-    ctx.fillText('Žádná data', W/2, H/2); return;
-  }
-
-  const n = pts.length;
-  const xP = i => PAD.left + (i/(n-1||1))*cW;
-
-  // Ceny (leva osa)
-  const priceVals = pts.flatMap(p=>[p.dt,p.vdt]).filter(v=>v!=null);
-  const pMin = priceVals.length ? Math.min(...priceVals)*0.95 : 0;
-  const pMax = priceVals.length ? Math.max(...priceVals)*1.05 : 100;
-  const pR = (pMax-pMin)||1;
-  const yP = v => PAD.top + cH - ((v-pMin)/pR)*cH;
-
-  // Residual load (prava osa)
-  const rlVals = pts.map(p=>p.rl).filter(v=>v!=null);
-  const rMin = rlVals.length ? Math.min(...rlVals)*0.95 : 0;
-  const rMax = rlVals.length ? Math.max(...rlVals)*1.05 : 5000;
-  const rR = (rMax-rMin)||1;
-  const yR = v => PAD.top + cH - ((v-rMin)/rR)*cH;
-
-  // Grid
-  ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1;
-  for(let i=0;i<=4;i++) {
-    const y=PAD.top+(cH/4)*i;
-    ctx.beginPath();ctx.moveTo(PAD.left,y);ctx.lineTo(PAD.left+cW,y);ctx.stroke();
-  }
-
-  // X labely - kazda hodina
-  ctx.fillStyle='#7090b0'; ctx.font='10px JetBrains Mono,monospace'; ctx.textAlign='center';
-  pts.forEach((p,i) => {
-    if (Math.round(p.t*4)%4 !== 0) return; // jen cela hodina
-    const x=xP(i);
-    ctx.strokeStyle='rgba(80,120,180,0.3)'; ctx.lineWidth=1;
-    ctx.beginPath();ctx.moveTo(x,PAD.top);ctx.lineTo(x,PAD.top+cH);ctx.stroke();
-    ctx.fillText(String(Math.floor(p.t)).padStart(2,'0'), x, PAD.top+cH+16);
-  });
-
-  // Y osa leva (ceny)
-  ctx.fillStyle='#2980b9'; ctx.font='9px JetBrains Mono,monospace'; ctx.textAlign='right';
-  for(let i=0;i<=4;i++) {
-    const v=pMin+(pR*i/4);
-    ctx.fillText(Math.round(v), PAD.left-4, yP(v)+3);
-  }
-  // Y osa prava (residual)
-  ctx.fillStyle='#e74c3c'; ctx.textAlign='left';
-  for(let i=0;i<=4;i++) {
-    const v=rMin+(rR*i/4);
-    ctx.fillText((Math.round(v/100)/10)+'G', PAD.left+cW+4, yR(v)+3);
-  }
-
-  // Krivky
-  const drawLine = (getter, yFn, color, lw, dash) => {
-    const fpts = pts.filter((p,i) => getter(p)!=null).map((p,i_) => ({i: pts.indexOf(p), v: getter(p)}));
-    if (!fpts.length) return;
-    ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.setLineDash(dash||[]);
-    ctx.beginPath();
-    fpts.forEach((fp,i)=>{ const x=xP(fp.i),y=yFn(fp.v); if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y); });
-    ctx.stroke(); ctx.setLineDash([]);
-  };
-
-  drawLine(p=>p.rl, yR, 'rgba(231,76,60,0.7)', 2, [4,2]);  // residual - cervena prerusovana
-  drawLine(p=>p.dt, yP, '#2980b9', 2);                      // DT - modra
-  drawLine(p=>p.vdt, yP, '#f39c12', 1.5);                   // VDT - oranzova
-
-  // Ted cara
-  const now=new Date(); const off=(now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
-  const nowT=(now.getUTCHours()+off)+now.getUTCMinutes()/60;
-  let ni=0,nd=Infinity; pts.forEach((p,i)=>{const d=Math.abs(p.t-nowT);if(d<nd){nd=d;ni=i;}});
-  ctx.strokeStyle='rgba(192,57,43,0.5)'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
-  ctx.beginPath();ctx.moveTo(xP(ni),PAD.top);ctx.lineTo(xP(ni),PAD.top+cH);ctx.stroke();ctx.setLineDash([]);
-
-  _korelMeta = {pts, PAD, cW, cH, n, xP, yP, yR};
-}
-
-// Tooltip
-(function(){
-  const canvas=document.getElementById('korelCanvas');
-  const tip=document.getElementById('korelTip');
-  if(!canvas||!tip) return;
-  canvas.addEventListener('mousemove', e => {
-    if(!_korelMeta) return;
-    const {pts,PAD,cW,n}=_korelMeta;
-    const rect=canvas.getBoundingClientRect();
-    const mx=e.clientX-rect.left;
-    if(mx<PAD.left||mx>PAD.left+cW){tip.style.display='none';return;}
-    const idx=Math.round(((mx-PAD.left)/cW)*(n-1));
-    const p=pts[Math.max(0,Math.min(idx,pts.length-1))];
-    if(!p){tip.style.display='none';return;}
-    let s=`<b>${p.lbl} CET</b>`;
-    if(p.rl!=null) s+=` · RL <b style="color:#e74c3c;">${Math.round(p.rl/100)/10}GW</b>`;
-    if(p.dt!=null) s+=` · DT <b style="color:#5dade2;">${p.dt.toFixed(2)}€</b>`;
-    if(p.vdt!=null) s+=` · VDT <b style="color:#f39c12;">${p.vdt.toFixed(2)}€</b>`;
-    tip.innerHTML=s; tip.style.display='block';
-    const left=mx+10+280>rect.width?mx-288:mx+10; tip.style.left=left+'px';
-  });
-  canvas.addEventListener('mouseleave',()=>{tip.style.display='none';});
 })();
 
 </script>
