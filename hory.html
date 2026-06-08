@@ -5594,7 +5594,7 @@ async function loadKorel() {
     if (sub) sub.textContent = 'načítám…';
 
     const [rlRes, rlActRes, dtRes, vdtRes] = await Promise.allSettled([
-      fetch(`${API_URL}/entsoe/residual-load?days_back=0`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/entsoe/cz-residual-forecast?day=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(`${API_URL}/entsoe/cz-residual-load?day=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(`${API_URL}/ote/dt15?day=0`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
       fetch(`${API_URL}/ote/vdt?date=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
