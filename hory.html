@@ -4713,50 +4713,46 @@ async function loadWindFc() {
 
     // === KPI 5: DE vítr forecast příštích 5h ===
     try {
-      const nowMs = Date.now();
-      const horizon = nowMs + 5*3600*1000;
-      // x.h je CET hodina -> preved na UTC ms
-      const cetMidnight = new Date(now.getTime() + off*3600*1000);
-      cetMidnight.setUTCHours(0,0,0,0);
-      const cetMidnightMs = cetMidnight.getTime() - off*3600*1000; // UTC ms CET pulnoci
-      const next5 = hours.filter(x => {
-        if (x.f == null) return false;
-        const xMs = cetMidnightMs + x.h*3600*1000;
-        return xMs >= nowMs && xMs <= horizon;
-      });
+      const nowH5 = (now.getUTCHours() + off) % 24;
+      // Vezmi forecst body od aktualni hodiny dal (max 5h)
+      const fcFuture = hours.filter(x => x.f != null && x.h >= nowH5 && x.h < nowH5 + 5);
+      // Fallback: vezmi vsechny forecast body pokud neni dost
+      const fcUse = fcFuture.length >= 2 ? fcFuture : hours.filter(x => x.f != null);
       const dvE = document.getElementById('dv-OZE5');
       const dsE = document.getElementById('ds-OZE5');
       if (dvE && dsE) {
-        if (!next5.length) {
+        if (!fcUse.length) {
           dvE.innerHTML = '<span style="color:#999;">—</span>';
           dsE.innerHTML = '<span style="color:#888;">žádná forecast data</span>';
         } else {
-          const vals = next5.map(p=>p.f);
+          const vals = fcUse.map(p=>p.f);
           const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
           const peak = Math.max(...vals);
-          const peakH = next5[vals.indexOf(peak)].h;
+          const peakH = fcUse[vals.indexOf(peak)].h;
           dvE.innerHTML = `${Math.round(avg)}<span class="kpi-u">MW · peak ${Math.round(peak)} v ${pad(peakH)}:00</span>`;
-          dsE.innerHTML = `🇩🇪 DE wind onshore · ENTSO-E A69 · ${next5.length}h · min ${Math.round(Math.min(...vals))} max ${Math.round(peak)} MW`;
+          const label = fcFuture.length >= 2 ? `příštích ${fcUse.length}h` : `dnes ${fcUse.length}h`;
+          dsE.innerHTML = `🇩🇪 DE wind onshore · ENTSO-E · ${label} · min ${Math.round(Math.min(...vals))} max ${Math.round(peak)} MW`;
         }
       }
     } catch(e) { console.warn('wind KPI 5h:', e); }
 
-    // === KPI 6: DE vítr actual vs forecast právě teď ===
+    // === KPI 6: DE vítr actual vs forecast - posledni hodina s actual ===
     try {
-      const nowH2 = (now.getUTCHours() + off) % 24;
-      const curHour = hours.find(x => x.h === nowH2);
+      // Vezmi posledni hodinu ktera MA actual data (ENTSO-E ~1h zpozdeni)
+      const withActual = hours.filter(x => x.a != null && x.f != null);
+      const lastActHour = withActual.length ? withActual[withActual.length-1] : null;
       const dvD = document.getElementById('dv-OZEDIFF');
       const dsD = document.getElementById('ds-OZEDIFF');
       const crd = document.getElementById('crd-OZEDIFF');
-      if (dvD && curHour && curHour.f != null && curHour.a != null) {
-        const diff = curHour.a - curHour.f;
-        const pct = curHour.f > 0 ? (diff/curHour.f*100) : 0;
+      if (dvD && lastActHour) {
+        const diff = lastActHour.a - lastActHour.f;
+        const pct = lastActHour.f > 0 ? (diff/lastActHour.f*100) : 0;
         let color, bgColor, signal;
         if (Math.abs(diff) < 300) { color='#666'; bgColor='#f5f5f5'; signal='shoda'; }
         else if (diff > 0) { color='#2e7d32'; bgColor='#e8f5e9'; signal=diff>1000?'silný PŘEBYTEK':'PŘEBYTEK'; }
         else { color='#c62828'; bgColor='#ffebee'; signal=diff<-1000?'silný DEFICIT':'DEFICIT'; }
         dvD.innerHTML = `<span style="color:${color};">${diff>=0?'+':''}${Math.round(diff)}</span><span class="kpi-u">MW · ${signal}</span>`;
-        if (dsD) dsD.innerHTML = `🇩🇪 actual ${Math.round(curHour.a)} vs forecast ${Math.round(curHour.f)} MW @ ${pad(nowH2)}:00 CET · ${pct>=0?'+':''}${pct.toFixed(0)}%`;
+        if (dsD) dsD.innerHTML = `🇩🇪 actual ${Math.round(lastActHour.a)} vs fc ${Math.round(lastActHour.f)} MW @ ${pad(lastActHour.h)}:00 CET · ${pct>=0?'+':''}${pct.toFixed(0)}%`;
         if (crd) crd.style.background = bgColor;
       } else if (dvD) {
         dvD.innerHTML = '<span style="color:#999;">—</span>';
