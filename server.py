@@ -839,6 +839,9 @@ class Handler(BaseHTTPRequestHandler):
             self._entsoe_solar(qs); return
         
         # Actual generation per type/country (solar+wind) z ENTSO-E
+        if parsed.path == "/entsoe/cz-residual-load":
+            self._entsoe_cz_residual_load(qs); return
+
         if parsed.path == "/entsoe/wind-forecast":
             self._entsoe_wind_forecast(qs); return
 
@@ -1488,6 +1491,137 @@ class Handler(BaseHTTPRequestHandler):
             traceback.print_exc()
             self._json({"error": str(e)}, 502)
 
+
+
+    def _entsoe_cz_residual_load(self, qs):
+        """CZ residual load = actual load (A65) - OZE actual (A75 solar+wind).
+        Cache 1h. Query ?day=YYYY-MM-DD
+        Vraci: {day, points:[{ts_utc, h_cet, load_mw, oze_mw, residual_mw}], n}
+        """
+        try:
+            now_utc = datetime.now(timezone.utc)
+            berlin_off = 2 if 4 <= now_utc.month <= 10 else 1
+            berlin_now = now_utc + timedelta(hours=berlin_off)
+            day_str = qs.get("day", [berlin_now.strftime("%Y-%m-%d")])[0]
+            day_date = datetime.strptime(day_str, "%Y-%m-%d").date()
+
+            cache_key = f"_CZ_RESLOAD_{day_date}"
+            if cache_key not in globals():
+                globals()[cache_key] = {"ts": 0, "data": None}
+            cache = globals()[cache_key]
+            now_ts = time.time()
+            if cache["data"] and (now_ts - cache["ts"]) < 3600:
+                out = dict(cache["data"]); out["_cache"] = "hit"
+                self._json(out); return
+
+            ps = datetime(day_date.year, day_date.month, day_date.day, 0, 0, 0)
+            pe = ps + timedelta(hours=23, minutes=59)
+            ps_str = fmt_entsoe_period(ps)
+            pe_str = fmt_entsoe_period(pe)
+
+            import xml.etree.ElementTree as ET
+
+            def fetch_entsoe_xml(doc_type, psr_type=None, in_domain=None, out_domain=None):
+                params = {
+                    "documentType": doc_type,
+                    "periodStart": ps_str,
+                    "periodEnd": pe_str,
+                    "securityToken": ENTSOE_TOKEN,
+                }
+                if psr_type: params["psrType"] = psr_type
+                if in_domain: params["in_Domain"] = in_domain
+                if out_domain: params["out_Domain"] = out_domain
+                url = "https://web-api.tp.entsoe.eu/api?" + urllib.parse.urlencode(params)
+                import urllib.request as ureq
+                with ureq.urlopen(url, timeout=20) as r:
+                    return r.read().decode("utf-8")
+
+            def parse_ts_points(xml_str):
+                """Parsuj ENTSO-E XML -> {utc_ts: mw_value}"""
+                root = ET.fromstring(xml_str)
+                ns1 = "urn:iec62325.351:tc57wg16:451-6:generationloaddocument:3:0"
+                ns2 = "urn:iec62325.351:tc57wg16:451-3:balancingdocument:3:0"
+                ns_use = ns1
+                if root.tag.startswith("{" + ns2): ns_use = ns2
+                ns = {"ns": ns_use}
+                result = {}
+                for ts in root.findall(".//ns:TimeSeries", ns):
+                    period = ts.find("ns:Period", ns)
+                    if period is None: continue
+                    start_el = period.find("ns:timeInterval/ns:start", ns)
+                    res_el = period.find("ns:resolution", ns)
+                    if start_el is None or res_el is None: continue
+                    start_dt = datetime.strptime(start_el.text.strip(), "%Y-%m-%dT%H:%MZ")
+                    res_txt = res_el.text.strip()
+                    res_min = 15 if res_txt == "PT15M" else 60
+                    for pt in period.findall("ns:Point", ns):
+                        pos_el = pt.find("ns:position", ns)
+                        qty_el = pt.find("ns:quantity", ns)
+                        if pos_el is None or qty_el is None: continue
+                        try:
+                            pos = int(pos_el.text) - 1
+                            qty = float(qty_el.text)
+                        except: continue
+                        ts_dt = start_dt + timedelta(minutes=pos * res_min)
+                        ts_key = ts_dt.strftime("%Y-%m-%dT%H:%M:00Z")
+                        result[ts_key] = result.get(ts_key, 0) + qty
+                return result
+
+            # 1) Actual load CZ (A65)
+            load_pts = {}
+            try:
+                xml = fetch_entsoe_xml("A65", out_domain=CZ_DOMAIN)
+                load_pts = parse_ts_points(xml)
+                print(f"  -> CZ load: {len(load_pts)} pts", flush=True)
+            except Exception as e:
+                print(f"  -> CZ load ERR: {e}", flush=True)
+
+            # 2) OZE actual CZ: solar (B16) + wind onshore (B19)
+            oze_pts = {}
+            for psr in ["B16", "B19"]:
+                try:
+                    xml = fetch_entsoe_xml("A75", psr_type=psr, in_domain=CZ_DOMAIN)
+                    pts = parse_ts_points(xml)
+                    for k, v in pts.items():
+                        oze_pts[k] = oze_pts.get(k, 0) + v
+                    print(f"  -> CZ OZE {psr}: {len(pts)} pts", flush=True)
+                except Exception as e:
+                    print(f"  -> CZ OZE {psr} ERR: {e}", flush=True)
+
+            # 3) Spoj - residual = load - oze
+            all_ts = sorted(set(list(load_pts.keys()) + list(oze_pts.keys())))
+            points = []
+            for ts_key in all_ts:
+                try:
+                    dt_utc = datetime.strptime(ts_key, "%Y-%m-%dT%H:%M:00Z")
+                    dt_cet = dt_utc + timedelta(hours=berlin_off)
+                    if dt_cet.date() != day_date: continue
+                except: continue
+                load = load_pts.get(ts_key)
+                oze = oze_pts.get(ts_key, 0)
+                residual = (load - oze) if load is not None else None
+                points.append({
+                    "ts": ts_key,
+                    "h_cet": dt_cet.hour + dt_cet.minute/60,
+                    "load_mw": round(load, 1) if load is not None else None,
+                    "oze_mw": round(oze, 1),
+                    "residual_mw": round(residual, 1) if residual is not None else None,
+                })
+
+            out = {
+                "day": str(day_date),
+                "points": points,
+                "n": len(points),
+                "fetched_at": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss"
+            }
+            cache["ts"] = now_ts
+            cache["data"] = {k:v for k,v in out.items() if k != "_cache"}
+            print(f"  -> CZ residual load: {len(points)} pts", flush=True)
+            self._json(out)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            self._json({"error": str(e)}, 502)
 
     def _entsoe_wind_forecast(self, qs):
         """ENTSO-E A69 Wind Onshore forecast pro DE.

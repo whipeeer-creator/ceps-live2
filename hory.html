@@ -391,6 +391,25 @@ canvas { max-width: 100%; display: block; }
 
 
 
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title">CZ korelace · residual load vs DT vs VDT ceny</div>
+        <div class="panel-sub" id="korelSub">načítám…</div>
+      </div>
+      <button class="hbtn" onclick="loadKorel()" style="font-size:10px;">↺</button>
+    </div>
+    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;">
+      <canvas id="korelCanvas" height="300" style="width:100%;height:300px;display:block;"></canvas>
+      <div id="korelTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:#e74c3c;"></span>CZ residual load [MW] (pravá osa)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#2980b9;"></span>DT cena [EUR/MWh]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#f39c12;"></span>VDT last [EUR/MWh]</span>
+    </div>
+  </div>
+
   <!-- aFRR Energy Bids · DE+AT (regelleistung.net) — merit-order ladder graf -->
   <!-- ===================================================================== -->
   <div class="chart-panel">
@@ -4201,6 +4220,7 @@ async function loadAll() {
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
+      tasks.push(loadKorel());
       tasks.push(loadDeReg());
       tasks.push(loadFandaKapacity());
       tasks.push(loadWindFc());
@@ -5596,6 +5616,197 @@ function drawDeReg(canvas, data) {
     if(line){line.style.display='block';line.style.left=mx+'px';}
   });
   canvas.addEventListener('mouseleave',()=>{tip.style.display='none';if(line)line.style.display='none';});
+})();
+
+
+let _korelMeta = null;
+
+async function loadKorel() {
+  const sub = document.getElementById('korelSub');
+  try {
+    const now = new Date();
+    const off = (now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
+    const pad = n => String(n).padStart(2,'0');
+    const cetNow = new Date(now.getTime()+off*3600*1000);
+    const day = `${cetNow.getUTCFullYear()}-${pad(cetNow.getUTCMonth()+1)}-${pad(cetNow.getUTCDate())}`;
+
+    if (sub) sub.textContent = 'načítám residual load + DT + VDT…';
+
+    const [rlRes, dtRes, vdtRes] = await Promise.allSettled([
+      fetch(`${API_URL}/entsoe/cz-residual-load?day=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/ote/dt15?day=0`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/ote/vdt?date=${day}`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+    ]);
+
+    const rl = rlRes.value;
+    const dtData = dtRes.value;
+    const vdtData = vdtRes.value;
+
+    // DT: qh -> price map "HH:MM" -> eur
+    const dtMap = {};
+    if (dtData && dtData.qh) {
+      dtData.qh.forEach(p => {
+        const lbl = `${pad(p.hour)}:${pad(p.minute)}`;
+        dtMap[lbl] = p.price_eur;
+      });
+    }
+
+    // VDT: ts -> last price
+    const vdtMap = {};
+    if (vdtData && vdtData.data) {
+      vdtData.data.forEach(p => {
+        const ts = p.timestamp || p.ts || '';
+        const m = ts.match(/T(\d{2}):(\d{2})/);
+        if (!m) return;
+        let h = parseInt(m[1])+off; if(h>=24) h-=24;
+        const lbl = `${pad(h)}:${pad(parseInt(m[2]))}`;
+        if (p.last != null) vdtMap[lbl] = p.last;
+      });
+    }
+
+    // Spoj po 15min intervalech
+    const pts = [];
+    if (rl && rl.points) {
+      rl.points.forEach(p => {
+        if (p.residual_mw == null) return;
+        const h = Math.floor(p.h_cet);
+        const m = Math.round((p.h_cet % 1) * 60);
+        const lbl = `${pad(h)}:${pad(m)}`;
+        pts.push({
+          t: p.h_cet,
+          lbl,
+          rl: p.residual_mw,
+          dt: dtMap[lbl] ?? null,
+          vdt: vdtMap[lbl] ?? null,
+        });
+      });
+    }
+    pts.sort((a,b)=>a.t-b.t);
+
+    const nRL = pts.filter(p=>p.rl!=null).length;
+    const nDT = pts.filter(p=>p.dt!=null).length;
+    const nVDT = pts.filter(p=>p.vdt!=null).length;
+    if (sub) sub.textContent = `residual ${nRL} · DT ${nDT} · VDT ${nVDT} bodů · ${day}`;
+
+    drawKorel(document.getElementById('korelCanvas'), pts);
+  } catch(e) {
+    console.warn('korel:', e);
+    if (sub) sub.textContent = `Chyba: ${e.message}`;
+  }
+}
+
+function drawKorel(canvas, pts) {
+  if (!canvas) return;
+  const dpr = window.devicePixelRatio||1;
+  const W = canvas.parentElement.clientWidth||800;
+  const H = 300;
+  canvas.width = W*dpr; canvas.height = H*dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const PAD = {top:16, right:60, bottom:28, left:60};
+  const cW = W-PAD.left-PAD.right;
+  const cH = H-PAD.top-PAD.bottom;
+
+  ctx.fillStyle='#dce8f5'; ctx.fillRect(PAD.left,PAD.top,cW,cH);
+
+  if (!pts.length) {
+    ctx.fillStyle='#888'; ctx.font='12px Inter'; ctx.textAlign='center';
+    ctx.fillText('Žádná data', W/2, H/2); return;
+  }
+
+  const n = pts.length;
+  const xP = i => PAD.left + (i/(n-1||1))*cW;
+
+  // Ceny (leva osa)
+  const priceVals = pts.flatMap(p=>[p.dt,p.vdt]).filter(v=>v!=null);
+  const pMin = priceVals.length ? Math.min(...priceVals)*0.95 : 0;
+  const pMax = priceVals.length ? Math.max(...priceVals)*1.05 : 100;
+  const pR = (pMax-pMin)||1;
+  const yP = v => PAD.top + cH - ((v-pMin)/pR)*cH;
+
+  // Residual load (prava osa)
+  const rlVals = pts.map(p=>p.rl).filter(v=>v!=null);
+  const rMin = rlVals.length ? Math.min(...rlVals)*0.95 : 0;
+  const rMax = rlVals.length ? Math.max(...rlVals)*1.05 : 5000;
+  const rR = (rMax-rMin)||1;
+  const yR = v => PAD.top + cH - ((v-rMin)/rR)*cH;
+
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1;
+  for(let i=0;i<=4;i++) {
+    const y=PAD.top+(cH/4)*i;
+    ctx.beginPath();ctx.moveTo(PAD.left,y);ctx.lineTo(PAD.left+cW,y);ctx.stroke();
+  }
+
+  // X labely - kazda hodina
+  ctx.fillStyle='#7090b0'; ctx.font='10px JetBrains Mono,monospace'; ctx.textAlign='center';
+  pts.forEach((p,i) => {
+    if (Math.round(p.t*4)%4 !== 0) return; // jen cela hodina
+    const x=xP(i);
+    ctx.strokeStyle='rgba(80,120,180,0.3)'; ctx.lineWidth=1;
+    ctx.beginPath();ctx.moveTo(x,PAD.top);ctx.lineTo(x,PAD.top+cH);ctx.stroke();
+    ctx.fillText(String(Math.floor(p.t)).padStart(2,'0'), x, PAD.top+cH+16);
+  });
+
+  // Y osa leva (ceny)
+  ctx.fillStyle='#2980b9'; ctx.font='9px JetBrains Mono,monospace'; ctx.textAlign='right';
+  for(let i=0;i<=4;i++) {
+    const v=pMin+(pR*i/4);
+    ctx.fillText(Math.round(v), PAD.left-4, yP(v)+3);
+  }
+  // Y osa prava (residual)
+  ctx.fillStyle='#e74c3c'; ctx.textAlign='left';
+  for(let i=0;i<=4;i++) {
+    const v=rMin+(rR*i/4);
+    ctx.fillText((Math.round(v/100)/10)+'G', PAD.left+cW+4, yR(v)+3);
+  }
+
+  // Krivky
+  const drawLine = (getter, yFn, color, lw, dash) => {
+    const fpts = pts.filter((p,i) => getter(p)!=null).map((p,i_) => ({i: pts.indexOf(p), v: getter(p)}));
+    if (!fpts.length) return;
+    ctx.strokeStyle=color; ctx.lineWidth=lw; ctx.setLineDash(dash||[]);
+    ctx.beginPath();
+    fpts.forEach((fp,i)=>{ const x=xP(fp.i),y=yFn(fp.v); if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y); });
+    ctx.stroke(); ctx.setLineDash([]);
+  };
+
+  drawLine(p=>p.rl, yR, 'rgba(231,76,60,0.7)', 2, [4,2]);  // residual - cervena prerusovana
+  drawLine(p=>p.dt, yP, '#2980b9', 2);                      // DT - modra
+  drawLine(p=>p.vdt, yP, '#f39c12', 1.5);                   // VDT - oranzova
+
+  // Ted cara
+  const now=new Date(); const off=(now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
+  const nowT=(now.getUTCHours()+off)+now.getUTCMinutes()/60;
+  let ni=0,nd=Infinity; pts.forEach((p,i)=>{const d=Math.abs(p.t-nowT);if(d<nd){nd=d;ni=i;}});
+  ctx.strokeStyle='rgba(192,57,43,0.5)'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+  ctx.beginPath();ctx.moveTo(xP(ni),PAD.top);ctx.lineTo(xP(ni),PAD.top+cH);ctx.stroke();ctx.setLineDash([]);
+
+  _korelMeta = {pts, PAD, cW, cH, n, xP, yP, yR};
+}
+
+// Tooltip
+(function(){
+  const canvas=document.getElementById('korelCanvas');
+  const tip=document.getElementById('korelTip');
+  if(!canvas||!tip) return;
+  canvas.addEventListener('mousemove', e => {
+    if(!_korelMeta) return;
+    const {pts,PAD,cW,n}=_korelMeta;
+    const rect=canvas.getBoundingClientRect();
+    const mx=e.clientX-rect.left;
+    if(mx<PAD.left||mx>PAD.left+cW){tip.style.display='none';return;}
+    const idx=Math.round(((mx-PAD.left)/cW)*(n-1));
+    const p=pts[Math.max(0,Math.min(idx,pts.length-1))];
+    if(!p){tip.style.display='none';return;}
+    let s=`<b>${p.lbl} CET</b>`;
+    if(p.rl!=null) s+=` · RL <b style="color:#e74c3c;">${Math.round(p.rl/100)/10}GW</b>`;
+    if(p.dt!=null) s+=` · DT <b style="color:#5dade2;">${p.dt.toFixed(2)}€</b>`;
+    if(p.vdt!=null) s+=` · VDT <b style="color:#f39c12;">${p.vdt.toFixed(2)}€</b>`;
+    tip.innerHTML=s; tip.style.display='block';
+    const left=mx+10+280>rect.width?mx-288:mx+10; tip.style.left=left+'px';
+  });
+  canvas.addEventListener('mouseleave',()=>{tip.style.display='none';});
 })();
 
 </script>
