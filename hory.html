@@ -4715,10 +4715,13 @@ async function loadWindFc() {
     try {
       const nowMs = Date.now();
       const horizon = nowMs + 5*3600*1000;
-      const cetBase = new Date(); cetBase.setUTCHours(0,0,0,0);
+      // x.h je CET hodina -> preved na UTC ms
+      const cetMidnight = new Date(now.getTime() + off*3600*1000);
+      cetMidnight.setUTCHours(0,0,0,0);
+      const cetMidnightMs = cetMidnight.getTime() - off*3600*1000; // UTC ms CET pulnoci
       const next5 = hours.filter(x => {
         if (x.f == null) return false;
-        const xMs = cetBase.getTime() + x.h*3600*1000 - off*3600*1000;
+        const xMs = cetMidnightMs + x.h*3600*1000;
         return xMs >= nowMs && xMs <= horizon;
       });
       const dvE = document.getElementById('dv-OZE5');
