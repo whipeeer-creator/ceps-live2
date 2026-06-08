@@ -3030,13 +3030,14 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "EUPOWERPRICES_API_KEY not configured"}, 200); return
 
             area = qs.get("area", ["CZ"])[0].upper()
+            nocache = qs.get("nocache", ["0"])[0] in ("1","true","yes")
 
             cache_key = f"_EUPOWERPRICES_{area}"
             if cache_key not in globals():
                 globals()[cache_key] = {"ts": 0, "data": None}
             cache = globals()[cache_key]
             now = time.time()
-            if cache["data"] and (now - cache["ts"]) < 3600:
+            if not nocache and cache["data"] and (now - cache["ts"]) < 3600:
                 out = dict(cache["data"]); out["_cache"] = "hit"
                 out["_age_sec"] = int(now - cache["ts"])
                 self._json(out); return
