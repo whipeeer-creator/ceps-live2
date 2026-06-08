@@ -4658,16 +4658,17 @@ async function loadWindFc() {
     const day = `${bNow.getFullYear()}-${pad(bNow.getMonth()+1)}-${pad(bNow.getDate())}`;
 
     const [resid, won] = await Promise.all([
-      fetch(`${API_URL}/entsoe/residual-load?days_back=0`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`${API_URL}/entsoe/residual-load?days_back=1`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`${API_URL}/entsoe/actual?country=DE&type=wind_onshore&day=${day}`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
     if (!resid || !resid.data) return;
-    const dayKey = (won && won.day) || day;
+    // Vzdy pouzij dnesni CET den pro forecast - nezavisle na actual
+    const fcDay = day;
 
     const fc = {};
     resid.data.forEach(dp => {
       const bt = dp.berlin_time || '';
-      if (bt.slice(0,10) !== dayKey) return;
+      if (bt.slice(0,10) !== fcDay) return;
       const h = parseInt(bt.slice(11,13), 10);
       if (Number.isFinite(h) && dp.wind_mw != null) fc[h] = dp.wind_mw;
     });
@@ -4714,10 +4715,10 @@ async function loadWindFc() {
     // === KPI 5: DE vítr forecast příštích 5h ===
     try {
       const nowH5 = (now.getUTCHours() + off) % 24;
-      // Vezmi forecst body od aktualni hodiny dal (max 5h)
-      const fcFuture = hours.filter(x => x.f != null && x.h >= nowH5 && x.h < nowH5 + 5);
-      // Fallback: vezmi vsechny forecast body pokud neni dost
-      const fcUse = fcFuture.length >= 2 ? fcFuture : hours.filter(x => x.f != null);
+      // Vezmi forecast body od aktualni hodiny dal (dnes, max 5h)
+      const fcFuture = hours.filter(x => x.f != null && x.h >= nowH5 && x.h <= Math.min(23, nowH5 + 5));
+      // Fallback: vsechny dnesni forecast body
+      const fcUse = fcFuture.length >= 1 ? fcFuture : hours.filter(x => x.f != null);
       const dvE = document.getElementById('dv-OZE5');
       const dsE = document.getElementById('ds-OZE5');
       if (dvE && dsE) {
