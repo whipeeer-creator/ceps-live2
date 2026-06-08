@@ -3052,9 +3052,9 @@ class Handler(BaseHTTPRequestHandler):
 
             # Endpunkt podle typu
             endpoint_map = {
-                "afrr": "NrvSaldo/AktivierteSRL/Betrieblich",
-                "mfrr": "NrvSaldo/AktivierteMRL/Betrieblich",
-                "nrv":  "NrvSaldo/NRVSaldo/Betrieblich",
+                "afrr": ("data/NrvSaldo/AktivierteSRL/Betrieblich", None),
+                "mfrr": ("data/NrvSaldo/AktivierteMRL/Betrieblich", None),
+                "nrv":  ("data/NrvSaldo/NRVSaldo/Betrieblich", None),
             }
             if typ not in endpoint_map:
                 self._json({"error": f"Unknown type: {typ}, use afrr|mfrr|nrv"}, 400); return
@@ -3078,8 +3078,8 @@ class Handler(BaseHTTPRequestHandler):
                              - timedelta(hours=berlin_off)).strftime("%Y-%m-%dT%H:%M:%S")
 
             token = self._ntp_get_token()
-            endpoint = endpoint_map[typ]
-            url = (f"https://ds.netztransparenz.de/api/v1/data/{endpoint}"
+            endpoint, _ = endpoint_map[typ]
+            url = (f"https://ds.netztransparenz.de/api/v1/{endpoint}"
                    f"?dateFrom={date_from_utc}&dateTo={date_to_utc}")
             print(f"  -> NTP {typ} fetch: {url}", flush=True)
             req = urllib.request.Request(url, headers={
