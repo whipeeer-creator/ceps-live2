@@ -1052,6 +1052,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
+        if parsed.path == "/eupowerprices/forecast":
+            self._eupowerprices_forecast(qs); return
+
         if parsed.path == "/metdesk/magma":
             self._metdesk_magma(qs); return
 
@@ -2990,6 +2993,77 @@ class Handler(BaseHTTPRequestHandler):
             print(f"  -> Weather ERROR: {e}", flush=True)
             self._json({"error": str(e)}, 502)
 
+
+    def _eupowerprices_forecast(self, qs):
+        """EU Power Prices - hodinovy forecast cen elektriny.
+        Cache 1h.
+        Query: ?area=CZ (default CZ, mozne DE, AT, SK, PL, HU, ...)
+        Vraci: {area, issued_at, points:[{ts, price_eur}], n}
+        """
+        try:
+            import urllib.request, urllib.error
+            api_key = os.environ.get("EUPOWERPRICES_API_KEY", "").strip()
+            if not api_key:
+                self._json({"error": "EUPOWERPRICES_API_KEY not configured"}, 200); return
+
+            area = qs.get("area", ["CZ"])[0].upper()
+
+            cache_key = f"_EUPOWERPRICES_{area}"
+            if cache_key not in globals():
+                globals()[cache_key] = {"ts": 0, "data": None}
+            cache = globals()[cache_key]
+            now = time.time()
+            if cache["data"] and (now - cache["ts"]) < 3600:
+                out = dict(cache["data"]); out["_cache"] = "hit"
+                out["_age_sec"] = int(now - cache["ts"])
+                self._json(out); return
+
+            url = f"https://api.eupowerprices.com/v1/forecasts/{area}/latest"
+            req = urllib.request.Request(url, headers={"X-API-Key": api_key})
+            try:
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    raw = json.loads(r.read().decode("utf-8"))
+            except urllib.error.HTTPError as e:
+                err_body = ""
+                try: err_body = e.read().decode("utf-8")[:300]
+                except: pass
+                self._json({"error": f"HTTP {e.code}", "detail": err_body, "area": area}, 200); return
+
+            # Parsuj odpoved - zkusime ruzne formaty
+            points = []
+            issued_at = raw.get("issued_at") or raw.get("forecast_time") or raw.get("created_at") or ""
+
+            # Format 1: {forecasts: [{datetime, price}, ...]}
+            forecasts = raw.get("forecasts") or raw.get("data") or raw.get("prices") or raw.get("hours") or []
+            if isinstance(forecasts, list):
+                for item in forecasts:
+                    if not isinstance(item, dict): continue
+                    ts = (item.get("datetime") or item.get("ts") or item.get("time")
+                          or item.get("hour") or item.get("period"))
+                    price = (item.get("price") or item.get("price_eur") or item.get("value")
+                             or item.get("forecast"))
+                    if ts is None or price is None: continue
+                    try: price_f = float(price)
+                    except: continue
+                    points.append({"ts": str(ts), "price_eur": round(price_f, 2)})
+
+            out = {
+                "area": area,
+                "issued_at": issued_at,
+                "points": points,
+                "n": len(points),
+                "raw_keys": list(raw.keys()) if isinstance(raw, dict) else [],
+                "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss"
+            }
+            cache["ts"] = now
+            cache["data"] = {k: v for k, v in out.items() if k != "_cache"}
+            print(f"  -> eupowerprices {area}: {len(points)} bodu", flush=True)
+            self._json(out)
+        except Exception as e:
+            print(f"  -> eupowerprices ERROR: {e}", flush=True)
+            self._json({"error": str(e)}, 502)
+
     def _metdesk_magma(self, qs):
         """MetDesk Power Generation V2 - solar/wind forecast pro DE/AT/CZ/HU.
         Cache 1h.
@@ -3534,8 +3608,8 @@ class Handler(BaseHTTPRequestHandler):
                         print(f"     headers: {[c for c in cells if isinstance(c, str) and c.strip()]}", flush=True)
                     continue
                 
-                # Data row - vytahni interval a last (preferred) nebo vwap
-                price_col_idx = last_col_idx if last_col_idx is not None else vwap_col_idx
+                # Data row - vytahni interval a vwap (preferred) nebo last
+                price_col_idx = vwap_col_idx if vwap_col_idx is not None else last_col_idx
                 if price_col_idx is not None and price_col_idx < len(cells):
                     interval = None
                     if interval_col_idx is not None and interval_col_idx < len(cells):
