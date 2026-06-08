@@ -204,27 +204,7 @@ canvas { max-width: 100%; display: block; }
       <span class="pleg"><span class="pleg-sq" style="background:#ff9800;opacity:.8"></span>aFRR+ [MW]</span>
     </div>
   </div>
-  <div class="chart-panel">
-    <div class="panel-hdr" style="display:flex;justify-content:space-between;align-items:flex-start;">
-      <div>
-        <div class="panel-title" style="display:flex;align-items:center;gap:8px;"><span class="flag-de" title="Germany"></span>DE Regulace · NRV saldo + aFRR/mFRR aktivace</div>
-        <div class="panel-sub" id="deRegSub">načítám · zdroj: netztransparenz.de · betrieblich</div>
-      </div>
-      <button class="hbtn" onclick="loadDeReg()" style="font-size:10px;">↺</button>
-    </div>
-    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;" id="deRegWrap">
-      <canvas id="deRegCanvas" height="260" style="width:100%;height:260px;display:block;"></canvas>
-      <div id="deRegTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);"></div>
-      <div id="deRegLine" style="position:absolute;display:none;pointer-events:none;width:1px;background:rgba(26,26,46,0.3);top:0;bottom:0;z-index:9;"></div>
-    </div>
-    <div class="panel-legend">
-      <span class="pleg"><span class="pleg-sq" style="background:#4caf50;opacity:.8"></span>mFRR− [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#f44336;opacity:.8"></span>mFRR+ [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#00b4d8;opacity:.8"></span>aFRR− [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#ff9800;opacity:.8"></span>aFRR+ [MW]</span>
-      <span class="pleg" style="color:#666;">černá = NRV saldo · 15min</span>
-    </div>
-  </div>
+
 
 
   <div class="chart-panel">
@@ -5323,15 +5303,7 @@ async function loadFandaKapacity() {
     const nameFor = k => { const c=countryOf(k); return c ? (NAMES[c]||c) : String(k); };
     const flagFor = k => { const c=countryOf(k); return c ? (FLAGS[c]||'') : ''; };
 
-    // Filter na aktualni + budouci hodiny CET
-    const cetOff = (new Date().getUTCMonth()+1)>=4 && (new Date().getUTCMonth()+1)<=10 ? 2 : 1;
-    const cetNow = new Date(Date.now()+cetOff*3600*1000);
-    const nowT = cetNow.getUTCHours()*60 + cetNow.getUTCMinutes();
-    const filteredHours = hourCols.filter(h => {
-      const m = h.match(/^(\d{2}):(\d{2})$/);
-      if (!m) return true;
-      return parseInt(m[1])*60 + parseInt(m[2]) >= nowT;
-    });
+    const filteredHours = hourCols;
 
     let cg = '<colgroup><col style="width:58px;">';
     for (const key of countryKeys) cg += '<col style="width:72px;">';
