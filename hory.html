@@ -5306,6 +5306,10 @@ async function loadFandaKapacity() {
     if (!rows.length) { container.innerHTML = '<div style="padding:12px;color:#888;">Prázdná data</div>'; return; }
 
     const hourCols = hourLabels;
+    // ms pro kazdy interval pro presne porovnani
+    const intervalMs = intervals.map(s => {
+      try { return new Date(String(s).replace(' ', 'T')).getTime(); } catch(e) { return 0; }
+    });
     const countryKeys = rows.map(r => r.key).filter(Boolean);
 
     const FLAGS = {CZ:'🇨🇿',DE:'🇩🇪',AT:'🇦🇹',SK:'🇸🇰',PL:'🇵🇱',HU:'🇭🇺'};
