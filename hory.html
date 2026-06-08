@@ -180,8 +180,8 @@ canvas { max-width: 100%; display: block; }
   </div>
 
   <div class="kpi-row">
-    <div class="kpi" id="crd-OZE5" style="grid-column: span 2;"><div class="kpi-l"><span class="flag-de" style="vertical-align:middle;margin-right:5px;"></span>DE residual load forecast · příštích 5 hodin</div><div class="kpi-v" id="dv-OZE5">—<span class="kpi-u">GW</span></div><div class="kpi-s" id="ds-OZE5">—</div></div>
-    <div class="kpi" id="crd-OZEDIFF" style="grid-column: span 2;"><div class="kpi-l"><span class="flag-de" style="vertical-align:middle;margin-right:5px;"></span>DE residual load · actual vs forecast</div><div class="kpi-v" id="dv-OZEDIFF">—<span class="kpi-u">GW</span></div><div class="kpi-s" id="ds-OZEDIFF">—</div></div>
+    <div class="kpi" id="crd-OZE5" style="grid-column: span 2;"><div class="kpi-l"><span class="flag-de" style="vertical-align:middle;margin-right:5px;"></span>DE vítr forecast · příštích 5 hodin</div><div class="kpi-v" id="dv-OZE5">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-OZE5">—</div></div>
+    <div class="kpi" id="crd-OZEDIFF" style="grid-column: span 2;"><div class="kpi-l"><span class="flag-de" style="vertical-align:middle;margin-right:5px;"></span>DE vítr · actual vs forecast</div><div class="kpi-v" id="dv-OZEDIFF">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-OZEDIFF">—</div></div>
   </div>
 
   <div class="chart-panel">
@@ -4711,7 +4711,56 @@ async function loadWindFc() {
       statsEl.innerHTML = html;
     }
 
-    // KPI karty pro DE residual load resi loadResidualLoad()
+    // === KPI 5: DE vítr forecast příštích 5h ===
+    try {
+      const nowMs = Date.now();
+      const horizon = nowMs + 5*3600*1000;
+      const cetBase = new Date(); cetBase.setUTCHours(0,0,0,0);
+      const next5 = hours.filter(x => {
+        if (x.f == null) return false;
+        const xMs = cetBase.getTime() + x.h*3600*1000 - off*3600*1000;
+        return xMs >= nowMs && xMs <= horizon;
+      });
+      const dvE = document.getElementById('dv-OZE5');
+      const dsE = document.getElementById('ds-OZE5');
+      if (dvE && dsE) {
+        if (!next5.length) {
+          dvE.innerHTML = '<span style="color:#999;">—</span>';
+          dsE.innerHTML = '<span style="color:#888;">žádná forecast data</span>';
+        } else {
+          const vals = next5.map(p=>p.f);
+          const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
+          const peak = Math.max(...vals);
+          const peakH = next5[vals.indexOf(peak)].h;
+          dvE.innerHTML = `${Math.round(avg)}<span class="kpi-u">MW · peak ${Math.round(peak)} v ${pad(peakH)}:00</span>`;
+          dsE.innerHTML = `🇩🇪 DE wind onshore · ENTSO-E A69 · ${next5.length}h · min ${Math.round(Math.min(...vals))} max ${Math.round(peak)} MW`;
+        }
+      }
+    } catch(e) { console.warn('wind KPI 5h:', e); }
+
+    // === KPI 6: DE vítr actual vs forecast právě teď ===
+    try {
+      const nowH2 = (now.getUTCHours() + off) % 24;
+      const curHour = hours.find(x => x.h === nowH2);
+      const dvD = document.getElementById('dv-OZEDIFF');
+      const dsD = document.getElementById('ds-OZEDIFF');
+      const crd = document.getElementById('crd-OZEDIFF');
+      if (dvD && curHour && curHour.f != null && curHour.a != null) {
+        const diff = curHour.a - curHour.f;
+        const pct = curHour.f > 0 ? (diff/curHour.f*100) : 0;
+        let color, bgColor, signal;
+        if (Math.abs(diff) < 300) { color='#666'; bgColor='#f5f5f5'; signal='shoda'; }
+        else if (diff > 0) { color='#2e7d32'; bgColor='#e8f5e9'; signal=diff>1000?'silný PŘEBYTEK':'PŘEBYTEK'; }
+        else { color='#c62828'; bgColor='#ffebee'; signal=diff<-1000?'silný DEFICIT':'DEFICIT'; }
+        dvD.innerHTML = `<span style="color:${color};">${diff>=0?'+':''}${Math.round(diff)}</span><span class="kpi-u">MW · ${signal}</span>`;
+        if (dsD) dsD.innerHTML = `🇩🇪 actual ${Math.round(curHour.a)} vs forecast ${Math.round(curHour.f)} MW @ ${pad(nowH2)}:00 CET · ${pct>=0?'+':''}${pct.toFixed(0)}%`;
+        if (crd) crd.style.background = bgColor;
+      } else if (dvD) {
+        dvD.innerHTML = '<span style="color:#999;">—</span>';
+        if (dsD) dsD.innerHTML = '<span style="color:#888;">čekám na actual data (ENTSO-E ~1h zpoždění)</span>';
+        if (crd) crd.style.background = '';
+      }
+    } catch(e) { console.warn('wind KPI diff:', e); }
 
   } catch (e) { console.warn('windFc:', e); }
 }
@@ -5098,54 +5147,7 @@ async function loadResidualLoad() {
       statsEl.innerHTML = s;
     }
 
-    // === KPI karty ===
-    // 1) Forecast 5h
-    const nowMs = now.getTime();
-    const horizon = nowMs + 5*3600*1000;
-    const cetBase = new Date(cetNow); cetBase.setUTCHours(0,0,0,0);
-    const next5 = fcPts.filter(p => {
-      const pMs = cetBase.getTime() + p.t*3600*1000 - off*3600*1000;
-      return pMs >= nowMs && pMs <= horizon;
-    });
-    const dvE = document.getElementById('dv-OZE5');
-    const dsE = document.getElementById('ds-OZE5');
-    if (dvE && dsE) {
-      if (!next5.length) {
-        dvE.innerHTML = '<span style="color:#999;">—</span>';
-        dsE.innerHTML = '<span style="color:#888;">žádná forecast data</span>';
-      } else {
-        const vals = next5.map(p=>p.v);
-        const avg = vals.reduce((a,b)=>a+b,0)/vals.length;
-        const peak = Math.max(...vals);
-        const peakH = next5[vals.indexOf(peak)];
-        dvE.innerHTML = `${avg.toFixed(1)}<span class="kpi-u">GW · peak ${peak.toFixed(1)} v ${pad(Math.floor(peakH.t))}:00</span>`;
-        dsE.innerHTML = `🇩🇪 DE residual load · ENTSO-E · ${next5.length} hodin`;
-      }
-    }
-
-    // 2) Actual vs forecast diff
-    const dvD = document.getElementById('dv-OZEDIFF');
-    const dsD = document.getElementById('ds-OZEDIFF');
-    const crd = document.getElementById('crd-OZEDIFF');
-    const lastAct = actPts.length ? actPts[actPts.length-1] : null;
-    if (dvD && lastAct) {
-      const nearFc = fcPts.reduce((b,p) => Math.abs(p.t-lastAct.t) < Math.abs((b||{t:99}).t-lastAct.t) ? p : b, null);
-      if (nearFc) {
-        const diff = lastAct.v - nearFc.v; // GW
-        const pct = nearFc.v !== 0 ? (diff/Math.abs(nearFc.v)*100) : 0;
-        let color, bgColor, signal;
-        if (Math.abs(diff) < 0.5) { color='#666'; bgColor='#f5f5f5'; signal='shoda'; }
-        else if (diff > 0) { color='#c62828'; bgColor='#ffebee'; signal=diff>2?'silně VYŠŠÍ':'VYŠŠÍ'; }
-        else { color='#2e7d32'; bgColor='#e8f5e9'; signal=diff<-2?'silně NIŽŠÍ':'NIŽŠÍ'; }
-        dvD.innerHTML = `<span style="color:${color};">${diff>=0?'+':''}${diff.toFixed(1)}</span><span class="kpi-u">GW · ${signal}</span>`;
-        if (dsD) dsD.innerHTML = `🇩🇪 actual ${lastAct.v.toFixed(1)} vs fc ${nearFc.v.toFixed(1)} GW @ ${pad(Math.floor(lastAct.t))}:${pad(Math.round((lastAct.t%1)*60))} CET · ${pct>=0?'+':''}${pct.toFixed(0)}%`;
-        if (crd) crd.style.background = bgColor;
-      }
-    } else if (dvD) {
-      dvD.innerHTML = '<span style="color:#999;">—</span>';
-      if (dsD) dsD.innerHTML = '<span style="color:#888;">čekám na SMARD actual (~30min zpoždění)</span>';
-      if (crd) crd.style.background = '';
-    }
+    // KPI karty plni loadWindFc
 
   } catch(e) { console.warn('resLoad:', e); }
 }
