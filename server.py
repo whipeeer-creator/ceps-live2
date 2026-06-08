@@ -3080,7 +3080,7 @@ class Handler(BaseHTTPRequestHandler):
             token = self._ntp_get_token()
             endpoint = endpoint_map[typ]
             url = (f"https://ds.netztransparenz.de/api/v1/data/{endpoint}"
-                   f"?dateFromUtc={date_from_utc}&dateToUtc={date_to_utc}")
+                   f"?dateFrom={date_from_utc}&dateTo={date_to_utc}")
             print(f"  -> NTP {typ} fetch: {url}", flush=True)
             req = urllib.request.Request(url, headers={
                 "Authorization": f"Bearer {token}",
@@ -3137,7 +3137,7 @@ class Handler(BaseHTTPRequestHandler):
             print(f"  -> NTP ERROR HTTP {e.code}: {body}", flush=True)
             # Token expired? clear cache
             Handler._NTP_TOKEN_CACHE["token"] = None
-            self._json({"error": f"HTTP {e.code}", "detail": body}, 200)
+            self._json({"error": f"HTTP {e.code}", "detail": body, "url": url if 'url' in dir() else ""}, 200)
         except Exception as e:
             import traceback; traceback.print_exc()
             self._json({"error": str(e)}, 502)
