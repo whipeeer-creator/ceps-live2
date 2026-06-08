@@ -5270,11 +5270,20 @@ async function loadFandaKapacity() {
     };
     if (sub) sub.textContent = `přijato ${fmtTs(lastRec.ts)}${updatedRaw ? ' · data: ' + String(updatedRaw).trim() : ''}`;
 
-    // Parse Fanda formát
+    // Parse Fanda formát - intervaly jsou ISO timestampy "2026-06-08 11:00:00+02:00"
     const intervals = data.intervals;
     const hourLabels = intervals.map(s => {
-      const m = String(s).match(/(\d{1,2}):(\d{2})/);
-      return m ? `${String(m[1]).padStart(2,'0')}:${m[2]}` : String(s);
+      const str = String(s);
+      // Format: "2026-06-08 11:00:00+02:00" - vezmeme cas primo (uz je CET)
+      const m = str.match(/(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})/);
+      if (m) return `${m[2]}:${m[3]}`; // HH:MM
+      // Fallback - stary format "11:00"
+      const m2 = str.match(/(\d{1,2}):(\d{2})/);
+      return m2 ? `${String(m2[1]).padStart(2,'0')}:${m2[2]}` : str;
+    });
+    // Uloz ms pro kazdy interval pro presne porovnani
+    const intervalMs = intervals.map(s => {
+      try { return new Date(String(s).replace(' ', 'T')).getTime(); } catch(e) { return 0; }
     });
     const rows = [];
     for (const k of Object.keys(data)) {
@@ -5327,18 +5336,12 @@ async function loadFandaKapacity() {
     for (const r of rows) rowByKey[r.key] = r;
 
     // Aktualni hodina CET
-    const _cetOff2 = (new Date().getUTCMonth()+1)>=4&&(new Date().getUTCMonth()+1)<=10?2:1;
-    const _cetNow2 = new Date(Date.now()+_cetOff2*3600*1000);
-    const _nowHH = String(_cetNow2.getUTCHours()).padStart(2,'0');
-    const _nowMM = String(_cetNow2.getUTCMinutes()).padStart(2,'0');
-    // Najdi aktualni slot - posledni slot ktery uz zacal
+    // Najdi aktualni slot pomoci ms porovnani
+    const _nowMs = Date.now();
     let _curSlot = null;
-    for (const h of filteredHours) {
-      const _m = h.match(/^(\d{2}):(\d{2})$/);
-      if (!_m) continue;
-      const _hh = parseInt(_m[1]), _mm = parseInt(_m[2]);
-      const _nowTotalMin = _cetNow2.getUTCHours()*60+_cetNow2.getUTCMinutes();
-      if (_hh*60+_mm <= _nowTotalMin) _curSlot = h;
+    // Najdi posledni interval ktery uz zacal
+    for (let _i = 0; _i < hourCols.length; _i++) {
+      if (intervalMs[_i] && intervalMs[_i] <= _nowMs) _curSlot = hourCols[_i];
     }
 
     for (const h of filteredHours) {
