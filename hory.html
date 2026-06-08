@@ -1327,6 +1327,9 @@ function drawCenaRE(canvas, d, d2, d3, d4, d5) {
       .sort((a, b) => a.min - b.min);
   }
 
+  // Uloz VDT pro korelacni graf
+  window._vdtPointsForKorel = vdtPoints;
+
   // === VAZENY PRUMER aFRR ceny per QH (15min bucket) ===
   // weighted = SUM(price * |MW_aktivace|) / SUM(|MW_aktivace|)
   // Pro bezici neuplnou QH pocita z toho co mame zatim
@@ -5636,11 +5639,19 @@ async function loadKorel() {
       });
     }
 
-    // VDT last ceny
+    // VDT last ceny - pouzij window._vdtPointsForKorel (min -> vdt)
     const vdtMap = {};
-    const vdtData = vdtRes.value;
-    if (vdtData && vdtData.data) {
-      vdtData.data.forEach(p => {
+    const vdtPtsGlobal = window._vdtPointsForKorel || [];
+    vdtPtsGlobal.forEach(p => {
+      if (!Number.isFinite(p.min) || !Number.isFinite(p.vdt)) return;
+      const h = Math.floor(p.min/60);
+      const m2 = p.min % 60;
+      const lbl = `${pad(h)}:${pad(m2)}`;
+      vdtMap[lbl] = p.vdt;
+    });
+    // Fallback z fetch
+    if (!Object.keys(vdtMap).length && vdtRes.value?.data) {
+      vdtRes.value.data.forEach(p => {
         const ts = p.timestamp || p.ts || '';
         const m = ts.match(/T(\d{2}):(\d{2})/);
         if (!m) return;
