@@ -323,19 +323,7 @@ canvas { max-width: 100%; display: block; }
     </div>
   </div>
 
-  <div class="chart-panel">
-    <div class="panel-hdr">
-      <div>
-        <div class="panel-title">MAGMA Power Generation · CZ Solar+Wind 48h</div>
-        <div class="panel-sub">MetDesk MAGMA model · Solar a Wind power forecast pro Českou republiku v MW</div>
-      </div>
-      <div id="magmaMeta" style="font-size:11px;color:#666;"></div>
-    </div>
-    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;">
-      <canvas id="magmaCanvas" height="380" style="width:100%;height:380px;display:block;"></canvas>
-    </div>
-    <div id="magmaLegend" style="display:flex;gap:15px;flex-wrap:wrap;font-size:11px;margin:6px 12px;justify-content:center;"></div>
-  </div>
+
 
   <div class="chart-panel">
     <div class="panel-hdr">
@@ -359,70 +347,24 @@ canvas { max-width: 100%; display: block; }
     </div>
   </div>
 
-  <div class="chart-panel">
-    <div class="panel-hdr">
-      <div>
-        <div class="panel-title" style="display:flex;align-items:center;gap:8px;">
-          <span class="flag-de" title="Germany"></span>
-          DE vítr · forecast vs skutečnost
-        </div>
-        <div class="panel-sub">DE wind onshore · forecast error = actual − forecast · čas CET · zdroj: ENTSO-E</div>
-      </div>
-      <div id="windFcStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#555;display:flex;gap:14px;flex-wrap:wrap;"></div>
-    </div>
-    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;" id="windFcWrap">
-      <canvas id="windFcCanvas" height="280" style="width:100%;height:280px;display:block;"></canvas>
-      <div id="windFcTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);line-height:1.4;"></div>
-    </div>
-    <div class="panel-legend">
-      <span class="pleg"><span class="pleg-sq" style="background:#5b8fc9;"></span>forecast (A69 day-ahead)</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#16a085;"></span>actual (A75) · zpoždění ~1h</span>
-    </div>
-  </div>
 
-  <div class="chart-panel">
-    <div class="panel-hdr">
-      <div>
-        <div class="panel-title" style="display:flex;align-items:center;gap:8px;">
-          <span class="flag-de" title="Germany"></span>
-          DE výroba · MAGMA forecast (wind + solar)
-        </div>
-        <div class="panel-sub">MetDesk MAGMA model · DE wind a solar výroba · 15min · čas CET · bez zpoždění</div>
-      </div>
-      <div id="magmaGenStat" style="font-family:'JetBrains Mono',monospace;font-size:11px;color:#555;display:flex;gap:14px;"></div>
-    </div>
-    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;">
-      <canvas id="magmaGenCanvas" height="280" style="width:100%;height:280px;display:block;"></canvas>
-      <div id="magmaGenTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);line-height:1.4;"></div>
-    </div>
-    <div class="panel-legend">
-      <span class="pleg"><span class="pleg-sq" style="background:#8e44ad;"></span>wind [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#f39c12;"></span>solar [MW]</span>
-      <span class="pleg" style="color:#666;">svislá čára = teď</span>
-    </div>
-  </div>
+
+
 
 
   <!-- ===================================================================== -->
+
+
   <div class="chart-panel">
     <div class="panel-hdr">
       <div>
-        <div class="panel-title" style="display:flex;align-items:center;gap:8px;">
-          <span class="flag-de" title="Germany"></span>
-          DE Residual Load · forecast vs actual
-        </div>
-        <div class="panel-sub">ENTSO-E A69 forecast (demand−wind−solar) vs SMARD actual · čas CET · ~30min zpoždění actual</div>
+        <div class="panel-title">Přeshraniční kapacity · Fanda data</div>
+        <div class="panel-sub" id="fandaKapSub">načítám…</div>
       </div>
-      <div id="resLoadStats" style="font-family:'JetBrains Mono',monospace;font-size:10px;color:#555;display:flex;gap:14px;flex-wrap:wrap;"></div>
+      <button class="hbtn" onclick="loadFandaKapacity()" style="font-size:10px;">↺</button>
     </div>
-    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;">
-      <canvas id="resLoadCanvas" height="280" style="width:100%;height:280px;display:block;"></canvas>
-      <div id="resLoadTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);line-height:1.4;"></div>
-    </div>
-    <div class="panel-legend">
-      <span class="pleg"><span class="pleg-sq" style="background:#5b8fc9;"></span>forecast (ENTSO-E) [GW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#e74c3c;"></span>actual (SMARD) [GW]</span>
-      <span class="pleg" style="color:#666;">svislá čára = teď</span>
+    <div id="fandaKapContainer" style="overflow-x:auto;font-size:11px;">
+      <div style="padding:20px;color:#888;">Načítám data…</div>
     </div>
   </div>
 
@@ -4216,6 +4158,7 @@ async function loadAll() {
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
+      tasks.push(loadFandaKapacity());
       tasks.push(loadWindFc());
       tasks.push(loadResidualLoad());
       tasks.push(loadMagmaGen());
@@ -5266,6 +5209,128 @@ function drawResLoad(canvas, fcPts, actPts) {
   });
   canvas.addEventListener('mouseleave',()=>{tip.style.display='none';});
 })();
+
+
+async function loadFandaKapacity() {
+  const container = document.getElementById('fandaKapContainer');
+  const sub = document.getElementById('fandaKapSub');
+  if (!container) return;
+  try {
+    const r = await fetch(`${API_URL}/ingest/data?source=fanda&limit=1`, {cache:'no-store'});
+    if (!r.ok) { container.innerHTML = '<div style="padding:12px;color:#888;">Fanda data nejsou k dispozici</div>'; return; }
+    const d = await r.json();
+    const records = d.records || [];
+    if (!records.length) { container.innerHTML = '<div style="padding:12px;color:#888;">Žádná data od Fandy</div>'; return; }
+    const lastRec = records[records.length - 1];
+    const data = lastRec.data;
+    if (!data || !Array.isArray(data.intervals)) {
+      container.innerHTML = '<div style="padding:12px;color:#888;">Neznámý formát dat</div>'; return;
+    }
+
+    // Update subtitle
+    const updatedRaw = data.updated ?? data.Updated ?? null;
+    const fmtTs = ts => {
+      if (!ts) return '';
+      try {
+        const s = String(ts);
+        let dt;
+        if (s.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/)) dt = new Date(s.endsWith('Z') ? s : s+'Z');
+        else if (s.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/)) {
+          const m = s.match(/^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})$/);
+          dt = new Date(Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5],+m[6]));
+        } else dt = new Date(s);
+        if (isNaN(dt)) return s;
+        return `${dt.getDate()}.${dt.getMonth()+1}. ${String(dt.getHours()).padStart(2,'0')}:${String(dt.getMinutes()).padStart(2,'0')}`;
+      } catch(e) { return String(ts); }
+    };
+    if (sub) sub.textContent = `přijato ${fmtTs(lastRec.ts)}${updatedRaw ? ' · data: ' + String(updatedRaw).trim() : ''}`;
+
+    // Parse Fanda formát
+    const intervals = data.intervals;
+    const hourLabels = intervals.map(s => {
+      const m = String(s).match(/(\d{1,2}):(\d{2})/);
+      return m ? `${String(m[1]).padStart(2,'0')}:${m[2]}` : String(s);
+    });
+    const rows = [];
+    for (const k of Object.keys(data)) {
+      const v = data[k];
+      if (k === 'intervals' || !Array.isArray(v)) continue;
+      const row = { key: k };
+      v.forEach((val, i) => { row[hourLabels[i] || `t${i}`] = typeof val === 'number' ? Math.round(val*10)/10 : val; });
+      rows.push(row);
+    }
+    if (!rows.length) { container.innerHTML = '<div style="padding:12px;color:#888;">Prázdná data</div>'; return; }
+
+    const hourCols = hourLabels;
+    const countryKeys = rows.map(r => r.key).filter(Boolean);
+
+    const FLAGS = {CZ:'🇨🇿',DE:'🇩🇪',AT:'🇦🇹',SK:'🇸🇰',PL:'🇵🇱',HU:'🇭🇺'};
+    const NAMES = {CZ:'Česko',DE:'Německo',AT:'Rakousko',SK:'Slovensko',PL:'Polsko',HU:'Maďarsko'};
+    const HUB_MAP = {
+      'hub_at_in':{code:'AT',dir:'in'},'hub_at_out':{code:'AT',dir:'out'},
+      'hub_de_in':{code:'DE',dir:'in'},'hub_de_out':{code:'DE',dir:'out'},
+      'hub_cz_in':{code:'CZ',dir:'in'},'hub_cz_out':{code:'CZ',dir:'out'},
+      'hub_sk_in':{code:'SK',dir:'in'},'hub_sk_out':{code:'SK',dir:'out'},
+      'hub_pl_in':{code:'PL',dir:'in'},'hub_pl_out':{code:'PL',dir:'out'},
+      'hub_hu_in':{code:'HU',dir:'in'},'hub_hu_out':{code:'HU',dir:'out'},
+    };
+    const countryOf = k => { const s=String(k).toLowerCase(); return HUB_MAP[s]?.code || null; };
+    const dirOf = k => { const s=String(k).toLowerCase(); return HUB_MAP[s]?.dir || ''; };
+    const nameFor = k => { const c=countryOf(k); return c ? (NAMES[c]||c) : String(k); };
+    const flagFor = k => { const c=countryOf(k); return c ? (FLAGS[c]||'') : ''; };
+
+    // Filter na aktualni + budouci hodiny CET
+    const cetOff = (new Date().getUTCMonth()+1)>=4 && (new Date().getUTCMonth()+1)<=10 ? 2 : 1;
+    const cetNow = new Date(Date.now()+cetOff*3600*1000);
+    const nowT = cetNow.getUTCHours()*60 + cetNow.getUTCMinutes();
+    const filteredHours = hourCols.filter(h => {
+      const m = h.match(/^(\d{2}):(\d{2})$/);
+      if (!m) return true;
+      return parseInt(m[1])*60 + parseInt(m[2]) >= nowT;
+    });
+
+    let cg = '<colgroup><col style="width:58px;">';
+    for (const key of countryKeys) cg += '<col style="width:72px;">';
+    cg += '</colgroup>';
+
+    let t = `<table style="font-family:'JetBrains Mono',monospace;font-size:11px;table-layout:fixed;border-collapse:collapse;width:100%;">${cg}<thead><tr>`;
+    t += '<th style="background:#f4f5f9;padding:4px 6px;text-align:left;border:1px solid #dde;">Hod.</th>';
+    for (const key of countryKeys) {
+      const dir = dirOf(key);
+      const cls = dir==='in' ? 'color:#2e7d32;' : dir==='out' ? 'color:#c62828;' : '';
+      t += `<th style="background:#f4f5f9;padding:3px 2px;text-align:center;border:1px solid #dde;${cls}">
+        <div style="font-size:9px;font-weight:600;">${nameFor(key)}</div>
+        <div style="font-size:13px;">${flagFor(key)||'&nbsp;'}</div>
+        <div style="font-size:9px;font-weight:700;">${dir||'&nbsp;'}</div>
+      </th>`;
+    }
+    t += '</tr></thead><tbody>';
+
+    const rowByKey = {};
+    for (const r of rows) rowByKey[r.key] = r;
+
+    for (const h of filteredHours) {
+      t += `<tr><td style="padding:3px 6px;background:#f8f9fa;border:1px solid #eee;font-weight:600;">${h}</td>`;
+      for (const key of countryKeys) {
+        const v = rowByKey[key]?.[h];
+        const dir = dirOf(key);
+        let cls = '', txt = '<span style="color:#bbb;">—</span>';
+        if (typeof v === 'number' && isFinite(v)) {
+          cls = dir==='in' ? 'color:#2e7d32;' : dir==='out' ? 'color:#c62828;' : '';
+          txt = v.toFixed(v % 1 === 0 ? 0 : 1);
+        }
+        t += `<td style="padding:3px 4px;text-align:center;border:1px solid #eee;${cls}">${txt}</td>`;
+      }
+      t += '</tr>';
+    }
+    t += '</tbody></table>';
+    container.innerHTML = t;
+  } catch(e) {
+    console.warn('fandaKap:', e);
+    const container = document.getElementById('fandaKapContainer');
+    if (container) container.innerHTML = `<div style="padding:12px;color:#c0392b;">Chyba: ${e.message}</div>`;
+  }
+}
 
 </script>
 </body>
