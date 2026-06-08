@@ -1055,6 +1055,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/eupowerprices/forecast":
             self._eupowerprices_forecast(qs); return
 
+        if parsed.path == "/eupowerprices/areas":
+            self._eupowerprices_areas(); return
+
         if parsed.path == "/metdesk/magma":
             self._metdesk_magma(qs); return
 
@@ -2994,6 +2997,26 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 502)
 
 
+
+    def _eupowerprices_areas(self):
+        try:
+            import urllib.request, urllib.error
+            api_key = os.environ.get("EUPOWERPRICES_API_KEY", "").strip()
+            if not api_key:
+                self._json({"error": "not configured"}); return
+            req = urllib.request.Request(
+                "https://api.eupowerprices.com/v1/areas",
+                headers={"X-API-Key": api_key})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                self._json(json.loads(r.read().decode("utf-8")))
+        except urllib.error.HTTPError as e:
+            body = ""
+            try: body = e.read().decode()[:200]
+            except: pass
+            self._json({"error": f"HTTP {e.code}", "detail": body})
+        except Exception as e:
+            self._json({"error": str(e)})
+
     def _eupowerprices_forecast(self, qs):
         """EU Power Prices - hodinovy forecast cen elektriny.
         Cache 1h.
@@ -3029,18 +3052,17 @@ class Handler(BaseHTTPRequestHandler):
                 except: pass
                 self._json({"error": f"HTTP {e.code}", "detail": err_body, "area": area}, 200); return
 
-            # Parsuj odpoved - zkusime ruzne formaty
+            # Parsuj odpoved - series field
             points = []
-            issued_at = raw.get("issued_at") or raw.get("forecast_time") or raw.get("created_at") or ""
+            issued_at = raw.get("generated_at_utc") or raw.get("issued_at") or raw.get("forecast_time") or ""
 
-            # Format 1: {forecasts: [{datetime, price}, ...]}
-            forecasts = raw.get("forecasts") or raw.get("data") or raw.get("prices") or raw.get("hours") or []
-            if isinstance(forecasts, list):
-                for item in forecasts:
+            series = raw.get("series") or raw.get("forecasts") or raw.get("data") or raw.get("prices") or []
+            if isinstance(series, list):
+                for item in series:
                     if not isinstance(item, dict): continue
-                    ts = (item.get("datetime") or item.get("ts") or item.get("time")
-                          or item.get("hour") or item.get("period"))
-                    price = (item.get("price") or item.get("price_eur") or item.get("value")
+                    ts = (item.get("datetime_utc") or item.get("datetime") or item.get("ts")
+                          or item.get("time") or item.get("hour") or item.get("period"))
+                    price = (item.get("value") or item.get("price") or item.get("price_eur")
                              or item.get("forecast"))
                     if ts is None or price is None: continue
                     try: price_f = float(price)
