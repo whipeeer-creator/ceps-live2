@@ -1605,6 +1605,8 @@ class Handler(BaseHTTPRequestHandler):
                 })
 
             out = {"day": str(day_date), "points": points, "n": len(points),
+                   "load_fc_n": len(load_fc), "oze_fc_n": len(oze_fc),
+                   "all_ts_n": len(all_ts),
                    "fetched_at": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"), "_cache": "miss"}
             cache["ts"] = now_ts
             cache["data"] = {k:v for k,v in out.items() if k != "_cache"}
