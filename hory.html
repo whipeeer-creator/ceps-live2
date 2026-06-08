@@ -4653,42 +4653,49 @@ async function loadWindFc() {
   try {
     const now = new Date();
     const pad = n => String(n).padStart(2,'0');
-    const off = (now.getMonth()+1) >= 4 && (now.getMonth()+1) <= 10 ? 2 : 1;
-    const bNow = new Date(now.getTime() + (off*60 - now.getTimezoneOffset())*60000);
-    const day = `${bNow.getFullYear()}-${pad(bNow.getMonth()+1)}-${pad(bNow.getDate())}`;
+    const off = (now.getUTCMonth()+1) >= 4 && (now.getUTCMonth()+1) <= 10 ? 2 : 1;
+    const cetNow = new Date(now.getTime() + off*3600*1000);
+    const day = `${cetNow.getUTCFullYear()}-${pad(cetNow.getUTCMonth()+1)}-${pad(cetNow.getUTCDate())}`;
 
-    const [resid, won] = await Promise.all([
-      fetch(`${API_URL}/entsoe/residual-load?days_back=1`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+    // Pouze wind: A69 forecast + A75 actual - zadny residual load
+    const [wfc, won] = await Promise.all([
+      fetch(`${API_URL}/entsoe/wind-forecast?day=${day}`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
       fetch(`${API_URL}/entsoe/actual?country=DE&type=wind_onshore&day=${day}`, { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
     ]);
-    if (!resid || !resid.data) return;
-    // Vzdy pouzij dnesni CET den pro forecast - nezavisle na actual
-    const fcDay = day;
 
-    const fc = {};
-    resid.data.forEach(dp => {
-      const bt = dp.berlin_time || '';
-      if (bt.slice(0,10) !== fcDay) return;
-      const h = parseInt(bt.slice(11,13), 10);
-      if (Number.isFinite(h) && dp.wind_mw != null) fc[h] = dp.wind_mw;
+    // Forecast (A69) - agreguj po hodinach CET
+    const fcBuckets = {};
+    if (wfc && wfc.points) wfc.points.forEach(p => {
+      if (!p.ts || p.value == null) return;
+      const utcH = parseInt(p.ts.slice(11,13), 10);
+      let h = utcH + off; if (h >= 24) h -= 24;
+      if (!fcBuckets[h]) fcBuckets[h] = [];
+      fcBuckets[h].push(p.value);
     });
-
-    const buckets = {};
+    // Actual (A75) - agreguj po hodinach CET
+    const actBuckets = {};
     if (won && won.points) won.points.forEach(p => {
       if (!p.ts || p.value == null) return;
       const utcH = parseInt(p.ts.slice(11,13), 10);
       let h = utcH + off; if (h >= 24) h -= 24;
-      (buckets[h] = buckets[h] || []).push(p.value);
+      if (!actBuckets[h]) actBuckets[h] = [];
+      actBuckets[h].push(p.value);
     });
-    const act = {};
-    Object.keys(buckets).forEach(h => { const a = buckets[h]; act[h] = a.reduce((s,v)=>s+v,0)/a.length; });
+    const fcAvg = {}; Object.keys(fcBuckets).forEach(h => { fcAvg[h] = fcBuckets[h].reduce((a,b)=>a+b,0)/fcBuckets[h].length; });
+    const actAvg = {}; Object.keys(actBuckets).forEach(h => { actAvg[h] = actBuckets[h].reduce((a,b)=>a+b,0)/actBuckets[h].length; });
 
     const hours = [];
     for (let h = 0; h < 24; h++) {
-      const f = (h in fc) ? fc[h] : null;
-      const a = (h in act) ? act[h] : null;
+      const f = (h in fcAvg) ? fcAvg[h] : null;
+      const a = (h in actAvg) ? actAvg[h] : null;
       const e = (f != null && a != null) ? (a - f) : null;
       hours.push({ h, f, a, e });
+    }
+    // Pokud neni zadny forecast, zkus fallback z residual load
+    const hasFc = hours.some(x => x.f != null);
+    if (!hasFc) {
+      console.warn('windFc: A69 endpoint nevrnil data, zkousim residual-load fallback');
+      // tichy fallback - nechame hours prazdne, KPI zobrazi "--"
     }
 
     drawWindFc(document.getElementById('windFcCanvas'), hours);

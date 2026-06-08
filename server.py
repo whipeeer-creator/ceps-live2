@@ -839,6 +839,9 @@ class Handler(BaseHTTPRequestHandler):
             self._entsoe_solar(qs); return
         
         # Actual generation per type/country (solar+wind) z ENTSO-E
+        if parsed.path == "/entsoe/wind-forecast":
+            self._entsoe_wind_forecast(qs); return
+
         if parsed.path == "/entsoe/actual":
             try:
                 country = qs.get("country", ["CZ"])[0].upper()
@@ -1483,6 +1486,91 @@ class Handler(BaseHTTPRequestHandler):
             print(f"  -> /entsoe/afrr-cz ERROR: {e}", flush=True)
             import traceback
             traceback.print_exc()
+            self._json({"error": str(e)}, 502)
+
+
+    def _entsoe_wind_forecast(self, qs):
+        """ENTSO-E A69 Wind Onshore forecast pro DE.
+        Cache 1h. Query ?day=YYYY-MM-DD (default dnes CET)
+        Vraci: {day, points:[{ts, value}], n}
+        """
+        try:
+            day_str = qs.get("day", [None])[0]
+            now_utc = datetime.now(timezone.utc)
+            berlin_off = 2 if 4 <= now_utc.month <= 10 else 1
+            berlin_now = now_utc + timedelta(hours=berlin_off)
+            if day_str:
+                day = datetime.strptime(day_str, "%Y-%m-%d")
+            else:
+                day = berlin_now.replace(tzinfo=None)
+            day_date = day.date()
+
+            cache_key = f"_ENTSOE_WIND_FC_{day_date}"
+            if cache_key not in globals():
+                globals()[cache_key] = {"ts": 0, "data": None}
+            cache = globals()[cache_key]
+            now_ts = time.time()
+            if cache["data"] and (now_ts - cache["ts"]) < 3600:
+                out = dict(cache["data"]); out["_cache"] = "hit"
+                self._json(out); return
+
+            ps = datetime(day_date.year, day_date.month, day_date.day, 0, 0, 0)
+            pe = ps + timedelta(hours=23)
+            EIC_DE = "10Y1001A1001A83F"
+            params = {
+                "documentType": "A69",
+                "processType": "A01",
+                "psrType": "B19",
+                "in_Domain": EIC_DE,
+                "periodStart": fmt_entsoe_period(ps),
+                "periodEnd": fmt_entsoe_period(pe),
+            }
+            token = os.environ.get("ENTSOE_TOKEN", "")
+            if token:
+                params["securityToken"] = token
+
+            url = "https://web-api.tp.entsoe.eu/api?" + urllib.parse.urlencode(params)
+            import urllib.request as ureq
+            with ureq.urlopen(url, timeout=20) as r:
+                xml = r.read().decode("utf-8")
+
+            # Parsuj XML
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(xml)
+            ns = {"ns": "urn:iec62325.351:tc57wg16:451-6:generationloaddocument:3:0"}
+            points = []
+            for ts in root.findall(".//ns:TimeSeries", ns):
+                period = ts.find("ns:Period", ns)
+                if period is None: continue
+                start_el = period.find("ns:timeInterval/ns:start", ns)
+                res_el   = period.find("ns:resolution", ns)
+                if start_el is None or res_el is None: continue
+                start_dt = datetime.strptime(start_el.text.strip(), "%Y-%m-%dT%H:%MZ")
+                res_min  = 60 if res_el.text.strip() == "PT60M" else 15
+                for pt in period.findall("ns:Point", ns):
+                    pos_el = pt.find("ns:position", ns)
+                    qty_el = pt.find("ns:quantity", ns)
+                    if pos_el is None or qty_el is None: continue
+                    try:
+                        pos = int(pos_el.text) - 1
+                        qty = float(qty_el.text)
+                    except: continue
+                    ts_dt = start_dt + timedelta(minutes=pos * res_min)
+                    points.append({"ts": ts_dt.strftime("%Y-%m-%dT%H:%M:00Z"), "value": qty})
+
+            out = {
+                "day": str(day_date),
+                "points": points,
+                "n": len(points),
+                "fetched_at": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss"
+            }
+            cache["ts"] = now_ts
+            cache["data"] = {k:v for k,v in out.items() if k != "_cache"}
+            print(f"  -> wind-forecast: {len(points)} bodu", flush=True)
+            self._json(out)
+        except Exception as e:
+            import traceback; traceback.print_exc()
             self._json({"error": str(e)}, 502)
 
     def _entsoe_residual_load(self, qs):
