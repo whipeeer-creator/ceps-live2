@@ -3734,8 +3734,8 @@ async function loadCenaTable() {
           // fallback kdyz neni odchylka: modra=zap, cervena=kladna cena
           bg = v <= 0 ? 'rgba(21,101,192,0.75)' : 'rgba(229,57,53,0.75)';
         }
-        if (v === 0 || !row) bg = '#e8e8e8';
-        const txt = v === 0 ? '—' : Math.round(v).toString();
+        if (!row) bg = '#e8e8e8';
+        const txt = !row ? '—' : Math.round(v).toString();
         const isCur = h === curHour;
         const borderStyle = isCur ? 'border:2px solid #1a1a2e;' : 'border:1px solid #dde;';
         html += `<td style="padding:3px 6px;background:${bg};${borderStyle}text-align:center;color:#fff;font-weight:600;">${txt}</td>`;
@@ -4143,7 +4143,8 @@ async function loadAll() {
   document.getElementById('err').style.display = 'none';
   updateDateLabels();
   try {
-    const tasks = [loadMain(), loadFreq(), loadCena(), loadOteSpot(), loadQh()];
+    const _mainPromise = loadMain();
+    const tasks = [_mainPromise, loadFreq(), loadCena(), loadOteSpot(), loadQh()];
 
     const now = Date.now();
     // Pocasi a vitr DE - throttle 1 hodina (cache 3h na backendu)
@@ -4154,7 +4155,8 @@ async function loadAll() {
     }
     if (now - _lastCenaTableLoad > CENA_TABLE_THROTTLE_MS) {
       _lastCenaTableLoad = now;
-      tasks.push(loadCenaTable());
+      // loadCenaTable az po loadMain aby mel _odch15
+      _mainPromise.then(() => loadCenaTable());
       tasks.push(loadCenaRE());  // Cena RE - minutova granularita, throttle 60s
       tasks.push(loadSpotTable('CZ', 'tbl-spot-cz'));
       tasks.push(loadSpotTableQH());
