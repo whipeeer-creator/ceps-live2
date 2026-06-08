@@ -1055,6 +1055,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/netztransparenz/activated":
             self._ntp_activated(qs); return
 
+        if parsed.path == "/netztransparenz/debug":
+            self._ntp_debug(); return
+
         if parsed.path == "/eupowerprices/forecast":
             self._eupowerprices_forecast(qs); return
 
@@ -3038,6 +3041,41 @@ class Handler(BaseHTTPRequestHandler):
         print(f"  -> NTP token OK, expires in {expires_in}s", flush=True)
         return token
 
+
+    def _ntp_debug(self):
+        """Zkusi ruzne NTP URL varianty a vrati co funguje."""
+        import urllib.request, urllib.error
+        results = {}
+        try:
+            token = self._ntp_get_token()
+            results["token"] = "OK"
+            
+            test_urls = [
+                "https://ds.netztransparenz.de/api/v1/health",
+                "https://ds.netztransparenz.de/api/v1/data/NrvSaldo/AktivierteSRL/Betrieblich?dateFrom=2026-06-08T00:00:00&dateTo=2026-06-08T01:00:00",
+                "https://ds.netztransparenz.de/api/v1/data/nrvsaldo/aktiviertesr/betrieblich?dateFrom=2026-06-08T00:00:00&dateTo=2026-06-08T01:00:00",
+                "https://ds.netztransparenz.de/api/v1/data?dataType=AktivierteSRL&dateFrom=2026-06-08T00:00:00&dateTo=2026-06-08T01:00:00",
+            ]
+            for url in test_urls:
+                try:
+                    req = urllib.request.Request(url, headers={
+                        "Authorization": f"Bearer {token}",
+                        "Accept": "text/csv, application/json",
+                    })
+                    with urllib.request.urlopen(req, timeout=10) as r:
+                        body = r.read().decode("utf-8-sig")[:200]
+                        results[url] = f"HTTP 200: {body[:100]}"
+                except urllib.error.HTTPError as e:
+                    body = ""
+                    try: body = e.read().decode()[:100]
+                    except: pass
+                    results[url] = f"HTTP {e.code}: {body}"
+                except Exception as e:
+                    results[url] = f"ERR: {str(e)[:100]}"
+        except Exception as e:
+            results["token"] = f"FAIL: {e}"
+        self._json(results)
+
     def _ntp_activated(self, qs):
         import urllib.request, urllib.error, io, csv
         try:
@@ -3051,13 +3089,15 @@ class Handler(BaseHTTPRequestHandler):
             date_str = qs.get("date", [berlin_now.strftime("%Y-%m-%d")])[0]
 
             # Endpunkt podle typu
-            endpoint_map = {
-                "afrr": ("data/NrvSaldo/AktivierteSRL/Betrieblich", None),
-                "mfrr": ("data/NrvSaldo/AktivierteMRL/Betrieblich", None),
-                "nrv":  ("data/NrvSaldo/NRVSaldo/Betrieblich", None),
+            typ_map_dict = {
+                "afrr": "AktivierteSRL",
+                "mfrr": "AktivierteMRL",
+                "nrv":  "NRVSaldo",
             }
-            if typ not in endpoint_map:
+            if typ not in typ_map_dict:
                 self._json({"error": f"Unknown type: {typ}, use afrr|mfrr|nrv"}, 400); return
+            typ_map = typ_map_dict[typ]
+            product_type = "Betrieblich"
 
             cache_key = f"_NTP_{typ.upper()}_{date_str}"
             if cache_key not in globals():
@@ -3078,9 +3118,9 @@ class Handler(BaseHTTPRequestHandler):
                              - timedelta(hours=berlin_off)).strftime("%Y-%m-%dT%H:%M:%S")
 
             token = self._ntp_get_token()
-            endpoint, _ = endpoint_map[typ]
-            url = (f"https://ds.netztransparenz.de/api/v1/{endpoint}"
-                   f"?dateFrom={date_from_utc}&dateTo={date_to_utc}")
+            # endpoint resolved above
+            url = (f"https://ds.netztransparenz.de/api/v1/data/NrvSaldo"
+                   f"/{typ_map}/{product_type}/{date_from_utc}/{date_to_utc}")
             print(f"  -> NTP {typ} fetch: {url}", flush=True)
             req = urllib.request.Request(url, headers={
                 "Authorization": f"Bearer {token}",
