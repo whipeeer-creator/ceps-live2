@@ -1498,7 +1498,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
     def _entsoe_cz_residual_forecast(self, qs):
-        """CZ residual load forecast = A69 load forecast - A69 solar - A69 wind.
+        """CZ residual load forecast = A65 demand - A69 wind - A69 solar.
+        Pouziva stejne funkce jako DE residual load.
         Cache 1h. Query ?day=YYYY-MM-DD
         """
         try:
@@ -1517,99 +1518,72 @@ class Handler(BaseHTTPRequestHandler):
                 out = dict(cache["data"]); out["_cache"] = "hit"
                 self._json(out); return
 
-            ps = datetime(day_date.year, day_date.month, day_date.day, 0, 0, 0)
-            pe = ps + timedelta(hours=23, minutes=59)
-            ps_str = fmt_entsoe_period(ps)
-            pe_str = fmt_entsoe_period(pe)
+            ps = datetime(day_date.year, day_date.month, day_date.day, 0, 0, 0) - timedelta(hours=berlin_off)
+            pe = ps + timedelta(hours=26)
+            period_start = fmt_entsoe_period(ps)
+            period_end   = fmt_entsoe_period(pe)
 
-            import xml.etree.ElementTree as ET
-            import urllib.request as ureq
+            # 1) Demand forecast A65
+            demand_xml, demand_st = call_entsoe({
+                "documentType": "A65",
+                "processType":  "A01",
+                "outBiddingZone_Domain": CZ_DOMAIN,
+                "periodStart":  period_start,
+                "periodEnd":    period_end,
+            })
+            demand_pts = parse_entsoe_xml(demand_xml, ps) if demand_st == 200 else []
+            print(f"  -> CZ demand fc: status={demand_st}, pts={len(demand_pts)}", flush=True)
 
-            def fetch_xml(doc_type, psr_type=None):
-                params = {
-                    "documentType": doc_type,
-                    "processType": "A01",
-                    "periodStart": ps_str,
-                    "periodEnd": pe_str,
-                    "securityToken": ENTSOE_TOKEN,
-                    "in_Domain": CZ_DOMAIN,
-                }
-                if psr_type: params["psrType"] = psr_type
-                url = "https://web-api.tp.entsoe.eu/api?" + urllib.parse.urlencode(params)
-                with ureq.urlopen(url, timeout=20) as r:
-                    return r.read().decode("utf-8")
+            # 2) Wind onshore A69
+            wind_xml, wind_st = call_entsoe({
+                "documentType": "A69",
+                "processType":  "A01",
+                "psrType":      "B19",
+                "in_Domain":    CZ_DOMAIN,
+                "periodStart":  period_start,
+                "periodEnd":    period_end,
+            })
+            wind_pts = parse_entsoe_xml(wind_xml, ps) if wind_st == 200 else []
+            print(f"  -> CZ wind fc: status={wind_st}, pts={len(wind_pts)}", flush=True)
 
-            def parse_pts(xml_str):
-                root = ET.fromstring(xml_str)
-                ns_tag = root.tag.split("}")[0].lstrip("{") if "}" in root.tag else ""
-                ns = {"ns": ns_tag} if ns_tag else {}
-                result = {}
-                tag = lambda t: f"ns:{t}" if ns else t
-                for ts in root.findall(f".//{tag('TimeSeries')}", ns):
-                    period = ts.find(tag("Period"), ns)
-                    if period is None: continue
-                    start_el = period.find(f"{tag('timeInterval')}/{tag('start')}", ns)
-                    res_el = period.find(tag("resolution"), ns)
-                    if start_el is None or res_el is None: continue
-                    start_dt = datetime.strptime(start_el.text.strip(), "%Y-%m-%dT%H:%MZ")
-                    res_min = 15 if "15M" in res_el.text else 60
-                    for pt in period.findall(tag("Point"), ns):
-                        pos_el = pt.find(tag("position"), ns)
-                        qty_el = pt.find(tag("quantity"), ns)
-                        if pos_el is None or qty_el is None: continue
-                        try:
-                            pos = int(pos_el.text) - 1
-                            qty = float(qty_el.text)
-                        except: continue
-                        ts_dt = start_dt + timedelta(minutes=pos * res_min)
-                        k = ts_dt.strftime("%Y-%m-%dT%H:%M:00Z")
-                        result[k] = result.get(k, 0) + qty
-                return result
+            # 3) Solar A69
+            solar_xml, solar_st = call_entsoe({
+                "documentType": "A69",
+                "processType":  "A01",
+                "psrType":      "B16",
+                "in_Domain":    CZ_DOMAIN,
+                "periodStart":  period_start,
+                "periodEnd":    period_end,
+            })
+            solar_pts = parse_entsoe_xml(solar_xml, ps) if solar_st == 200 else []
+            print(f"  -> CZ solar fc: status={solar_st}, pts={len(solar_pts)}", flush=True)
 
-            # Load forecast (A65)
-            load_fc = {}
-            load_fc_err = ""
-            try:
-                xml = fetch_xml("A65")
-                load_fc = parse_pts(xml)
-                print(f"  -> CZ load fc: {len(load_fc)} pts, xml[:200]={xml[:200]}", flush=True)
-            except Exception as e:
-                load_fc_err = str(e)
-                print(f"  -> CZ load fc ERR: {e}", flush=True)
+            demand_d = {p["ts"]: p["value"] for p in demand_pts}
+            wind_d   = {p["ts"]: p["value"] for p in wind_pts}
+            solar_d  = {p["ts"]: p["value"] for p in solar_pts}
+            all_ts   = sorted(set(demand_d.keys()) | set(wind_d.keys()) | set(solar_d.keys()))
 
-            # OZE forecast: solar B16 + wind B19
-            oze_fc = {}
-            for psr in ["B16", "B19"]:
-                try:
-                    xml = fetch_xml("A69", psr_type=psr)
-                    pts = parse_pts(xml)
-                    for k, v in pts.items():
-                        oze_fc[k] = oze_fc.get(k, 0) + v
-                    print(f"  -> CZ OZE fc {psr}: {len(pts)} pts", flush=True)
-                except Exception as e:
-                    print(f"  -> CZ OZE fc {psr} ERR: {e}", flush=True)
-
-            all_ts = sorted(set(list(load_fc.keys()) + list(oze_fc.keys())))
             points = []
-            for ts_key in all_ts:
-                try:
-                    dt_utc = datetime.strptime(ts_key, "%Y-%m-%dT%H:%M:00Z")
-                    dt_cet = dt_utc + timedelta(hours=berlin_off)
-                    if dt_cet.date() != day_date: continue
-                except: continue
-                load = load_fc.get(ts_key)
-                oze = oze_fc.get(ts_key, 0)
-                residual = (load - oze) if load is not None else None
+            for ts in all_ts:
+                d = demand_d.get(ts)
+                if d is None: continue
+                w = wind_d.get(ts, 0) or 0
+                s = solar_d.get(ts, 0) or 0
+                residual = d - w - s
+                dt_utc = datetime.strptime(ts.replace("Z",""), "%Y-%m-%dT%H:%M").replace(tzinfo=timezone.utc)
+                dt_cet = dt_utc + timedelta(hours=berlin_off)
+                if dt_cet.date() != day_date: continue
                 points.append({
-                    "ts": ts_key,
+                    "ts": ts,
                     "h_cet": dt_cet.hour + dt_cet.minute/60,
-                    "residual_mw": round(residual, 1) if residual is not None else None,
+                    "residual_mw": round(residual, 1),
+                    "demand_mw": round(d, 1),
+                    "wind_mw": round(w, 1),
+                    "solar_mw": round(s, 1),
                 })
 
             out = {"day": str(day_date), "points": points, "n": len(points),
-                   "load_fc_n": len(load_fc), "oze_fc_n": len(oze_fc),
-                   "all_ts_n": len(all_ts),
-                   "load_fc_err": load_fc_err,
+                   "demand_n": len(demand_pts), "wind_n": len(wind_pts), "solar_n": len(solar_pts),
                    "fetched_at": now_utc.strftime("%Y-%m-%dT%H:%M:%SZ"), "_cache": "miss"}
             cache["ts"] = now_ts
             cache["data"] = {k:v for k,v in out.items() if k != "_cache"}
@@ -1618,6 +1592,7 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             import traceback; traceback.print_exc()
             self._json({"error": str(e)}, 502)
+
 
     def _entsoe_cz_residual_load(self, qs):
         """CZ residual load = actual load (A65) - OZE actual (A75 solar+wind).
