@@ -1052,6 +1052,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": str(e)}, 500)
             return
 
+        if parsed.path == "/netztransparenz/activated":
+            self._ntp_activated(qs); return
+
         if parsed.path == "/eupowerprices/forecast":
             self._eupowerprices_forecast(qs); return
 
@@ -2997,6 +3000,147 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(e)}, 502)
 
 
+
+
+    # ----------------------------------------------------------------
+    # Netztransparenz.de - Aktivierte aFRR + mFRR + NRV-Saldo DE
+    # Endpointy: /netztransparenz/activated?type=afrr|mfrr|nrv&date=YYYY-MM-DD
+    # Cache 15min, OAuth2 client_credentials token cache 55min
+    # ----------------------------------------------------------------
+    _NTP_TOKEN_CACHE = {"token": None, "expires": 0}
+
+    def _ntp_get_token(self):
+        import urllib.request, urllib.parse, urllib.error
+        now = time.time()
+        if self._NTP_TOKEN_CACHE["token"] and now < self._NTP_TOKEN_CACHE["expires"]:
+            return self._NTP_TOKEN_CACHE["token"]
+        client_id = os.environ.get("NTP_CLIENT_ID", "").strip()
+        client_secret = os.environ.get("NTP_CLIENT_SECRET", "").strip()
+        if not client_id or not client_secret:
+            raise Exception("NTP_CLIENT_ID / NTP_CLIENT_SECRET not configured")
+        data = urllib.parse.urlencode({
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        }).encode("utf-8")
+        req = urllib.request.Request(
+            "https://identity.netztransparenz.de/users/connect/token",
+            data=data,
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15) as r:
+            tok = json.loads(r.read().decode("utf-8"))
+        token = tok["access_token"]
+        expires_in = int(tok.get("expires_in", 3600))
+        Handler._NTP_TOKEN_CACHE["token"] = token
+        Handler._NTP_TOKEN_CACHE["expires"] = now + expires_in - 60
+        print(f"  -> NTP token OK, expires in {expires_in}s", flush=True)
+        return token
+
+    def _ntp_activated(self, qs):
+        import urllib.request, urllib.error, io, csv
+        try:
+            typ = qs.get("type", ["afrr"])[0].lower()
+            nocache = qs.get("nocache", ["0"])[0] in ("1","true","yes")
+
+            # Datum: CET dnes
+            now_utc = datetime.now(timezone.utc)
+            berlin_off = 2 if 4 <= now_utc.month <= 10 else 1
+            berlin_now = now_utc + timedelta(hours=berlin_off)
+            date_str = qs.get("date", [berlin_now.strftime("%Y-%m-%d")])[0]
+
+            # Endpunkt podle typu
+            endpoint_map = {
+                "afrr": "NrvSaldo/AktivierteSRL/Betrieblich",
+                "mfrr": "NrvSaldo/AktivierteMRL/Betrieblich",
+                "nrv":  "NrvSaldo/NRVSaldo/Betrieblich",
+            }
+            if typ not in endpoint_map:
+                self._json({"error": f"Unknown type: {typ}, use afrr|mfrr|nrv"}, 400); return
+
+            cache_key = f"_NTP_{typ.upper()}_{date_str}"
+            if cache_key not in globals():
+                globals()[cache_key] = {"ts": 0, "data": None}
+            cache = globals()[cache_key]
+            now_ts = time.time()
+            if not nocache and cache["data"] and (now_ts - cache["ts"]) < 900:
+                out = dict(cache["data"]); out["_cache"] = "hit"
+                self._json(out); return
+
+            # Datum range: CET den -> UTC
+            date_from = f"{date_str}T00:00:00"
+            date_to   = f"{date_str}T23:59:59"
+            # berlin -> utc
+            date_from_utc = (datetime.strptime(date_from, "%Y-%m-%dT%H:%M:%S")
+                             - timedelta(hours=berlin_off)).strftime("%Y-%m-%dT%H:%M:%S")
+            date_to_utc   = (datetime.strptime(date_to,   "%Y-%m-%dT%H:%M:%S")
+                             - timedelta(hours=berlin_off)).strftime("%Y-%m-%dT%H:%M:%S")
+
+            token = self._ntp_get_token()
+            endpoint = endpoint_map[typ]
+            url = (f"https://ds.netztransparenz.de/api/v1/data/{endpoint}"
+                   f"?dateFromUtc={date_from_utc}&dateToUtc={date_to_utc}")
+            print(f"  -> NTP {typ} fetch: {url}", flush=True)
+            req = urllib.request.Request(url, headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "text/csv",
+            })
+            with urllib.request.urlopen(req, timeout=20) as r:
+                raw_csv = r.read().decode("utf-8-sig")
+
+            # Parsuj CSV Format 6.a nebo 7.a
+            rows = []
+            reader = csv.DictReader(io.StringIO(raw_csv), delimiter=";")
+            for row in reader:
+                # Datum;Zeitzone;von;bis;...;Deutschland (Positiv);...;Deutschland (Negativ)
+                von = row.get("von","").strip()
+                bis = row.get("bis","").strip()
+                if not von: continue
+                # Konvertuj UTC -> CET
+                try:
+                    h_utc, m_utc = int(von[:2]), int(von[3:5])
+                    h_cet = (h_utc + berlin_off) % 24
+                    lbl = f"{h_cet:02d}:{m_utc:02d}"
+                except:
+                    lbl = von
+
+                pos = neg = None
+                for k, v in row.items():
+                    kl = k.strip()
+                    val = v.replace(",",".").strip() if v else ""
+                    if not val or val in ("N.A.",""): continue
+                    try: fv = float(val)
+                    except: continue
+                    if "Deutschland" in kl and "Positiv" in kl: pos = round(fv,3)
+                    if "Deutschland" in kl and "Negativ" in kl: neg = round(fv,3)
+                    if kl == "Deutschland" and typ == "nrv": pos = round(fv,3)
+
+                rows.append({"lbl": lbl, "von_utc": von, "pos": pos, "neg": neg})
+
+            out = {
+                "type": typ,
+                "date": date_str,
+                "rows": rows,
+                "n": len(rows),
+                "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss"
+            }
+            cache["ts"] = now_ts
+            cache["data"] = {k:v for k,v in out.items() if k != "_cache"}
+            print(f"  -> NTP {typ}: {len(rows)} rows", flush=True)
+            self._json(out)
+        except urllib.error.HTTPError as e:
+            body = ""
+            try: body = e.read().decode()[:300]
+            except: pass
+            print(f"  -> NTP ERROR HTTP {e.code}: {body}", flush=True)
+            # Token expired? clear cache
+            Handler._NTP_TOKEN_CACHE["token"] = None
+            self._json({"error": f"HTTP {e.code}", "detail": body}, 200)
+        except Exception as e:
+            import traceback; traceback.print_exc()
+            self._json({"error": str(e)}, 502)
 
     def _eupowerprices_areas(self):
         try:
