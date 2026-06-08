@@ -4222,7 +4222,7 @@ async function loadAll() {
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
       tasks.push(loadGenerationRES());
-      tasks.push(loadKorel());
+      _mainPromise.then(() => loadKorel());
       tasks.push(loadFandaKapacity());
       tasks.push(loadWindFc());
       tasks.push(loadResidualLoad());
