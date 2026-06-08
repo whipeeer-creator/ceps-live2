@@ -4182,5 +4182,5 @@ if __name__ == "__main__":
     else:
         print("[keepalive] RENDER_EXTERNAL_URL not set - keepalive disabled", flush=True)
     print(f"CEPS API server -> port {port} (THREADED)", flush=True)
-    print(f"VERSION: regelleistung-xlsx-v32-cena-re", flush=True)
+    print(f"VERSION: regelleistung-xlsx-v33-ntp", flush=True)
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
