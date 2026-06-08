@@ -3090,9 +3090,11 @@ class Handler(BaseHTTPRequestHandler):
 
             # Endpunkt podle typu
             typ_map_dict = {
-                "afrr": "AktivierteSRL",
-                "mfrr": "AktivierteMRL",
-                "nrv":  "NRVSaldo",
+                "afrr":     "AktivierteSRL",
+                "mfrr":     "AktivierteMRL",
+                "nrv":      "NRVSaldo",
+                "nrvminute":"nrvSaldoMinute",
+                "aep":      "AepSchaetzer",
             }
             if typ not in typ_map_dict:
                 self._json({"error": f"Unknown type: {typ}, use afrr|mfrr|nrv"}, 400); return

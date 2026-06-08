@@ -207,18 +207,22 @@ canvas { max-width: 100%; display: block; }
   <div class="chart-panel">
     <div class="panel-hdr" style="display:flex;justify-content:space-between;align-items:flex-start;">
       <div>
-        <div class="panel-title" style="display:flex;align-items:center;gap:8px;"><span class="flag-de" title="Germany"></span>DE Regulace · aFRR aktivace</div>
-        <div class="panel-sub" id="deRegSub">načítám · zdroj: netztransparenz.de · 15min · betrieblich</div>
+        <div class="panel-title" style="display:flex;align-items:center;gap:8px;"><span class="flag-de" title="Germany"></span>DE Regulace · NRV saldo + aFRR/mFRR aktivace</div>
+        <div class="panel-sub" id="deRegSub">načítám · zdroj: netztransparenz.de · betrieblich</div>
       </div>
       <button class="hbtn" onclick="loadDeReg()" style="font-size:10px;">↺</button>
     </div>
-    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;">
-      <canvas id="deRegCanvas" height="220" style="width:100%;height:220px;display:block;"></canvas>
+    <div style="background:#dce8f5;position:relative;overflow:hidden;width:100%;" id="deRegWrap">
+      <canvas id="deRegCanvas" height="260" style="width:100%;height:260px;display:block;"></canvas>
       <div id="deRegTip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:3px 8px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);"></div>
+      <div id="deRegLine" style="position:absolute;display:none;pointer-events:none;width:1px;background:rgba(26,26,46,0.3);top:0;bottom:0;z-index:9;"></div>
     </div>
     <div class="panel-legend">
-      <span class="pleg"><span class="pleg-sq" style="background:#ff9800;opacity:.85"></span>aFRR+ [MW]</span>
-      <span class="pleg"><span class="pleg-sq" style="background:#00b4d8;opacity:.85"></span>aFRR− [MW]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#4caf50;opacity:.8"></span>mFRR− [MW]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#f44336;opacity:.8"></span>mFRR+ [MW]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#00b4d8;opacity:.8"></span>aFRR− [MW]</span>
+      <span class="pleg"><span class="pleg-sq" style="background:#ff9800;opacity:.8"></span>aFRR+ [MW]</span>
+      <span class="pleg" style="color:#666;">černá = NRV saldo · 15min</span>
     </div>
   </div>
 
@@ -992,6 +996,13 @@ async function loadMain() {
   }
   window._topSplitIdx = splitIdx;
 
+  // Uloz CZ casovy rozsah pro DE graf
+  if (dO.rows.length) {
+    window._czTimeRange = {
+      from: new Date(dO.rows[0].date).getTime(),
+      to:   new Date(dO.rows[dO.rows.length-1].date).getTime()
+    };
+  }
   drawTopChart(document.getElementById('topCanvas'), topRows, colO, topSvr, colAp, colAm, colMp, colMm);
 
   const odch15 = agg15(dO.rows, colO);
@@ -5367,125 +5378,224 @@ async function loadFandaKapacity() {
 
 
 let _deRegMeta = null;
+let _deRegData = { nrv: [], afrr: [], mfrr: [] };
 
 async function loadDeReg() {
   const sub = document.getElementById('deRegSub');
   try {
-    const r = await fetch(`${API_URL}/netztransparenz/activated?type=afrr`, {cache:'no-store'});
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    const d = await r.json();
-    const rows = d.rows || [];
     const now = new Date();
     const off = (now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
     const pad = n=>String(n).padStart(2,'0');
     const cetNow = new Date(now.getTime()+off*3600*1000);
-    if (sub) sub.textContent = `${rows.length} QH · ${d.date} · zdroj: netztransparenz.de · ${pad(cetNow.getUTCHours())}:${pad(cetNow.getUTCMinutes())} CET`;
-    drawDeReg(document.getElementById('deRegCanvas'), rows);
+
+    if (sub) sub.textContent = 'načítám NRV + aFRR + mFRR…';
+
+    const [nrvRes, afrrRes, mfrrRes] = await Promise.allSettled([
+      fetch(`${API_URL}/netztransparenz/activated?type=nrv`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/netztransparenz/activated?type=afrr`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(`${API_URL}/netztransparenz/activated?type=mfrr`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+    ]);
+
+    const nrvRows  = nrvRes.value?.rows  || [];
+    const afrrRows = afrrRes.value?.rows || [];
+    const mfrrRows = mfrrRes.value?.rows || [];
+
+    _deRegData = { nrv: nrvRows, afrr: afrrRows, mfrr: mfrrRows };
+
+    const n = Math.max(nrvRows.length, afrrRows.length, mfrrRows.length);
+    if (sub) sub.textContent = `NRV ${nrvRows.length} · aFRR ${afrrRows.length} · mFRR ${mfrrRows.length} QH · ${afrrRes.value?.date||''} · netztransparenz.de`;
+    drawDeReg(document.getElementById('deRegCanvas'), _deRegData);
   } catch(e) {
     console.warn('deReg:', e);
     if (sub) sub.textContent = `Chyba: ${e.message}`;
   }
 }
 
-function drawDeReg(canvas, rows) {
+function drawDeReg(canvas, data) {
   if (!canvas) return;
-  const dpr = window.devicePixelRatio||1;
-  const W = canvas.parentElement.clientWidth||800;
-  const H = 220;
-  canvas.width = W*dpr; canvas.height = H*dpr;
-  const ctx = canvas.getContext('2d');
-  ctx.scale(dpr, dpr);
-  const PAD = {top:14,right:16,bottom:28,left:52};
-  const cW = W-PAD.left-PAD.right;
-  const cH = H-PAD.top-PAD.bottom;
-  ctx.fillStyle='#dce8f5'; ctx.fillRect(PAD.left,PAD.top,cW,cH);
+  const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||260);
+  const PAD = { top: 16, right: 64, bottom: 28, left: 44 };
+  const cW = W - PAD.left - PAD.right;
+  const cH = H - PAD.top - PAD.bottom;
 
-  if (!rows.length) {
+  const now = new Date();
+  const off = (now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
+  const pad = n=>String(n).padStart(2,'0');
+
+  // Parsuj rows -> {t, nrv, ap, am, mp, mm, lbl}
+  const rowMap = {};
+  const addRow = (rows, key) => {
+    for (const r of rows) {
+      if (!r.lbl) continue;
+      if (!rowMap[r.lbl]) rowMap[r.lbl] = {lbl: r.lbl};
+      rowMap[r.lbl][key] = r;
+    }
+  };
+  addRow(data.nrv,  'nrv');
+  addRow(data.afrr, 'afrr');
+  addRow(data.mfrr, 'mfrr');
+
+  const now2 = new Date();
+  const off2 = (now2.getUTCMonth()+1)>=4&&(now2.getUTCMonth()+1)<=10?2:1;
+  const czRange = window._czTimeRange;
+
+  const allPts = Object.values(rowMap).map(r => {
+    const m = r.lbl.match(/^(\d{2}):(\d{2})$/);
+    const t = m ? parseInt(m[1])+parseInt(m[2])/60 : 0;
+    const nrvV = r.nrv ? (r.nrv.pos ?? 0) - (r.nrv.neg ?? 0) : null;
+    // Rekonstruuj UTC ms z CET labelu
+    const cetBase = new Date(now2);
+    cetBase.setUTCHours(0,0,0,0);
+    const ptMs = cetBase.getTime() + t*3600*1000 - off2*3600*1000;
+    return {
+      t, lbl: r.lbl, ptMs,
+      nrv:  nrvV,
+      afrrP: r.afrr?.pos || 0,
+      afrrN: r.afrr?.neg || 0,
+      mfrrP: r.mfrr?.pos || 0,
+      mfrrN: r.mfrr?.neg || 0,
+    };
+  }).sort((a,b)=>a.t-b.t);
+
+  // Filtruj na CZ casovy rozsah pokud je dostupny
+  const pts = czRange
+    ? allPts.filter(p => p.ptMs >= czRange.from - 15*60*1000 && p.ptMs <= czRange.to + 15*60*1000)
+    : allPts;
+
+  if (!pts.length) {
     ctx.fillStyle='#888'; ctx.font='12px Inter,sans-serif'; ctx.textAlign='center';
     ctx.fillText('Žádná data', W/2, H/2); _deRegMeta=null; return;
   }
 
-  // Cas z lbl "HH:MM" -> t v hodinach
-  const pts = rows.filter(r=>r.lbl).map(r=>{
-    const m=r.lbl.match(/^(\d{2}):(\d{2})$/);
-    const t = m ? parseInt(m[1])+parseInt(m[2])/60 : 0;
-    return {t, up: r.pos||0, dn: r.neg||0, lbl: r.lbl};
-  }).sort((a,b)=>a.t-b.t);
+  // Y rozsah
+  const allV = pts.flatMap(p=>[
+    p.nrv, -p.afrrP, p.afrrN, -p.mfrrP, p.mfrrN
+  ]).filter(v=>v!=null&&Number.isFinite(v));
+  const dMax = Math.max(0,...allV); const dMin = Math.min(0,...allV);
+  const padV = (dMax-dMin)*0.12||50;
+  const yMax = dMax+padV; const yMin = dMin-padV; const yR = yMax-yMin;
 
-  const allV = pts.flatMap(p=>[p.up, -p.dn]).filter(Number.isFinite);
-  const vMax = Math.max(...allV, 1);
-  const vMin = Math.min(...allV, -1);
-  const vR = (vMax-vMin)||1;
-  const xP = t => PAD.left + (t/24)*cW;
-  const yP = v => PAD.top + cH - ((v-vMin)/vR)*cH;
+  const n = pts.length;
+  const xP = i => PAD.left + (i/(n-1||1))*cW;
+  const xPt = t => PAD.left + (t/24)*cW;
+  const yP = v => PAD.top + cH - ((v-yMin)/yR)*cH;
   const y0 = yP(0);
-  const now = new Date();
-  const off = (now.getUTCMonth()+1)>=4&&(now.getUTCMonth()+1)<=10?2:1;
 
-  // Grid
-  ctx.strokeStyle='rgba(255,255,255,0.6)'; ctx.lineWidth=1;
-  ctx.fillStyle='#6688aa'; ctx.font='10px JetBrains Mono,monospace'; ctx.textAlign='right';
-  for(let i=0;i<=4;i++){
-    const v=vMin+(vR*i/4); const y=yP(v);
+  ctx.fillStyle='#dce8f5'; ctx.fillRect(PAD.left,PAD.top,cW,cH);
+
+  // Grid horizontalni
+  ctx.strokeStyle='rgba(255,255,255,0.65)'; ctx.lineWidth=1;
+  for(let i=0;i<=8;i++){
+    const y=PAD.top+(cH/8)*i;
     ctx.beginPath();ctx.moveTo(PAD.left,y);ctx.lineTo(PAD.left+cW,y);ctx.stroke();
-    ctx.fillText(Math.round(v), PAD.left-4, y+3);
   }
-  ctx.textAlign='center'; ctx.fillStyle='#7090b0';
-  for(let h=0;h<=24;h+=3){
-    const x=xP(h);
-    ctx.strokeStyle='rgba(80,120,180,0.25)';ctx.lineWidth=1;
+
+  // Grid vertikalni - hodiny z dat (stejne jako CZ)
+  ctx.fillStyle='#7090b0'; ctx.font='10px JetBrains Mono,monospace'; ctx.textAlign='center';
+  pts.forEach((p,i) => {
+    const mins = Math.round((p.t % 1) * 60);
+    if (mins !== 0) return; // jen cela hodina
+    const x = xP(i);
+    ctx.strokeStyle='rgba(80,120,180,0.45)'; ctx.lineWidth=1.5;
     ctx.beginPath();ctx.moveTo(x,PAD.top);ctx.lineTo(x,PAD.top+cH);ctx.stroke();
-    ctx.fillText(String(h).padStart(2,'0'),x,PAD.top+cH+16);
-  }
-  // Nula
-  ctx.strokeStyle='rgba(26,26,46,0.4)';ctx.lineWidth=1.5;ctx.setLineDash([]);
+    ctx.fillText(String(Math.floor(p.t)).padStart(2,'0'), x, PAD.top+cH+16);
+  });
+
+  // Nulova cara
+  ctx.strokeStyle='#1a1a2e'; ctx.lineWidth=2; ctx.setLineDash([]);
   ctx.beginPath();ctx.moveTo(PAD.left,y0);ctx.lineTo(PAD.left+cW,y0);ctx.stroke();
 
-  const bW = Math.max(2,(cW/96)*0.8);
-  // aFRR+ oranzova
-  ctx.fillStyle='rgba(255,152,0,0.85)';
-  for(const p of pts){
-    if(!(p.up>0))continue;
-    const x=xP(p.t)-bW/2,y=yP(p.up),h=y0-y;
-    if(h>0) ctx.fillRect(x,y,bW,h);
+  const bW = Math.max(2, cW/(n||96)*0.8);
+
+  // mFRR- zelena (dolu od y0)
+  ctx.fillStyle='rgba(76,175,80,0.55)';
+  pts.forEach((p,i)=>{
+    if(!p.mfrrN) return;
+    const x=xP(i), yTop=y0, yBot=yP(-p.mfrrN);
+    if(yBot>yTop) ctx.fillRect(x-bW/2,yTop,bW,yBot-yTop);
+  });
+  // mFRR+ cervena (dolu od y0)
+  ctx.fillStyle='rgba(200,30,30,0.85)';
+  pts.forEach((p,i)=>{
+    if(!p.mfrrP) return;
+    const x=xP(i), yTop=yP(p.mfrrP), yBot=y0;
+    if(yBot>yTop) ctx.fillRect(x-bW/2,yTop,bW,yBot-yTop);
+  });
+  // aFRR- modra (dolu od y0)
+  ctx.fillStyle='rgba(0,180,216,0.7)';
+  pts.forEach((p,i)=>{
+    if(!p.afrrN) return;
+    const x=xP(i), yTop=y0, yBot=yP(-p.afrrN);
+    if(yBot>yTop) ctx.fillRect(x-bW/2,yTop,bW,yBot-yTop);
+  });
+  // aFRR+ oranzova (nahoru od y0)
+  ctx.fillStyle='rgba(255,152,0,0.65)';
+  pts.forEach((p,i)=>{
+    if(!p.afrrP) return;
+    const x=xP(i), yTop=yP(p.afrrP), yBot=y0;
+    if(yBot>yTop) ctx.fillRect(x-bW/2,yTop,bW,yBot-yTop);
+  });
+
+  // NRV saldo - cerna cara (pokud existuje)
+  const nrvPts = pts.filter(p=>p.nrv!=null);
+  if(nrvPts.length) {
+    ctx.strokeStyle='#111'; ctx.lineWidth=2; ctx.setLineDash([]);
+    ctx.beginPath();
+    nrvPts.forEach((p,i)=>{
+      const globalI = pts.indexOf(p);
+      const x=xP(globalI>=0?globalI:i), y=yP(p.nrv);
+      if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
   }
-  // aFRR- modra
-  ctx.fillStyle='rgba(0,180,216,0.85)';
-  for(const p of pts){
-    if(!(p.dn>0))continue;
-    const x=xP(p.t)-bW/2,y=y0,h=yP(-p.dn)-y0;
-    if(h>0) ctx.fillRect(x,y,bW,h);
-  }
-  // Ted cara
-  const f=(now.getUTCHours()+off)+now.getUTCMinutes()/60;
+
+  // Y osa labels
+  ctx.fillStyle='#6688aa'; ctx.font='10px JetBrains Mono,monospace'; ctx.textAlign='right';
+  const yTicks=[-500,-400,-300,-200,-100,0,100,200,300,400,500].filter(v=>v>=yMin&&v<=yMax);
+  yTicks.forEach(v=>{ctx.fillText(v,PAD.left-5,yP(v)+3);});
+  ctx.textAlign='left';
+  yTicks.filter((_,i)=>i%2===0).forEach(v=>{ctx.fillText(v,PAD.left+cW+4,yP(v)+3);});
+
+  // Ted cara - najdi nejblizsi bod
+  const nowT2=(now.getUTCHours()+off)+now.getUTCMinutes()/60;
+  let nowIdx=0, nowDist=Infinity;
+  pts.forEach((p,i)=>{const d=Math.abs(p.t-nowT2);if(d<nowDist){nowDist=d;nowIdx=i;}});
+  const xNow=xP(nowIdx);
   ctx.strokeStyle='rgba(192,57,43,0.6)';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);
-  ctx.beginPath();ctx.moveTo(xP(f),PAD.top);ctx.lineTo(xP(f),PAD.top+cH);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(xNow,PAD.top);ctx.lineTo(xNow,PAD.top+cH);ctx.stroke();
   ctx.setLineDash([]);
 
-  _deRegMeta = {pts, PAD, cW, cH, xP, yP};
+  _deRegMeta = {pts, PAD, cW, cH, xP, xPt, yP, n};
 }
 
 // Tooltip
 (function(){
   const canvas=document.getElementById('deRegCanvas');
   const tip=document.getElementById('deRegTip');
+  const line=document.getElementById('deRegLine');
   if(!canvas||!tip) return;
   canvas.addEventListener('mousemove',e=>{
     if(!_deRegMeta) return;
-    const {pts,PAD,cW}=_deRegMeta;
+    const {pts,PAD,cW,n}=_deRegMeta;
     const rect=canvas.getBoundingClientRect();
     const mx=e.clientX-rect.left;
-    if(mx<PAD.left||mx>PAD.left+cW){tip.style.display='none';return;}
-    const tf=((mx-PAD.left)/cW)*24;
-    let b=pts[0],bd=Infinity;
-    for(const p of pts){const d=Math.abs(p.t-tf);if(d<bd){bd=d;b=p;}}
-    const pad=n=>String(n).padStart(2,'0');
-    tip.innerHTML=`<b>${b.lbl} CET</b> · aFRR+ <b style="color:#ff9800;">${(b.up||0).toFixed(0)}</b> · aFRR− <b style="color:#00b4d8;">${(b.dn||0).toFixed(0)}</b> MW`;
-    tip.style.display='block';
-    const left=mx+10+220>rect.width?mx-228:mx+10;
-    tip.style.left=left+'px';
+    const scaleX=canvas.width/(rect.width||1);
+    if(mx<PAD.left||mx>PAD.left+cW){tip.style.display='none';if(line)line.style.display='none';return;}
+    const idx=Math.round(((mx-PAD.left)/cW)*(n-1));
+    const p=pts[Math.max(0,Math.min(idx,pts.length-1))];
+    if(!p){tip.style.display='none';return;}
+    let html=`<b>${p.lbl} CET</b>`;
+    if(p.nrv!=null) html+=` · NRV <b style="color:#fff;">${p.nrv.toFixed(0)}</b>`;
+    if(p.afrrP) html+=` · aFRR+ <b style="color:#ff9800;">${p.afrrP.toFixed(0)}</b>`;
+    if(p.afrrN) html+=` · aFRR− <b style="color:#00b4d8;">${p.afrrN.toFixed(0)}</b>`;
+    if(p.mfrrP) html+=` · mFRR+ <b style="color:#f44336;">${p.mfrrP.toFixed(0)}</b>`;
+    if(p.mfrrN) html+=` · mFRR− <b style="color:#4caf50;">${p.mfrrN.toFixed(0)}</b>`;
+    html+=' MW';
+    tip.innerHTML=html; tip.style.display='block';
+    const left=mx+10+300>rect.width?mx-310:mx+10; tip.style.left=left+'px';
+    if(line){line.style.display='block';line.style.left=mx+'px';}
   });
-  canvas.addEventListener('mouseleave',()=>{tip.style.display='none';});
+  canvas.addEventListener('mouseleave',()=>{tip.style.display='none';if(line)line.style.display='none';});
 })();
 
 </script>
