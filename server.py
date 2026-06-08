@@ -3057,35 +3057,24 @@ class Handler(BaseHTTPRequestHandler):
             points = []
             issued_at = raw.get("generated_at_utc") or raw.get("issued_at") or raw.get("forecast_time") or ""
 
-            series = raw.get("series") or raw.get("forecasts") or raw.get("data") or raw.get("prices") or []
+            series = raw.get("series") or []
             if isinstance(series, list):
                 for item in series:
                     if not isinstance(item, dict): continue
-                    ts = (item.get("datetime_utc") or item.get("datetime") or item.get("ts")
-                          or item.get("time") or item.get("hour") or item.get("period"))
-                    price = (item.get("value") or item.get("price") or item.get("price_eur")
-                             or item.get("forecast"))
+                    ts = (item.get("ts_utc") or item.get("datetime_utc") or item.get("datetime")
+                          or item.get("ts") or item.get("time"))
+                    price = (item.get("price_eur_mwh") or item.get("value") or item.get("price")
+                             or item.get("price_eur"))
                     if ts is None or price is None: continue
                     try: price_f = float(price)
                     except: continue
                     points.append({"ts": str(ts), "price_eur": round(price_f, 2)})
-
-            # Debug: ukaz prvni prvek series
-            series_raw = raw.get("series") or []
-            series_sample = None
-            if isinstance(series_raw, list) and len(series_raw) > 0:
-                series_sample = series_raw[0]
-            elif isinstance(series_raw, dict):
-                series_sample = {k: str(v)[:50] for k,v in list(series_raw.items())[:5]}
 
             out = {
                 "area": area,
                 "issued_at": issued_at,
                 "points": points,
                 "n": len(points),
-                "series_type": type(series_raw).__name__,
-                "series_len": len(series_raw) if isinstance(series_raw, (list,dict)) else 0,
-                "series_sample": series_sample,
                 "raw_keys": list(raw.keys()) if isinstance(raw, dict) else [],
                 "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                 "_cache": "miss"
