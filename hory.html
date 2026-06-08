@@ -5325,8 +5325,26 @@ async function loadFandaKapacity() {
     const rowByKey = {};
     for (const r of rows) rowByKey[r.key] = r;
 
+    // Aktualni hodina CET
+    const _cetOff2 = (new Date().getUTCMonth()+1)>=4&&(new Date().getUTCMonth()+1)<=10?2:1;
+    const _cetNow2 = new Date(Date.now()+_cetOff2*3600*1000);
+    const _nowHH = String(_cetNow2.getUTCHours()).padStart(2,'0');
+    const _nowMM = String(_cetNow2.getUTCMinutes()).padStart(2,'0');
+    // Najdi aktualni slot - posledni slot ktery uz zacal
+    let _curSlot = null;
     for (const h of filteredHours) {
-      t += `<tr><td style="padding:3px 6px;background:#f8f9fa;border:1px solid #eee;font-weight:600;">${h}</td>`;
+      const _m = h.match(/^(\d{2}):(\d{2})$/);
+      if (!_m) continue;
+      const _hh = parseInt(_m[1]), _mm = parseInt(_m[2]);
+      const _nowTotalMin = _cetNow2.getUTCHours()*60+_cetNow2.getUTCMinutes();
+      if (_hh*60+_mm <= _nowTotalMin) _curSlot = h;
+    }
+
+    for (const h of filteredHours) {
+      const isCur = h === _curSlot;
+      const rowBg = isCur ? 'background:#fff3cd;' : 'background:#f8f9fa;';
+      const rowBorder = isCur ? 'border:2px solid #f0a500;' : 'border:1px solid #eee;';
+      t += `<tr style="${isCur?'font-weight:700;':''}"><td style="padding:3px 6px;${rowBg}${rowBorder}font-weight:600;${isCur?'color:#b36b00;':''}">${h}${isCur?' ◀':''}</td>`;
       for (const key of countryKeys) {
         const v = rowByKey[key]?.[h];
         const dir = dirOf(key);
@@ -5335,7 +5353,7 @@ async function loadFandaKapacity() {
           cls = dir==='in' ? 'color:#2e7d32;' : dir==='out' ? 'color:#c62828;' : '';
           txt = v.toFixed(v % 1 === 0 ? 0 : 1);
         }
-        t += `<td style="padding:3px 4px;text-align:center;border:1px solid #eee;${cls}">${txt}</td>`;
+        t += `<td style="padding:3px 4px;text-align:center;${isCur?'border:2px solid #f0a500;':'border:1px solid #eee;'}${cls}">${txt}</td>`;
       }
       t += '</tr>';
     }
