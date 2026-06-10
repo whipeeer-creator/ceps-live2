@@ -114,11 +114,12 @@ table.ts tr.top td { background:#eafaf0; font-weight:600; }
         <thead>
           <tr>
             <th class="l">kontrakt</th>
-            <th>buy €</th><th>Δ%</th>
+            <th>odchylka MW</th><th>Δ%</th>
+            <th class="colgrp">buy €</th><th>Δ%</th>
             <th class="colgrp">sell €</th><th>Δ%</th>
           </tr>
         </thead>
-        <tbody id="tsBody"><tr><td class="l zr" colspan="5">sbírám data…</td></tr></tbody>
+        <tbody id="tsBody"><tr><td class="l zr" colspan="7">sbírám data…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -583,22 +584,25 @@ function renderKpiAndTable(){
     if (!b) return;
     const buy = Number.isFinite(b.ask)?b.ask:null;
     const sell = Number.isFinite(b.bid)?b.bid:null;
-    // Δ% z historie slotu
+    // Δ% z historie slotu + odchylka v okamžiku posledního a předchozího snímku
     const hist = _watch[lbl];
-    let dBuy=null, dSell=null;
+    let dBuy=null, dSell=null, dReg=null, regNow=cur.reg;
     if (hist && hist.length>=2){
       const prevSnap = hist[hist.length-2];
+      const lastSnap = hist[hist.length-1];
       dBuy = pct(buy, prevSnap.buy);
       dSell = pct(sell, prevSnap.sell);
+      dReg = pct(lastSnap.reg, prevSnap.reg);
     }
     const isNear = lbl===cur.slot;
     html += `<tr${isNear?' class="top"':''}>
       <td class="l">${lbl}${isNear?' ◀ nejbliž.':''}</td>
-      <td>${buy!=null?buy.toFixed(1):'—'}</td>${pctCell(dBuy)}
+      <td>${regNow!=null?(regNow>0?'+':'')+regNow.toFixed(0):'—'}</td>${pctCell(dReg)}
+      <td class="colgrp">${buy!=null?buy.toFixed(1):'—'}</td>${pctCell(dBuy)}
       <td class="colgrp">${sell!=null?sell.toFixed(1):'—'}</td>${pctCell(dSell)}
     </tr>`;
   });
-  if (!html) html='<tr><td class="l zr" colspan="5">žádné budoucí kontrakty s daty…</td></tr>';
+  if (!html) html='<tr><td class="l zr" colspan="7">žádné budoucí kontrakty s daty…</td></tr>';
   document.getElementById('tsBody').innerHTML = html;
 }
 
