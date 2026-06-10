@@ -107,19 +107,18 @@ table.ts tr.top td { background:#eafaf0; font-weight:600; }
 
   <div class="tbl-wrap">
     <div class="tbl-hdr">Vývoj v čase: regulace → budoucí VDT cena
-      <span class="sub" id="tsSub">— nejbližší kontrakt</span>
+      <span class="sub" id="tsSub">— všechny budoucí kontrakty</span>
     </div>
     <div style="max-height:340px; overflow-y:auto;">
       <table class="ts">
         <thead>
           <tr>
-            <th class="l">čas</th>
-            <th>regulace MW</th><th>Δ%</th>
-            <th class="colgrp">buy €</th><th>Δ%</th>
+            <th class="l">kontrakt</th>
+            <th>buy €</th><th>Δ%</th>
             <th class="colgrp">sell €</th><th>Δ%</th>
           </tr>
         </thead>
-        <tbody id="tsBody"><tr><td class="l zr" colspan="7">sbírám data…</td></tr></tbody>
+        <tbody id="tsBody"><tr><td class="l zr" colspan="5">sbírám data…</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -333,15 +332,6 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
   ctx.beginPath(); let oStarted=false;
   odchVals.forEach((v, i) => { if(!Number.isFinite(v)){oStarted=false;return;} const x=xP(i),y=yP(v); oStarted?ctx.lineTo(x,y):(ctx.moveTo(x,y),oStarted=true); });
   ctx.stroke();
-
-  // svislice "teď" = hranice minulost/budoucnost
-  if (nReal>0 && nReal<n){
-    const xnow = xP(nReal-1);
-    ctx.strokeStyle = '#f5a623'; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]);
-    ctx.beginPath(); ctx.moveTo(xnow,PAD.top); ctx.lineTo(xnow,PAD.top+cH); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = '#c77700'; ctx.font = 'bold 10px JetBrains Mono'; ctx.textAlign='left';
-    ctx.fillText('teď →', xnow+4, PAD.top+12);
-  }
 
   if (colMm) {
     ctx.fillStyle = 'rgba(76,175,80,0.55)'; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 0.8;
@@ -575,29 +565,40 @@ function renderKpiAndTable(){
   // buy
   const dBuy = prev ? pct(cur.buy, prev.buy) : null;
   document.getElementById('v-buy').innerHTML = cur.buy!=null ? `${cur.buy.toFixed(1)}<span class="kpi-u">€</span>` : '—';
-  document.getElementById('s-buy').innerHTML = dBuy!=null ? `<span class="${dBuy>0?'up':dBuy<0?'dn':'zr'}">${dBuy>0?'+':''}${dBuy.toFixed(2)} %</span> za 30s` : 'nákup nejbliž. kontraktu';
+  document.getElementById('s-buy').innerHTML = `kontrakt ${cur.slot||'—'}` + (dBuy!=null ? ` · <span class="${dBuy>0?'up':dBuy<0?'dn':'zr'}">${dBuy>0?'+':''}${dBuy.toFixed(2)} %</span>` : '');
   // sell
   const dSell = prev ? pct(cur.sell, prev.sell) : null;
   document.getElementById('v-sell').innerHTML = cur.sell!=null ? `${cur.sell.toFixed(1)}<span class="kpi-u">€</span>` : '—';
-  document.getElementById('s-sell').innerHTML = dSell!=null ? `<span class="${dSell>0?'up':dSell<0?'dn':'zr'}">${dSell>0?'+':''}${dSell.toFixed(2)} %</span> za 30s` : 'prodej nejbliž. kontraktu';
+  document.getElementById('s-sell').innerHTML = `kontrakt ${cur.slot||'—'}` + (dSell!=null ? ` · <span class="${dSell>0?'up':dSell<0?'dn':'zr'}">${dSell>0?'+':''}${dSell.toFixed(2)} %</span>` : '');
 
-  document.getElementById('tsSub').textContent = `— nejbližší kontrakt ${cur.slot}`;
+  document.getElementById('tsSub').textContent = `${cur.reg!=null?(cur.reg>0?'+':'')+cur.reg.toFixed(1)+' MW' : '—'} · všechny budoucí kontrakty do konce dne`;
 
-  // --- tabulka (nejnovější nahoře) ---
-  const cell = (v, unit) => v!=null ? v.toFixed(1)+(unit||'') : '—';
+  // --- tabulka: řádek = kontrakt (všechny budoucí do konce dne) ---
+  // buy/sell = aktuální cena, Δ% = změna oproti předchozímu snímku daného kontraktu (_watch)
   const pctCell = (d) => d==null ? '<td class="zr">—</td>' : `<td class="${d>0?'up':d<0?'dn':'zr'}">${d>0?'+':''}${d.toFixed(2)}</td>`;
-  const tfmt = dt => new Intl.DateTimeFormat('cs-CZ',{timeZone:'Europe/Prague',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(dt);
+  const slots = futureSlots();
   let html='';
-  for (let i=_series.length-1;i>=1;i--){
-    const s=_series[i], p=_series[i-1];
-    html += `<tr>
-      <td class="l">${tfmt(s.t)}</td>
-      <td>${s.reg!=null?(s.reg>0?'+':'')+s.reg.toFixed(1):'—'}</td>${pctCell(pct(s.reg,p.reg))}
-      <td class="colgrp">${cell(s.buy)}</td>${pctCell(pct(s.buy,p.buy))}
-      <td class="colgrp">${cell(s.sell)}</td>${pctCell(pct(s.sell,p.sell))}
+  slots.forEach(lbl => {
+    const b = _vdtBands[lbl] || _vdtBands[lbl.slice(0,2)+':00'];
+    if (!b) return;
+    const buy = Number.isFinite(b.ask)?b.ask:null;
+    const sell = Number.isFinite(b.bid)?b.bid:null;
+    // Δ% z historie slotu
+    const hist = _watch[lbl];
+    let dBuy=null, dSell=null;
+    if (hist && hist.length>=2){
+      const prevSnap = hist[hist.length-2];
+      dBuy = pct(buy, prevSnap.buy);
+      dSell = pct(sell, prevSnap.sell);
+    }
+    const isNear = lbl===cur.slot;
+    html += `<tr${isNear?' class="top"':''}>
+      <td class="l">${lbl}${isNear?' ◀ nejbliž.':''}</td>
+      <td>${buy!=null?buy.toFixed(1):'—'}</td>${pctCell(dBuy)}
+      <td class="colgrp">${sell!=null?sell.toFixed(1):'—'}</td>${pctCell(dSell)}
     </tr>`;
-  }
-  if (!html) html='<tr><td class="l zr" colspan="7">sbírám data… (1. řádek za 30 s)</td></tr>';
+  });
+  if (!html) html='<tr><td class="l zr" colspan="5">žádné budoucí kontrakty s daty…</td></tr>';
   document.getElementById('tsBody').innerHTML = html;
 }
 
@@ -678,6 +679,8 @@ function redraw(){
   }
   document.getElementById('chartStatus').textContent =
     `VDT bid ${nBid} · ask ${nAsk}` + (window._obStamp?` · OB ${window._obStamp}`:'') + moveTxt;
+  // živá aktualizace KPI cen + tabulky kontraktů (s každým VDT refreshem)
+  if (_series.length) renderKpiAndTable();
 }
 
 async function loadAll(){
