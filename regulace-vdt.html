@@ -35,6 +35,26 @@ main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; max
 .err-bar { background: #fff0f0; border: 1px solid #ffb3b3; border-radius: 6px; padding: 8px 12px; color: #c0392b; font-size: 11px; display: none; }
 canvas { max-width: 100%; display: block; }
 .status { font-family:'JetBrains Mono',monospace; font-size:10px; color:#666; }
+.kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+.kpi { background: #fff; border: 1px solid #e0e4ef; border-radius: 7px; padding: 10px 12px; border-left: 3px solid #ccc; }
+.kpi.pos { border-left-color: #43a047; } .kpi.neg { border-left-color: #e53935; } .kpi.mid { border-left-color: #f39c12; }
+.kpi-l { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 5px; }
+.kpi-v { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; line-height: 1; color: #1a1a2e; }
+.kpi-v.pos { color: #2e7d32; } .kpi-v.neg { color: #c0392b; } .kpi-v.mid { color: #e67e22; }
+.kpi-u { font-size: 10px; font-weight: 400; color: #666; margin-left: 2px; }
+.kpi-s { font-size: 10px; color: #666; margin-top: 4px; font-family: 'JetBrains Mono', monospace; line-height: 1.45; }
+.tbl-wrap { background:#fff; border:1px solid #e0e4ef; border-radius:8px; overflow:hidden; }
+.tbl-hdr { padding:7px 12px; border-bottom:1px solid #eef0f8; font-size:12px; font-weight:600; }
+.tbl-hdr .sub { font-size:10px; color:#666; font-weight:400; }
+table.ts { width:100%; border-collapse:collapse; font-family:'JetBrains Mono',monospace; font-size:11px; }
+table.ts th { text-align:right; padding:5px 10px; color:#666; font-size:9px; text-transform:uppercase; letter-spacing:.04em; border-bottom:1px solid #eef0f8; font-weight:600; background:#fafbfd; position:sticky; top:0; }
+table.ts th.l { text-align:left; }
+table.ts td { padding:4px 10px; text-align:right; border-bottom:1px solid rgba(0,0,0,.03); }
+table.ts td.l { text-align:left; color:#888; }
+table.ts tr:first-child td { background:#fffef0; }
+.up { color:#0b8a3e; } .dn { color:#c0392b; } .zr { color:#bbb; }
+.colgrp { border-left:2px solid #e4e4e4; }
+@media(max-width:700px){ .kpi-row{grid-template-columns:repeat(2,1fr);} }
 </style>
 </head>
 <body>
@@ -51,6 +71,13 @@ canvas { max-width: 100%; display: block; }
 
 <main>
   <div class="err-bar" id="err"></div>
+
+  <div class="kpi-row">
+    <div class="kpi" id="k-reg"><div class="kpi-l">Aktuální regulace</div><div class="kpi-v" id="v-reg">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="s-reg">—</div></div>
+    <div class="kpi" id="k-regd"><div class="kpi-l">Změna regulace</div><div class="kpi-v" id="v-regd">—<span class="kpi-u">%</span></div><div class="kpi-s" id="s-regd">za 30 s</div></div>
+    <div class="kpi" id="k-buy"><div class="kpi-l">VDT buy (nákup)</div><div class="kpi-v" id="v-buy">—<span class="kpi-u">€</span></div><div class="kpi-s" id="s-buy">—</div></div>
+    <div class="kpi" id="k-sell"><div class="kpi-l">VDT sell (prodej)</div><div class="kpi-v" id="v-sell">—<span class="kpi-u">€</span></div><div class="kpi-s" id="s-sell">—</div></div>
+  </div>
 
   <div class="chart-panel">
     <div class="panel-hdr">
@@ -75,6 +102,25 @@ canvas { max-width: 100%; display: block; }
       <span class="pleg"><span class="pleg-ln" style="border-color:#c0392b"></span>VDT ask (nákup)</span>
     </div>
   </div>
+
+  <div class="tbl-wrap">
+    <div class="tbl-hdr">Vývoj v čase: regulace → budoucí VDT cena
+      <span class="sub" id="tsSub">— nejbližší kontrakt</span>
+    </div>
+    <div style="max-height:340px; overflow-y:auto;">
+      <table class="ts">
+        <thead>
+          <tr>
+            <th class="l">čas</th>
+            <th>regulace MW</th><th>Δ%</th>
+            <th class="colgrp">buy €</th><th>Δ%</th>
+            <th class="colgrp">sell €</th><th>Δ%</th>
+          </tr>
+        </thead>
+        <tbody id="tsBody"><tr><td class="l zr" colspan="7">sbírám data…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
 </main>
 
 <script>
@@ -83,6 +129,7 @@ let refreshTimer = null, countdownTimer = null, rem = 15, REFRESH_S = 15;
 let _topMeta = null;
 let _vdtBands = {};
 let _lastObCount = 0;
+let _vdtHash = null, _vdtLastMove = null;
 
 (function init(){
   const origin = window.location.origin;
@@ -343,6 +390,91 @@ function vdtAt(isoDate, side){
   return Number.isFinite(v) ? v : null;
 }
 
+// pražský "HH:MM" slot nejbližšího budoucího kontraktu (teď +1h, zaokrouhleno na 15min)
+function nearestFutureSlot(){
+  const parts = new Intl.DateTimeFormat('cs-CZ',{timeZone:'Europe/Prague',hour:'2-digit',minute:'2-digit',hour12:false}).formatToParts(new Date());
+  const hh = parseInt(parts.find(p=>p.type==='hour').value);
+  const mm = parseInt(parts.find(p=>p.type==='minute').value);
+  let total = hh*60 + mm + 60;                 // +1 hodina
+  total = Math.ceil(total/15)*15;              // zaokrouhli nahoru na 15min
+  if (total >= 1440) total = 1440-15;          // cap na 23:45
+  const sh = Math.floor(total/60), sm = total%60;
+  return String(sh).padStart(2,'0')+':'+String(sm).padStart(2,'0');
+}
+
+// vrať buy/sell nejbližšího budoucího kontraktu
+function futureQuote(){
+  const slot = nearestFutureSlot();
+  const hh = slot.slice(0,2);
+  const b = _vdtBands[slot] || _vdtBands[hh+':00'] || null;
+  return { slot, buy: b && Number.isFinite(b.ask)?b.ask:null, sell: b && Number.isFinite(b.bid)?b.bid:null };
+}
+
+// === časová řada snímků: {t, reg, buy, sell} ===
+let _series = [];   // nejnovější na konci
+const pct = (cur, prev) => (Number.isFinite(cur)&&Number.isFinite(prev)&&prev!==0) ? (cur-prev)/Math.abs(prev)*100 : null;
+
+function takeSnapshot(){
+  if (!_lastOdch) return;
+  // aktuální regulace = poslední reálný řádek (před splitIdx), invertováno jako osa
+  const realRows = _lastOdch.rows.slice(0, _lastOdch.splitIdx || _lastOdch.rows.length);
+  let reg = null;
+  for (let i=realRows.length-1;i>=0;i--){ const v=parseFloat(realRows[i][_lastOdch.colO]); if(Number.isFinite(v)){ reg=-v; break; } }
+  const fq = futureQuote();
+  const snap = { t: new Date(), reg, buy: fq.buy, sell: fq.sell, slot: fq.slot };
+  // přidej jen pokud je co (aspoň regulace nebo cena)
+  if (reg==null && fq.buy==null && fq.sell==null) return;
+  _series.push(snap);
+  if (_series.length > 200) _series.shift();
+  renderKpiAndTable();
+}
+
+function renderKpiAndTable(){
+  if (!_series.length) return;
+  const cur = _series[_series.length-1];
+  const prev = _series.length>1 ? _series[_series.length-2] : null;
+
+  // --- KPI ---
+  // regulace
+  const kReg=document.getElementById('k-reg');
+  document.getElementById('v-reg').innerHTML = cur.reg!=null ? `${cur.reg>0?'+':''}${cur.reg.toFixed(1)}<span class="kpi-u">MW</span>` : '—';
+  kReg.className='kpi '+(cur.reg==null?'':(cur.reg<-100?'neg':cur.reg>100?'pos':'mid'));
+  document.getElementById('s-reg').textContent = cur.slot ? `budoucí kontrakt ${cur.slot}` : '—';
+  // změna regulace
+  const dReg = prev ? pct(cur.reg, prev.reg) : null;
+  const vRegd=document.getElementById('v-regd'), kRegd=document.getElementById('k-regd');
+  vRegd.innerHTML = dReg!=null ? `${dReg>0?'+':''}${dReg.toFixed(1)}<span class="kpi-u">%</span>` : '—';
+  vRegd.className='kpi-v '+(dReg==null?'':(dReg>0?'pos':dReg<0?'neg':''));
+  kRegd.className='kpi '+(dReg==null?'':(dReg>0?'pos':dReg<0?'neg':''));
+  // buy
+  const dBuy = prev ? pct(cur.buy, prev.buy) : null;
+  document.getElementById('v-buy').innerHTML = cur.buy!=null ? `${cur.buy.toFixed(1)}<span class="kpi-u">€</span>` : '—';
+  document.getElementById('s-buy').innerHTML = dBuy!=null ? `<span class="${dBuy>0?'up':dBuy<0?'dn':'zr'}">${dBuy>0?'+':''}${dBuy.toFixed(2)} %</span> za 30s` : 'nákup nejbliž. kontraktu';
+  // sell
+  const dSell = prev ? pct(cur.sell, prev.sell) : null;
+  document.getElementById('v-sell').innerHTML = cur.sell!=null ? `${cur.sell.toFixed(1)}<span class="kpi-u">€</span>` : '—';
+  document.getElementById('s-sell').innerHTML = dSell!=null ? `<span class="${dSell>0?'up':dSell<0?'dn':'zr'}">${dSell>0?'+':''}${dSell.toFixed(2)} %</span> za 30s` : 'prodej nejbliž. kontraktu';
+
+  document.getElementById('tsSub').textContent = `— nejbližší kontrakt ${cur.slot}`;
+
+  // --- tabulka (nejnovější nahoře) ---
+  const cell = (v, unit) => v!=null ? v.toFixed(1)+(unit||'') : '—';
+  const pctCell = (d) => d==null ? '<td class="zr">—</td>' : `<td class="${d>0?'up':d<0?'dn':'zr'}">${d>0?'+':''}${d.toFixed(2)}</td>`;
+  const tfmt = dt => new Intl.DateTimeFormat('cs-CZ',{timeZone:'Europe/Prague',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}).format(dt);
+  let html='';
+  for (let i=_series.length-1;i>=1;i--){
+    const s=_series[i], p=_series[i-1];
+    html += `<tr>
+      <td class="l">${tfmt(s.t)}</td>
+      <td>${s.reg!=null?(s.reg>0?'+':'')+s.reg.toFixed(1):'—'}</td>${pctCell(pct(s.reg,p.reg))}
+      <td class="colgrp">${cell(s.buy)}</td>${pctCell(pct(s.buy,p.buy))}
+      <td class="colgrp">${cell(s.sell)}</td>${pctCell(pct(s.sell,p.sell))}
+    </tr>`;
+  }
+  if (!html) html='<tr><td class="l zr" colspan="7">sbírám data… (1. řádek za 30 s)</td></tr>';
+  document.getElementById('tsBody').innerHTML = html;
+}
+
 async function loadVdt() {
   try {
     const dayY = dayKeyPrague();
@@ -363,6 +495,12 @@ async function loadVdt() {
     qhRows.forEach(row=>{ const m=((row.kontrakt||{}).from||'').match(/^(\d{1,2}):(\d{2})$/); if(!m) return;
       setBand(String(parseInt(m[1])).padStart(2,'0')+':'+m[2], row.bid, row.ask); });
 
+    // detekce skutečné změny bid/ask (ať víme jestli data tečou nebo stojí)
+    const hash = JSON.stringify(bands);
+    if (hash !== _vdtHash) {
+      _vdtHash = hash;
+      _vdtLastMove = new Date();
+    }
     _vdtBands = bands;
     window._obStamp = dOB.latest_ts || null;
   } catch(e){ console.warn('loadVdt:', e); }
@@ -405,11 +543,15 @@ function redraw(){
   if (!_lastOdch) return;
   const t = _lastOdch;
   drawTopChart(document.getElementById('topCanvas'), t.rows, t.colO, t.svr, t.colAp, t.colAm, t.colMp, t.colMm);
-  const last = t.rows[t.rows.length-1];
   const nBid = Object.values(_vdtBands).filter(b=>Number.isFinite(b.bid)).length;
   const nAsk = Object.values(_vdtBands).filter(b=>Number.isFinite(b.ask)).length;
+  let moveTxt = '';
+  if (_vdtLastMove) {
+    const sec = Math.round((Date.now()-_vdtLastMove.getTime())/1000);
+    moveTxt = sec < 8 ? ' · 🟢 pohyb teď' : ` · pohyb před ${sec}s`;
+  }
   document.getElementById('chartStatus').textContent =
-    `data z ${ft(last.date)} · VDT bid ${nBid} · ask ${nAsk}` + (window._obStamp?` · OB ${window._obStamp}`:'');
+    `VDT bid ${nBid} · ask ${nAsk}` + (window._obStamp?` · OB ${window._obStamp}`:'') + moveTxt;
 }
 
 async function loadAll(){
@@ -454,7 +596,12 @@ window.addEventListener('resize', redraw);
 loadAll();
 countdownTimer = setInterval(()=>{ rem=Math.max(0,rem-1); document.getElementById('cd').textContent=rem+'s'; if(rem<=0)rem=REFRESH_S; }, 1000);
 refreshTimer   = setInterval(loadAll, REFRESH_S*1000);
-setInterval(()=>{ loadVdt().then(redraw); }, 5000);
+setInterval(()=>{ loadVdt().then(redraw); }, 3000);   // VDT bid/ask každé 3s
+setInterval(()=>{ if(_lastOdch) redraw(); }, 1000);   // status tiká
+
+// časová řada: první snímek 6s po startu (až dorazí data), pak každých 30s
+setTimeout(takeSnapshot, 6000);
+setInterval(takeSnapshot, 30000);
 </script>
 </body>
 </html>
