@@ -53,6 +53,8 @@ table.ts td { padding:4px 10px; text-align:right; border-bottom:1px solid rgba(0
 table.ts td.l { text-align:left; color:#888; }
 table.ts tr:first-child td { background:#fffef0; }
 .up { color:#0b8a3e; } .dn { color:#c0392b; } .zr { color:#bbb; }
+.r-strong { color:#0b8a3e; font-weight:700; } .r-mid { color:#e67e22; font-weight:600; } .r-weak { color:#999; }
+table.ts tr.top td { background:#eafaf0; font-weight:600; }
 .colgrp { border-left:2px solid #e4e4e4; }
 @media(max-width:700px){ .kpi-row{grid-template-columns:repeat(2,1fr);} }
 </style>
@@ -118,6 +120,25 @@ table.ts tr:first-child td { background:#fffef0; }
           </tr>
         </thead>
         <tbody id="tsBody"><tr><td class="l zr" colspan="7">sbírám data…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="tbl-wrap">
+    <div class="tbl-hdr">🎯 Sledovač reakce: které kontrakty reagují na odchylku
+      <div class="sub" id="watchVerdict" style="margin-top:4px;font-size:11px;color:#1a1a2e;">sbírám data…</div>
+    </div>
+    <div style="max-height:380px; overflow-y:auto;">
+      <table class="ts">
+        <thead>
+          <tr>
+            <th class="l">kontrakt</th>
+            <th>buy €</th><th>sell €</th>
+            <th class="colgrp">korel. buy</th><th>korel. sell</th>
+            <th>n</th>
+          </tr>
+        </thead>
+        <tbody id="watchBody"><tr><td class="l zr" colspan="6">sbírám data… (potřeba ~4 snímky = 2 min)</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -410,9 +431,114 @@ function futureQuote(){
   return { slot, buy: b && Number.isFinite(b.ask)?b.ask:null, sell: b && Number.isFinite(b.bid)?b.bid:null };
 }
 
+// aktuální odchylka (poslední reálný řádek, invertováno jako osa: + = přebytek)
+function currentReg(){
+  if (!_lastOdch) return null;
+  const real = _lastOdch.rows.slice(0, _lastOdch.splitIdx || _lastOdch.rows.length);
+  for (let i=real.length-1;i>=0;i--){ const v=parseFloat(real[i][_lastOdch.colO]); if(Number.isFinite(v)) return -v; }
+  return null;
+}
+
+// seznam budoucích 15min slotů od (teď +1h) do 23:45, jen kde máme data
+function futureSlots(){
+  const start = nearestFutureSlot();
+  const startMin = parseInt(start.slice(0,2))*60 + parseInt(start.slice(3));
+  const out = [];
+  for (let m=startMin; m<1440; m+=15){
+    const lbl = String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');
+    const b = _vdtBands[lbl] || _vdtBands[lbl.slice(0,2)+':00'];
+    if (b && (Number.isFinite(b.bid)||Number.isFinite(b.ask))) out.push(lbl);
+  }
+  return out;
+}
+
 // === časová řada snímků: {t, reg, buy, sell} ===
 let _series = [];   // nejnovější na konci
 const pct = (cur, prev) => (Number.isFinite(cur)&&Number.isFinite(prev)&&prev!==0) ? (cur-prev)/Math.abs(prev)*100 : null;
+
+// === sledovač: pro každý budoucí slot historie {t, reg, buy, sell} ===
+let _watch = {};   // "HH:MM" -> [{t, reg, buy, sell}, ...]
+
+function trackerSnapshot(){
+  if (!_lastOdch) return;
+  const reg = currentReg();
+  if (reg == null) return;
+  const slots = futureSlots();
+  const now = Date.now();
+  slots.forEach(lbl => {
+    const b = _vdtBands[lbl] || _vdtBands[lbl.slice(0,2)+':00'];
+    if (!b) return;
+    if (!_watch[lbl]) _watch[lbl] = [];
+    _watch[lbl].push({ t: now, reg, buy: Number.isFinite(b.ask)?b.ask:null, sell: Number.isFinite(b.bid)?b.bid:null });
+    if (_watch[lbl].length > 120) _watch[lbl].shift();
+  });
+  // úklid slotů co už nejsou budoucí
+  const valid = new Set(slots);
+  Object.keys(_watch).forEach(k => { if (!valid.has(k)) delete _watch[k]; });
+  renderTracker();
+}
+
+// Pearson korelace dvou polí
+function corr(xs, ys){
+  const n = xs.length; if (n < 4) return null;
+  const mx=xs.reduce((a,b)=>a+b,0)/n, my=ys.reduce((a,b)=>a+b,0)/n;
+  let sxy=0,sxx=0,syy=0;
+  for(let i=0;i<n;i++){ const dx=xs[i]-mx, dy=ys[i]-my; sxy+=dx*dy; sxx+=dx*dx; syy+=dy*dy; }
+  if(sxx===0||syy===0) return null;
+  return sxy/Math.sqrt(sxx*syy);
+}
+
+function renderTracker(){
+  const rows = [];
+  Object.keys(_watch).forEach(lbl => {
+    const hist = _watch[lbl];
+    if (hist.length < 4) return;
+    const reg = hist.map(h=>h.reg);
+    // korelace odchylka vs buy a vs sell
+    const buyArr = hist.map(h=>h.buy), sellArr = hist.map(h=>h.sell);
+    const rb = corr(reg.filter((_,i)=>Number.isFinite(buyArr[i])), buyArr.filter(Number.isFinite));
+    const rs = corr(reg.filter((_,i)=>Number.isFinite(sellArr[i])), sellArr.filter(Number.isFinite));
+    // síla = max abs korelace
+    const best = Math.max(Math.abs(rb||0), Math.abs(rs||0));
+    const last = hist[hist.length-1];
+    rows.push({ lbl, rb, rs, best, buy:last.buy, sell:last.sell, n:hist.length });
+  });
+  rows.sort((a,b)=>b.best-a.best);
+
+  const body = document.getElementById('watchBody');
+  if (!rows.length) { body.innerHTML = '<tr><td class="l zr" colspan="6">sbírám data… (potřeba ~4 snímky = 2 min)</td></tr>'; return; }
+
+  const rcell = (r) => {
+    if (r==null) return '<td class="zr">—</td>';
+    const cls = Math.abs(r)>0.6?'strong':Math.abs(r)>0.3?'mid':'weak';
+    return `<td class="r-${cls}">${r>0?'+':''}${r.toFixed(2)}</td>`;
+  };
+  let html='';
+  rows.forEach((row,i) => {
+    const tag = i===0 && row.best>0.5 ? ' ★' : '';
+    html += `<tr${i===0?' class="top"':''}>
+      <td class="l">${row.lbl}${tag}</td>
+      <td>${row.buy!=null?row.buy.toFixed(1):'—'}</td>
+      <td>${row.sell!=null?row.sell.toFixed(1):'—'}</td>
+      ${rcell(row.rb)}${rcell(row.rs)}
+      <td>${row.n}</td>
+    </tr>`;
+  });
+  document.getElementById('watchBody').innerHTML = html;
+
+  // verdikt nahoře
+  const top = rows[0];
+  const v = document.getElementById('watchVerdict');
+  if (top && top.best>0.5) {
+    const which = Math.abs(top.rb||0) >= Math.abs(top.rs||0) ? {r:top.rb,name:'buy'} : {r:top.rs,name:'sell'};
+    const dir = which.r>0 ? 'roste s odchylkou' : 'klesá s odchylkou';
+    v.innerHTML = `Nejvíc reaguje <b>${top.lbl}</b> (${which.name}): korelace <b>${which.r.toFixed(2)}</b> — cena ${dir}.`;
+  } else if (top) {
+    v.innerHTML = `Zatím žádná silná reakce (nejvyšší korelace ${top.best.toFixed(2)}). Sbírám víc dat…`;
+  } else {
+    v.textContent = '—';
+  }
+}
 
 function takeSnapshot(){
   if (!_lastOdch) return;
@@ -602,6 +728,10 @@ setInterval(()=>{ if(_lastOdch) redraw(); }, 1000);   // status tiká
 // časová řada: první snímek 6s po startu (až dorazí data), pak každých 30s
 setTimeout(takeSnapshot, 6000);
 setInterval(takeSnapshot, 30000);
+
+// sledovač reakce: snímek všech budoucích kontraktů každých 30s
+setTimeout(trackerSnapshot, 8000);
+setInterval(trackerSnapshot, 30000);
 </script>
 </body>
 </html>
