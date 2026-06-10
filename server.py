@@ -1126,7 +1126,7 @@ class Handler(BaseHTTPRequestHandler):
             self._ceps_txt(qs); return
         
         # Staticke HTML soubory (hruska.html, kapacity.html, live_odchylky.html)
-        if parsed.path in ("/hruska.html", "/kapacity.html", "/live_odchylky.html", "/ema.html", "/odhad.html", "/eisi.html", "/ceny.html", "/fanda.html", "/api_test.html", "/spread.html"):
+        if parsed.path in ("/hruska.html", "/kapacity.html", "/live_odchylky.html", "/ema.html", "/odhad.html", "/eisi.html", "/ceny.html", "/fanda.html", "/api_test.html", "/spread.html", "/regulace-vdt.html"):
             try:
                 fname = parsed.path.lstrip("/")
                 # Hleda soubor vedle server.py

@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ČEPS · Regulace vs VDT</title>
+<style>
+body, * { font-variant-numeric: lining-nums tabular-nums; font-feature-settings: "zero" 0, "ss01" 0; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #f0f2f6; font-family: 'Inter', sans-serif; font-size: 12px; color: #1a1a2e; }
+header { background: #fff; border-bottom: 1px solid #e0e4ef; display: flex; align-items: center; justify-content: space-between; padding: 0 12px; min-height: 42px; gap: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.06); position: sticky; top: 0; z-index: 100; flex-wrap: wrap; }
+.logo { font-size: 13px; font-weight: 700; letter-spacing: .04em; white-space: nowrap; }
+.logo em { color: #1565c0; font-style: normal; }
+.hdr-right { display: flex; align-items: center; gap: 6px; }
+.hbtn { background: #f4f5f9; border: 1px solid #dde; color: #666; font-family: 'Inter', sans-serif; font-size: 11px; padding: 4px 10px; border-radius: 5px; cursor: pointer; transition: all .15s; text-decoration: none; }
+.hbtn:hover { border-color: #1565c0; color: #1565c0; }
+.badge { display: flex; align-items: center; gap: 5px; font-size: 11px; background: #eaf5ea; border: 1px solid #b8ddb8; border-radius: 20px; padding: 2px 9px; color: #2e7d32; white-space: nowrap; }
+.badge.err { background: #ffeaea; border-color: #ffb3b3; color: #c0392b; }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: #43a047; }
+.dot.anim { animation: blink 1.6s ease-in-out infinite; }
+@keyframes blink { 0%,100%{opacity:1}50%{opacity:.2} }
+.dot.err { background: #e53935; animation: none; }
+.cd { font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #1565c0; min-width: 30px; }
+main { padding: 10px 12px; display: flex; flex-direction: column; gap: 10px; max-width: 1400px; margin: 0 auto; width: 100%; }
+.kpi-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+.kpi { background: #fff; border: 1px solid #e0e4ef; border-radius: 7px; padding: 10px 12px; border-left: 3px solid #ccc; }
+.kpi.pos { border-left-color: #43a047; } .kpi.neg { border-left-color: #e53935; } .kpi.mid { border-left-color: #f39c12; }
+.kpi-l { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: .05em; margin-bottom: 5px; }
+.kpi-v { font-family: 'JetBrains Mono', monospace; font-size: 20px; font-weight: 700; line-height: 1; color: #1a1a2e; }
+.kpi-u { font-size: 10px; font-weight: 400; color: #666; margin-left: 2px; }
+.kpi-s { font-size: 10px; color: #666; margin-top: 4px; font-family: 'JetBrains Mono', monospace; line-height: 1.45; }
+.chart-panel { background: #fff; border: 1px solid #e0e4ef; border-radius: 8px; overflow: hidden; }
+.panel-hdr { background: #fff; border-bottom: 1px solid #eef0f8; padding: 7px 12px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+.panel-title { font-size: 12px; font-weight: 600; color: #1a1a2e; }
+.panel-sub { font-size: 10px; color: #666; }
+.panel-legend { background: #f4f5f9; border-top: 1px solid #eef0f8; padding: 5px 12px; display: flex; gap: 18px; align-items: center; flex-wrap: wrap; }
+.pleg { font-size: 10px; color: #555; display: flex; align-items: center; gap: 5px; }
+.pleg-sq { width: 18px; height: 10px; border-radius: 1px; flex-shrink: 0; }
+.pleg-ln { width: 18px; height: 0; border-top: 2px solid; flex-shrink: 0; }
+.ctrls { display: flex; gap: 8px; align-items: center; padding: 8px 12px; background: #fafbfd; border-bottom: 1px solid #eef0f8; flex-wrap: wrap; }
+.ctrls input[type="date"] { padding: 4px 8px; border: 1px solid #dde; border-radius: 5px; font-size: 11px; font-family: 'JetBrains Mono', monospace; color: #1a1a2e; background: #fff; }
+.ctrls label { font-size: 10px; color: #666; text-transform: uppercase; letter-spacing: .05em; }
+.status { margin-left: auto; font-size: 10px; color: #666; font-family: 'JetBrains Mono', monospace; }
+.status.err { color: #c0392b; }
+canvas { max-width: 100%; display: block; }
+.err-bar { background: #fff0f0; border: 1px solid #ffb3b3; border-radius: 6px; padding: 8px 12px; color: #c0392b; font-size: 11px; display: none; }
+@media(max-width:700px){ .kpi-row{grid-template-columns:repeat(2,1fr);} }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">ČEPS <em>Korelace</em> · Regulace vs VDT</div>
+  <div class="hdr-right">
+    <div class="badge" id="badge"><span class="dot anim" id="dot"></span><span id="badgeTxt">live</span></div>
+    <span class="cd" id="cd">—</span>
+    <button class="hbtn" onclick="loadAll()">↻</button>
+    <a class="hbtn" href="/hory.html">← dashboard</a>
+  </div>
+</header>
+
+<main>
+  <div class="err-bar" id="errBar"></div>
+
+  <div class="kpi-row">
+    <div class="kpi" id="k-reg"><div class="kpi-l">Aktuální regulace</div><div class="kpi-v" id="v-reg">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="s-reg">—</div></div>
+    <div class="kpi" id="k-vdt"><div class="kpi-l">VDT poslední cena</div><div class="kpi-v" id="v-vdt">—<span class="kpi-u">€/MWh</span></div><div class="kpi-s" id="s-vdt">—</div></div>
+    <div class="kpi" id="k-corr"><div class="kpi-l">Korelace dnes</div><div class="kpi-v" id="v-corr">—</div><div class="kpi-s" id="s-corr">odchylka ↔ VDT</div></div>
+    <div class="kpi" id="k-spot"><div class="kpi-l">VDT vs DA spread ø</div><div class="kpi-v" id="v-spot">—<span class="kpi-u">€</span></div><div class="kpi-s" id="s-spot">—</div></div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title">Systémová odchylka vs VDT cena</div>
+        <div class="panel-sub">odchylka (MW, levá osa, plocha) · VDT 15min (€/MWh, pravá osa, čára)</div>
+      </div>
+    </div>
+    <div class="ctrls">
+      <label>datum</label>
+      <input type="date" id="dateInp">
+      <span class="status" id="chartStatus">—</span>
+    </div>
+    <div style="background:#dce8f5; position:relative; overflow:hidden; width:100%;" id="wrap">
+      <canvas id="mainCanvas" height="440" style="width:100%;height:440px;display:block;"></canvas>
+      <div id="tip" style="position:absolute;display:none;pointer-events:none;background:#1a1a2e;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:5px 9px;border-radius:4px;white-space:nowrap;top:6px;z-index:10;box-shadow:0 2px 6px rgba(0,0,0,.2);line-height:1.5;"></div>
+      <div id="line" style="position:absolute;display:none;pointer-events:none;width:1px;background:rgba(26,26,46,0.35);top:0;bottom:0;z-index:9;"></div>
+    </div>
+    <div class="panel-legend">
+      <span class="pleg"><span class="pleg-sq" style="background:rgba(210,20,20,0.5)"></span>odchylka + (přebytek / DOWN reg)</span>
+      <span class="pleg"><span class="pleg-sq" style="background:rgba(120,120,140,0.35)"></span>odchylka − (nedostatek / UP reg)</span>
+      <span class="pleg"><span class="pleg-ln" style="border-color:#1565c0"></span>VDT cena €/MWh</span>
+      <span class="pleg"><span class="pleg-ln" style="border-color:#e67e22;border-top-style:dashed"></span>DA spot €/MWh</span>
+    </div>
+  </div>
+
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title">Scatter · odchylka (MW) × VDT cena (€/MWh)</div>
+        <div class="panel-sub">každý bod = jeden 15min interval · sklon ukazuje citlivost ceny na regulaci</div>
+      </div>
+    </div>
+    <div style="background:#fff; position:relative; overflow:hidden; width:100%;">
+      <canvas id="scatterCanvas" height="320" style="width:100%;height:320px;display:block;"></canvas>
+    </div>
+  </div>
+</main>
+
+<script>
+let API_URL = '';
+let refreshTimer = null, countdownTimer = null, rem = 60;
+let _meta = null;       // {pts, PAD, cW, n} pro hover
+let _curData = null;    // poslední načtená data
+
+// API_URL = origin (běží na stejném serveru jako hory.html)
+(function init(){
+  const origin = window.location.origin;
+  const urlApi = new URLSearchParams(location.search).get('api');
+  API_URL = (urlApi || origin || '').replace(/\/$/, '');
+  if (API_URL.startsWith('file')) API_URL = 'http://localhost:8765';
+  const d = document.getElementById('dateInp');
+  const now = new Date();
+  d.value = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0') + '-' + String(now.getDate()).padStart(2,'0');
+  d.addEventListener('change', loadAll);
+})();
+
+function ft(ds) {
+  const d = new Date(ds);
+  return String(d.getHours()).padStart(2,'0') + ':' + String(d.getMinutes()).padStart(2,'0');
+}
+function setBadge(ok, txt) {
+  const b = document.getElementById('badge'), dot = document.getElementById('dot');
+  document.getElementById('badgeTxt').textContent = txt;
+  b.className = ok ? 'badge' : 'badge err';
+  dot.className = ok ? 'dot anim' : 'dot err';
+}
+function showErr(msg) {
+  const e = document.getElementById('errBar');
+  if (!msg) { e.style.display = 'none'; return; }
+  e.style.display = 'block'; e.textContent = msg;
+}
+
+// Agregace minutové odchylky do 15min bloků (label = HH:MM startu bloku)
+function agg15(rows, col) {
+  const buckets = {};
+  rows.forEach(r => {
+    const d = new Date(r.date);
+    const b = Math.floor(d.getMinutes()/15)*15;
+    const key = String(d.getHours()).padStart(2,'0') + ':' + String(b).padStart(2,'0');
+    const v = parseFloat(r[col]); if (!Number.isFinite(v)) return;
+    (buckets[key] = buckets[key] || []).push(v);
+  });
+  return Object.keys(buckets).sort().map(k => ({
+    lbl: k, v: buckets[k].reduce((a,x)=>a+x,0)/buckets[k].length
+  }));
+}
+
+function pearson(xs, ys) {
+  const n = xs.length; if (n < 3) return null;
+  const mx = xs.reduce((a,b)=>a+b,0)/n, my = ys.reduce((a,b)=>a+b,0)/n;
+  let sxy=0, sxx=0, syy=0;
+  for (let i=0;i<n;i++){ const dx=xs[i]-mx, dy=ys[i]-my; sxy+=dx*dy; sxx+=dx*dx; syy+=dy*dy; }
+  if (sxx===0||syy===0) return null;
+  return sxy/Math.sqrt(sxx*syy);
+}
+
+async function loadAll() {
+  rem = 60;
+  try {
+    const date = document.getElementById('dateInp').value;
+    const dateFrom = `${date}T00:00:00`, dateTo = `${date}T23:59:59`;
+    document.getElementById('chartStatus').textContent = 'načítám…';
+
+    const uOdch = `${API_URL}/api?method=AktualniSystemovaOdchylkaCR&agregation=MI&function=AVG&dateFrom=${encodeURIComponent(dateFrom)}&dateTo=${encodeURIComponent(dateTo)}`;
+    const uVdt  = `${API_URL}/ote/vdt?date=${date}`;
+    const uSpot = `${API_URL}/spot/prices?country=CZ&date=${date}`;
+
+    const [dO, dV, dS] = await Promise.all([
+      fetch(uOdch, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(uVdt,  {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+      fetch(uSpot, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null),
+    ]);
+
+    if (!dO || dO.error || !dO.rows || !dO.rows.length) {
+      setBadge(false, 'chyba'); showErr('Odchylka: žádná data'); 
+      document.getElementById('chartStatus').textContent = 'bez dat';
+      return;
+    }
+    showErr(null); setBadge(true, 'live');
+
+    const colO = dO.columns[0];
+    // CEPS vrací opačné znaménko než zobrazujeme: invertujeme aby + = přebytek
+    const odch15 = agg15(dO.rows, colO).map(b => ({ lbl: b.lbl, v: -b.v }));
+
+    // VDT body -> mapa HH:MM(15min start) -> cena
+    const vdtMap = {};
+    if (dV && dV.data) {
+      dV.data.forEach(p => {
+        const t = (p.ts || p.timestamp || '').slice(11,16);
+        if (t) vdtMap[t] = p.last;
+      });
+    }
+    // DA spot -> mapa hodina -> cena (rozšíříme na všechny 15min v hodině)
+    const spotMap = {};
+    if (dS && dS.rows) {
+      const col = (dS.columns || []).find(c => /price|cena|eur/i.test(c)) || (dS.columns||[])[1];
+      dS.rows.forEach(r => {
+        const hh = (r.hour != null) ? r.hour : (r.date ? new Date(r.date).getHours() : null);
+        const v = parseFloat(r[col] != null ? r[col] : r.price);
+        if (hh != null && Number.isFinite(v)) spotMap[hh] = v;
+      });
+    }
+
+    // Spojit do jednotných bodů podle 15min labelu odchylky
+    const pts = odch15.map(b => {
+      const hh = parseInt(b.lbl.slice(0,2));
+      return {
+        lbl: b.lbl,
+        odch: b.v,
+        vdt: vdtMap[b.lbl] != null ? vdtMap[b.lbl] : null,
+        spot: spotMap[hh] != null ? spotMap[hh] : null,
+      };
+    });
+
+    _curData = { pts, fetched: dO.fetched_at };
+    drawMain(document.getElementById('mainCanvas'), pts);
+    drawScatter(document.getElementById('scatterCanvas'), pts);
+    updateKpis(pts, dO);
+
+    document.getElementById('chartStatus').textContent =
+      `${pts.length} bodů · VDT ${Object.keys(vdtMap).length} · DA ${Object.keys(spotMap).length}`;
+  } catch (e) {
+    console.error(e); setBadge(false, 'chyba'); showErr('Chyba: ' + e.message);
+  }
+}
+
+function updateKpis(pts, dO) {
+  const withVdt = pts.filter(p => Number.isFinite(p.vdt));
+  // regulace
+  const lastReg = pts[pts.length-1]?.odch;
+  const avgReg = pts.reduce((a,p)=>a+p.odch,0)/pts.length;
+  const kReg = document.getElementById('k-reg');
+  document.getElementById('v-reg').innerHTML = `${lastReg>0?'+':''}${lastReg.toFixed(1)}<span class="kpi-u">MW</span>`;
+  document.getElementById('s-reg').textContent = `prům. dne: ${avgReg>0?'+':''}${avgReg.toFixed(1)} MW`;
+  kReg.className = 'kpi ' + (lastReg < -100 ? 'neg' : lastReg > 100 ? 'pos' : 'mid');
+  // vdt
+  const lastVdt = withVdt.length ? withVdt[withVdt.length-1].vdt : null;
+  document.getElementById('v-vdt').innerHTML = lastVdt!=null ? `${lastVdt.toFixed(1)}<span class="kpi-u">€/MWh</span>` : '—';
+  if (withVdt.length) {
+    const vv = withVdt.map(p=>p.vdt);
+    document.getElementById('s-vdt').textContent = `min ${Math.min(...vv).toFixed(0)} · max ${Math.max(...vv).toFixed(0)} · ø ${(vv.reduce((a,b)=>a+b,0)/vv.length).toFixed(0)}`;
+  }
+  // korelace
+  const xs = withVdt.map(p=>p.odch), ys = withVdt.map(p=>p.vdt);
+  const r = pearson(xs, ys);
+  document.getElementById('v-corr').textContent = r!=null ? r.toFixed(2) : '—';
+  document.getElementById('k-corr').className = 'kpi ' + (r==null?'':(Math.abs(r)>0.5?'pos':Math.abs(r)>0.25?'mid':'neg'));
+  // spread VDT vs DA
+  const sp = pts.filter(p=>Number.isFinite(p.vdt)&&Number.isFinite(p.spot)).map(p=>p.vdt-p.spot);
+  if (sp.length) {
+    const avgSp = sp.reduce((a,b)=>a+b,0)/sp.length;
+    document.getElementById('v-spot').innerHTML = `${avgSp>0?'+':''}${avgSp.toFixed(1)}<span class="kpi-u">€</span>`;
+    document.getElementById('s-spot').textContent = `${sp.length} intervalů s oběma`;
+    document.getElementById('k-spot').className = 'kpi ' + (avgSp>0?'pos':'neg');
+  } else {
+    document.getElementById('v-spot').innerHTML = '—';
+  }
+}
+
+function setupCanvas(canvas, h) {
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.parentElement.clientWidth;
+  canvas.width = W * dpr; canvas.height = h * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = h + 'px';
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,h);
+  return { ctx, W, H: h };
+}
+
+function drawMain(canvas, pts) {
+  const { ctx, W, H } = setupCanvas(canvas, 440);
+  const PAD = { top: 16, right: 56, bottom: 30, left: 48 };
+  const cW = W - PAD.left - PAD.right, cH = H - PAD.top - PAD.bottom;
+  const n = pts.length; if (!n) return;
+  _meta = { pts, PAD, cW, n };
+
+  // --- osa MW (levá) ---
+  const odchV = pts.map(p=>p.odch);
+  const oMax = Math.max(0,...odchV), oMin = Math.min(0,...odchV);
+  const oPad = (oMax-oMin)*0.12 || 30;
+  const yoMax = oMax+oPad, yoMin = oMin-oPad, yoR = yoMax-yoMin;
+  // --- osa € (pravá): VDT + spot ---
+  const priceV = pts.flatMap(p=>[p.vdt,p.spot]).filter(Number.isFinite);
+  let pMax = priceV.length?Math.max(...priceV):100, pMin = priceV.length?Math.min(...priceV):0;
+  const pPad = (pMax-pMin)*0.12 || 10;
+  pMax += pPad; pMin -= pPad; const pR = pMax-pMin;
+
+  function xP(i){ return PAD.left + (i/(n-1||1))*cW; }
+  function yMW(v){ return PAD.top + cH*(1-(v-yoMin)/yoR); }
+  function yEUR(v){ return PAD.top + cH*(1-(v-pMin)/pR); }
+  const y0 = yMW(0);
+
+  // pozadí
+  ctx.fillStyle = '#dce8f5'; ctx.fillRect(PAD.left, PAD.top, cW, cH);
+  // mřížka
+  ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
+  for (let i=0;i<=8;i++){ const y = PAD.top + (cH/8)*i; ctx.beginPath(); ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+cW,y); ctx.stroke(); }
+  // hodinové svislice
+  pts.forEach((p,i) => {
+    if (p.lbl.slice(3) !== '00') return;
+    const x = xP(i);
+    ctx.strokeStyle = 'rgba(80,120,180,0.4)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x,PAD.top); ctx.lineTo(x,PAD.top+cH); ctx.stroke();
+    ctx.fillStyle = '#7090b0'; ctx.font = '10px JetBrains Mono, monospace'; ctx.textAlign = 'center';
+    ctx.fillText(p.lbl, x, PAD.top+cH+16);
+  });
+
+  // plocha odchylky
+  const fillPath = () => {
+    ctx.beginPath(); ctx.moveTo(xP(0), y0);
+    odchV.forEach((v,i)=>ctx.lineTo(xP(i), yMW(v)));
+    ctx.lineTo(xP(n-1), y0); ctx.closePath();
+  };
+  // kladná část (nad nulou) = červená
+  ctx.save(); ctx.beginPath(); ctx.rect(PAD.left, PAD.top, cW, y0-PAD.top); ctx.clip();
+  fillPath(); ctx.fillStyle = 'rgba(210,20,20,0.22)'; ctx.fill(); ctx.restore();
+  // záporná část = šedá
+  ctx.save(); ctx.beginPath(); ctx.rect(PAD.left, y0, cW, PAD.top+cH-y0); ctx.clip();
+  fillPath(); ctx.fillStyle = 'rgba(120,120,140,0.14)'; ctx.fill(); ctx.restore();
+  // nulová linie
+  ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(PAD.left,y0); ctx.lineTo(PAD.left+cW,y0); ctx.stroke();
+  // čára odchylky
+  ctx.strokeStyle = '#111'; ctx.lineWidth = 1.4;
+  ctx.beginPath(); odchV.forEach((v,i)=>{ const x=xP(i),y=yMW(v); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }); ctx.stroke();
+
+  // DA spot (oranžová přerušovaná)
+  ctx.strokeStyle = '#e67e22'; ctx.lineWidth = 1.5; ctx.setLineDash([5,3]);
+  ctx.beginPath(); let started=false;
+  pts.forEach((p,i)=>{ if(!Number.isFinite(p.spot))return; const x=xP(i),y=yEUR(p.spot); started?ctx.lineTo(x,y):(ctx.moveTo(x,y),started=true); });
+  ctx.stroke(); ctx.setLineDash([]);
+
+  // VDT cena (modrá plná)
+  ctx.strokeStyle = '#1565c0'; ctx.lineWidth = 2;
+  ctx.beginPath(); started=false;
+  pts.forEach((p,i)=>{ if(!Number.isFinite(p.vdt))return; const x=xP(i),y=yEUR(p.vdt); started?ctx.lineTo(x,y):(ctx.moveTo(x,y),started=true); });
+  ctx.stroke();
+  // tečky VDT
+  ctx.fillStyle = '#1565c0';
+  pts.forEach((p,i)=>{ if(!Number.isFinite(p.vdt))return; ctx.beginPath(); ctx.arc(xP(i),yEUR(p.vdt),1.6,0,7); ctx.fill(); });
+
+  // osy popisky
+  ctx.fillStyle = '#6688aa'; ctx.font = '10px JetBrains Mono, monospace'; ctx.textAlign = 'right';
+  for (let i=0;i<=4;i++){ const v = yoMin + (yoR)*(i/4); ctx.fillText(v.toFixed(0), PAD.left-5, yMW(v)+3); }
+  ctx.fillStyle = '#1565c0'; ctx.textAlign = 'left';
+  for (let i=0;i<=4;i++){ const v = pMin + pR*(i/4); ctx.fillText(v.toFixed(0), PAD.left+cW+5, yEUR(v)+3); }
+  // názvy os
+  ctx.fillStyle = '#6688aa'; ctx.font = 'bold 9px JetBrains Mono'; ctx.textAlign='left';
+  ctx.fillText('MW', PAD.left-2, PAD.top-4);
+  ctx.fillStyle = '#1565c0'; ctx.textAlign='right';
+  ctx.fillText('€/MWh', PAD.left+cW+44, PAD.top-4);
+}
+
+function drawScatter(canvas, pts) {
+  const { ctx, W, H } = setupCanvas(canvas, 320);
+  const PAD = { top: 16, right: 20, bottom: 36, left: 48 };
+  const cW = W-PAD.left-PAD.right, cH = H-PAD.top-PAD.bottom;
+  const data = pts.filter(p=>Number.isFinite(p.odch)&&Number.isFinite(p.vdt));
+  if (!data.length) {
+    ctx.fillStyle='#999'; ctx.font='12px Inter'; ctx.textAlign='center';
+    ctx.fillText('Žádná párovaná data (chybí VDT)', W/2, H/2); return;
+  }
+  const xs = data.map(p=>p.odch), ys = data.map(p=>p.vdt);
+  let xMin=Math.min(...xs), xMax=Math.max(...xs), yMin=Math.min(...ys), yMax=Math.max(...ys);
+  const xp=(xMax-xMin)*0.08||10, yp=(yMax-yMin)*0.08||5;
+  xMin-=xp;xMax+=xp;yMin-=yp;yMax+=yp;
+  const X=v=>PAD.left+(v-xMin)/(xMax-xMin)*cW;
+  const Y=v=>PAD.top+cH*(1-(v-yMin)/(yMax-yMin));
+
+  ctx.fillStyle='#fafbfd'; ctx.fillRect(PAD.left,PAD.top,cW,cH);
+  ctx.strokeStyle='#eef0f8'; ctx.lineWidth=1;
+  for(let i=0;i<=5;i++){const y=PAD.top+cH/5*i;ctx.beginPath();ctx.moveTo(PAD.left,y);ctx.lineTo(PAD.left+cW,y);ctx.stroke();}
+  for(let i=0;i<=5;i++){const x=PAD.left+cW/5*i;ctx.beginPath();ctx.moveTo(x,PAD.top);ctx.lineTo(x,PAD.top+cH);ctx.stroke();}
+  // nulová svislice odchylky
+  if(xMin<0&&xMax>0){ctx.strokeStyle='#bbb';ctx.lineWidth=1.5;ctx.setLineDash([4,3]);ctx.beginPath();ctx.moveTo(X(0),PAD.top);ctx.lineTo(X(0),PAD.top+cH);ctx.stroke();ctx.setLineDash([]);}
+
+  // body - barva podle hodiny (gradient přes den)
+  data.forEach(p=>{
+    const hh=parseInt(p.lbl.slice(0,2));
+    const hue=200-hh/24*200; // ráno modrá -> večer červená
+    ctx.fillStyle=`hsla(${hue},65%,50%,0.65)`;
+    ctx.beginPath();ctx.arc(X(p.odch),Y(p.vdt),3.2,0,7);ctx.fill();
+  });
+
+  // lineární regrese
+  const r=pearson(xs,ys);
+  if(r!=null){
+    const mx=xs.reduce((a,b)=>a+b,0)/xs.length, my=ys.reduce((a,b)=>a+b,0)/ys.length;
+    let sxy=0,sxx=0;for(let i=0;i<xs.length;i++){sxy+=(xs[i]-mx)*(ys[i]-my);sxx+=(xs[i]-mx)**2;}
+    const slope=sxx?sxy/sxx:0, intc=my-slope*mx;
+    ctx.strokeStyle='#1a1a2e';ctx.lineWidth=1.8;
+    ctx.beginPath();ctx.moveTo(X(xMin),Y(slope*xMin+intc));ctx.lineTo(X(xMax),Y(slope*xMax+intc));ctx.stroke();
+    ctx.fillStyle='#1a1a2e';ctx.font='bold 11px JetBrains Mono';ctx.textAlign='left';
+    ctx.fillText(`r=${r.toFixed(2)}  sklon=${slope.toFixed(3)} €/MW`, PAD.left+8, PAD.top+14);
+  }
+  // popisky os
+  ctx.fillStyle='#6688aa';ctx.font='10px JetBrains Mono';ctx.textAlign='right';
+  for(let i=0;i<=4;i++){const v=yMin+(yMax-yMin)*i/4;ctx.fillText(v.toFixed(0),PAD.left-5,Y(v)+3);}
+  ctx.textAlign='center';
+  for(let i=0;i<=4;i++){const v=xMin+(xMax-xMin)*i/4;ctx.fillText(v.toFixed(0),X(v),PAD.top+cH+16);}
+  ctx.font='bold 9px JetBrains Mono';ctx.textAlign='center';
+  ctx.fillText('odchylka MW', PAD.left+cW/2, H-4);
+  ctx.save();ctx.translate(12,PAD.top+cH/2);ctx.rotate(-Math.PI/2);ctx.fillText('VDT €/MWh',0,0);ctx.restore();
+}
+
+// hover na hlavním grafu
+(function(){
+  const canvas = document.getElementById('mainCanvas');
+  const tip = document.getElementById('tip'), line = document.getElementById('line');
+  canvas.addEventListener('mousemove', e => {
+    if (!_meta) return;
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const { pts, PAD, cW, n } = _meta;
+    if (mx < PAD.left || mx > PAD.left+cW) { tip.style.display='none'; line.style.display='none'; return; }
+    const idx = Math.max(0, Math.min(n-1, Math.round((mx-PAD.left)/cW*(n-1))));
+    const p = pts[idx]; if (!p) return;
+    let html = `<b>${p.lbl}</b><br>odch: ${p.odch>0?'+':''}${p.odch.toFixed(1)} MW`;
+    if (Number.isFinite(p.vdt)) html += `<br>VDT: ${p.vdt.toFixed(1)} €`;
+    if (Number.isFinite(p.spot)) html += `<br>DA: ${p.spot.toFixed(1)} €`;
+    if (Number.isFinite(p.vdt)&&Number.isFinite(p.spot)) html += `<br>spread: ${(p.vdt-p.spot)>0?'+':''}${(p.vdt-p.spot).toFixed(1)} €`;
+    tip.innerHTML = html; tip.style.display='block';
+    tip.style.left = Math.min(mx+12, rect.width-110) + 'px';
+    line.style.display='block'; line.style.left = mx+'px';
+  });
+  canvas.addEventListener('mouseleave', ()=>{ tip.style.display='none'; line.style.display='none'; });
+})();
+
+window.addEventListener('resize', () => { if (_curData) { drawMain(document.getElementById('mainCanvas'), _curData.pts); drawScatter(document.getElementById('scatterCanvas'), _curData.pts); } });
+
+// refresh každých 60s + countdown
+loadAll();
+countdownTimer = setInterval(()=>{ rem=Math.max(0,rem-1); document.getElementById('cd').textContent=rem+'s'; if(rem<=0)rem=60; }, 1000);
+refreshTimer = setInterval(loadAll, 60000);
+</script>
+</body>
+</html>
