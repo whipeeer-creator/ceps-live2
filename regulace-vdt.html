@@ -93,8 +93,11 @@ let _lastObCount = 0;
 
 function ft(ds) {
   if (!ds) return '';
-  const d = new Date(ds);
-  return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0');
+  try {
+    return new Intl.DateTimeFormat('cs-CZ', {
+      timeZone:'Europe/Prague', hour:'2-digit', minute:'2-digit', hour12:false
+    }).format(new Date(ds));
+  } catch(e) { return ''; }
 }
 function setDot(state, txt) {
   document.getElementById('dot').className = 'dot '+(state==='ok'?'anim':state==='err'?'err':'idle');
@@ -146,6 +149,12 @@ function dayKeyPrague(){
   const prg=new Date(now.getTime()+off*3600*1000);
   return prg.getUTCFullYear().toString()+String(prg.getUTCMonth()+1).padStart(2,'0')+String(prg.getUTCDate()).padStart(2,'0');
 }
+function dayKeyPragueOffset(days){
+  const now=new Date();
+  const off=(now.getUTCMonth()>=3 && now.getUTCMonth()<=9)?2:1;
+  const prg=new Date(now.getTime()+off*3600*1000 + days*24*3600*1000);
+  return prg.getUTCFullYear().toString()+String(prg.getUTCMonth()+1).padStart(2,'0')+String(prg.getUTCDate()).padStart(2,'0');
+}
 
 function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colMm) {
   const { ctx, W, H } = setupCanvas(canvas, parseInt(canvas.getAttribute('height'))||320);
@@ -158,13 +167,15 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
   _topMeta = { rows: odchRows, PAD, cW, n };
 
   const getAllVals = col => col ? odchRows.map((_,i) => parseFloat((svrRows[i]||{})[col])||0) : [];
-  const odchVals = odchRows.map(r => parseFloat(r[colO])||0);
+  const odchVals = odchRows.map(r => { const s=r[colO]; return (s===''||s==null)?NaN:(parseFloat(s)||0); });
   const apVals   = getAllVals(colAp);
   const amVals   = getAllVals(colAm);
   const mpVals   = getAllVals(colMp);
   const mmVals   = getAllVals(colMm);
-  const allV = [...odchVals,...apVals,...amVals,...mpVals,...mmVals];
+  const allV = [...odchVals,...apVals,...amVals,...mpVals,...mmVals].filter(Number.isFinite);
   const dMax = Math.max(0,...allV); const dMin = Math.min(0,...allV);
+  // poslední index s reálnou odchylkou (budoucnost je NaN)
+  let nReal = 0; for (let i=0;i<odchVals.length;i++){ if (Number.isFinite(odchVals[i])) nReal=i+1; }
   const pad  = (dMax-dMin)*0.12||30;
   const yMax = dMax+pad; const yMin = dMin-pad; const yR = yMax-yMin;
 
@@ -184,6 +195,18 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
 
   ctx.fillStyle = '#dce8f5';
   ctx.fillRect(PAD.left, PAD.top, cW, cH);
+
+  // budoucí část (od splitIdx) - světlejší overlay + dělící čára "teď"
+  const splitIdx = (_lastOdch && _lastOdch.splitIdx) || 0;
+  if (splitIdx > 0 && splitIdx < n) {
+    const xS = xP(splitIdx);
+    ctx.fillStyle = '#eef3fa';
+    ctx.fillRect(xS, PAD.top, PAD.left + cW - xS, cH);
+    ctx.strokeStyle = '#f5a623'; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(xS, PAD.top); ctx.lineTo(xS, PAD.top+cH); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#c8851a'; ctx.font = 'bold 10px JetBrains Mono, monospace'; ctx.textAlign = 'left';
+    ctx.fillText('teď →', xS + 5, PAD.top + 12);
+  }
 
   ctx.strokeStyle = 'rgba(255,255,255,0.65)'; ctx.lineWidth = 1;
   for (let i = 0; i <= 8; i++) {
@@ -210,25 +233,27 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
   ctx.strokeStyle = '#1a1a2e'; ctx.lineWidth = 2; ctx.setLineDash([]);
   ctx.beginPath(); ctx.moveTo(PAD.left,y0); ctx.lineTo(PAD.left+cW,y0); ctx.stroke();
 
-  const tgt15 = agg15(odchRows, colO);
+  const tgt15 = agg15(odchRows.slice(0,nReal), colO);
   ctx.strokeStyle = '#e53935'; ctx.lineWidth = 1.5;
   ctx.beginPath();
   let prevX = null;
   tgt15.forEach((b, bi) => {
-    const startIdx = Math.floor(bi * n / tgt15.length);
-    const endIdx   = Math.floor((bi+1) * n / tgt15.length);
-    const x1 = xP(startIdx); const x2 = xP(Math.min(endIdx, n-1));
+    const startIdx = Math.floor(bi * nReal / tgt15.length);
+    const endIdx   = Math.floor((bi+1) * nReal / tgt15.length);
+    const x1 = xP(startIdx); const x2 = xP(Math.min(endIdx, nReal-1));
     const y  = yP(b.v);
     if (prevX === null) ctx.moveTo(x1, y); else ctx.lineTo(x1, y);
     ctx.lineTo(x2, y); prevX = x2;
   });
   ctx.stroke();
 
+  // poslední index s reálnou odchylkou (budoucnost je NaN)
+
   const fillPath = () => {
     ctx.beginPath();
     ctx.moveTo(xP(0), y0);
-    odchVals.forEach((v, i) => ctx.lineTo(xP(i), yP(v)));
-    ctx.lineTo(xP(n-1), y0);
+    for (let i=0;i<nReal;i++){ if(Number.isFinite(odchVals[i])) ctx.lineTo(xP(i), yP(odchVals[i])); }
+    ctx.lineTo(xP(Math.max(0,nReal-1)), y0);
     ctx.closePath();
   };
   ctx.save(); ctx.beginPath(); ctx.rect(PAD.left, PAD.top, cW, y0 - PAD.top); ctx.clip();
@@ -237,9 +262,18 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
   fillPath(); ctx.fillStyle = 'rgba(120,120,140,0.12)'; ctx.fill(); ctx.restore();
 
   ctx.strokeStyle = '#111'; ctx.lineWidth = 1.5;
-  ctx.beginPath();
-  odchVals.forEach((v, i) => { const x=xP(i),y=yP(v); if(i===0)ctx.moveTo(x,y);else ctx.lineTo(x,y); });
+  ctx.beginPath(); let oStarted=false;
+  odchVals.forEach((v, i) => { if(!Number.isFinite(v)){oStarted=false;return;} const x=xP(i),y=yP(v); oStarted?ctx.lineTo(x,y):(ctx.moveTo(x,y),oStarted=true); });
   ctx.stroke();
+
+  // svislice "teď" = hranice minulost/budoucnost
+  if (nReal>0 && nReal<n){
+    const xnow = xP(nReal-1);
+    ctx.strokeStyle = '#f5a623'; ctx.lineWidth = 1.5; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(xnow,PAD.top); ctx.lineTo(xnow,PAD.top+cH); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillStyle = '#c77700'; ctx.font = 'bold 10px JetBrains Mono'; ctx.textAlign='left';
+    ctx.fillText('teď →', xnow+4, PAD.top+12);
+  }
 
   if (colMm) {
     ctx.fillStyle = 'rgba(76,175,80,0.55)'; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 0.8;
@@ -290,10 +324,18 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
   ctx.fillText('MW', PAD.left-2, PAD.top-4);
 }
 
-function vdtAt(isoDate, side){
+// převede ISO čas na pražské "HH:MM" (15min slot) klíče
+function pragueHM(isoDate){
   const d = new Date(isoDate);
-  const hh = String(d.getHours()).padStart(2,'0');
-  const m15 = Math.floor(d.getMinutes()/15)*15;
+  const parts = new Intl.DateTimeFormat('cs-CZ', {
+    timeZone:'Europe/Prague', hour:'2-digit', minute:'2-digit', hour12:false
+  }).formatToParts(d);
+  const hh = parts.find(p=>p.type==='hour').value.padStart(2,'0');
+  const mm = parseInt(parts.find(p=>p.type==='minute').value);
+  return { hh, m15: Math.floor(mm/15)*15 };
+}
+function vdtAt(isoDate, side){
+  const { hh, m15 } = pragueHM(isoDate);
   const qhKey = hh+':'+String(m15).padStart(2,'0');
   const b = _vdtBands[qhKey] || _vdtBands[hh+':00'];
   if (!b) return null;
@@ -304,6 +346,7 @@ function vdtAt(isoDate, side){
 async function loadVdt() {
   try {
     const dayY = dayKeyPrague();
+    const tomY = dayKeyPragueOffset(1);
     const dOB = await fetch(`${API_URL}/vdt/orderbook`, {cache:'no-store'}).then(r=>r.ok?r.json():null).catch(()=>null);
     if (!dOB || !dOB.rows) { return; }
     if (_lastObCount && dOB.rows.length>0 && dOB.rows.length < _lastObCount*0.6) return;
@@ -313,7 +356,7 @@ async function loadVdt() {
     const setBand = (key,bid,ask) => { bands[key] = {
       bid: Number.isFinite(bid)?bid:null, ask: Number.isFinite(ask)?ask:null }; };
     const hourRows=[], qhRows=[];
-    dOB.rows.forEach(row=>{ const k=row.kontrakt||{}; if(k.date!==dayY) return; (k.type==='H'?hourRows:qhRows).push(row); });
+    dOB.rows.forEach(row=>{ const k=row.kontrakt||{}; if(k.date!==dayY && k.date!==tomY) return; (k.type==='H'?hourRows:qhRows).push(row); });
     hourRows.forEach(row=>{ const m=((row.kontrakt||{}).from||'').match(/^(\d{1,2}):(\d{2})$/); if(!m) return;
       const hh=parseInt(m[1]); for(let q=0;q<4;q++) setBand(String(hh).padStart(2,'0')+':'+String(q*15).padStart(2,'0'), row.bid, row.ask);
       setBand(String(hh).padStart(2,'0')+':00', row.bid, row.ask); });
@@ -338,7 +381,22 @@ async function loadReg() {
   const colAp=gc('aFRR+'), colAm=gc('aFRR-'), colMp=gc('mFRR+'), colMm=gc('mFRR-');
   const svrSync = dO.rows.map((r, i) => dS.rows[i] || {});
 
-  _lastOdch = { rows: dO.rows, svr: svrSync, colO, colAp, colAm, colMp, colMm, fetched: dO.fetched_at };
+  // protáhni osu doprava do budoucna: prázdné minutové sloty od posledního času
+  // +3h dopředu. Odchylka/aktivace tam budou prázdné (NaN), ale VDT bid/ask se vykreslí.
+  const rows = dO.rows.slice();
+  const svr  = svrSync.slice();
+  const lastT = new Date(rows[rows.length-1].date);
+  const stepMs = rows.length>1 ? (new Date(rows[1].date)-new Date(rows[0].date)) : 60000;
+  const FUTURE_MS = 3*60*60*1000;   // +3 hodiny dopředu
+  const endT = new Date(lastT.getTime() + FUTURE_MS);
+  for (let t=lastT.getTime()+stepMs; t<=endT.getTime(); t+=stepMs){
+    const iso = new Date(t).toISOString();
+    const empty = { date: iso }; empty[colO] = '';   // prázdná odchylka -> NaN
+    rows.push(empty);
+    svr.push({});                                    // prázdné aktivace
+  }
+
+  _lastOdch = { rows, svr, colO, colAp, colAm, colMp, colMm, fetched: dO.fetched_at, splitIdx: dO.rows.length };
   setDot('ok','živě');
   redraw();
 }
