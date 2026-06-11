@@ -213,6 +213,8 @@ canvas { max-width: 100%; display: block; }
       <table id="tbl-cena" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · hodinové <span class="todayDateLabel" style="color:#888;font-weight:400;"></span></div>
       <table id="tbl-spot-cz" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
+      <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE DT · hodinové <span class="todayDateLabel" style="color:#888;font-weight:400;"></span></div>
+      <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · 15min QH <span class="todayDateLabel" style="color:#888;font-weight:400;"></span></div>
       <table id="tbl-spot-cz-qh" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       <div onclick="var w=document.getElementById('tbl-spot-cz-tom-wrap');var a=this.querySelector('.tom-arrow');if(w.style.display==='none'){w.style.display='block';a.textContent='▾';if(typeof loadSpotTomorrow==='function'){loadSpotTomorrow();}}else{w.style.display='none';a.textContent='▸';}" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:10px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:6px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="tom-arrow">▸</span> 📅 🇨🇿 Zítřejší ceny <span id="tomDateLabel" style="color:#888;font-weight:400;"></span> (rozkliknout)</div>
@@ -221,11 +223,6 @@ canvas { max-width: 100%; display: block; }
         <table id="tbl-spot-cz-tom" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
         <div style="font-size:12px;color:#000;font-weight:700;margin:8px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇨🇿 CZ DT · 15min QH · zítra</div>
         <table id="tbl-spot-cz-qh-tom" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
-      </div>
-      <div onclick="var w=document.getElementById('tbl-spot-de-wrap');var a=this.querySelector('.de-arrow');if(w.style.display==='none'){w.style.display='block';a.textContent='▾';if(typeof loadSpotTable==='function'){loadSpotTable('DE','tbl-spot-de');}}else{w.style.display='none';a.textContent='▸';}" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:10px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:6px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="de-arrow">▸</span> 🇩🇪 DE DT spot ceny (rozkliknout)</div>
-      <div id="tbl-spot-de-wrap" style="display:none;margin-top:6px;">
-        <div style="font-size:12px;color:#000;font-weight:700;margin:4px 0 3px 0;font-family:'JetBrains Mono',monospace;">🇩🇪 DE DT <span class="todayDateLabel" style="color:#888;font-weight:400;"></span></div>
-        <table id="tbl-spot-de" style="border-collapse:collapse;font-size:11px;font-family:'JetBrains Mono',monospace;table-layout:fixed;width:1288px !important;"></table>
       </div>
       <div onclick="var w=document.getElementById('tbl-hist-spread-wrap');var a=this.querySelector('.histspread-arrow');if(w.style.display==='none'){w.style.display='block';a.textContent='▾';if(typeof loadHistSpreadTable==='function'){loadHistSpreadTable();}}else{w.style.display='none';a.textContent='▸';}" style="cursor:pointer;user-select:none;font-size:11px;color:#1565c0;font-weight:600;margin:10px 0 3px 0;font-family:'JetBrains Mono',monospace;padding:6px 10px;background:#eef2f8;border:1px solid #dde;border-radius:4px;display:inline-block;"><span class="histspread-arrow">▸</span> 📊 Historický spread (odchylka − VDT) · last 30 days · EUR/MWh</div>
       <div id="tbl-hist-spread-wrap" style="display:none;margin-top:6px;">
@@ -4214,10 +4211,8 @@ async function loadAll() {
       if (document.getElementById('tbl-spot-cz-tom-wrap')?.style.display !== 'none') {
         tasks.push(loadSpotTomorrow());
       }
-      // DE jen pokud rozkliknuté
-      if (document.getElementById('tbl-spot-de-wrap')?.style.display !== 'none') {
-        tasks.push(loadSpotTable('DE', 'tbl-spot-de'));
-      }
+      // DE hodinové ceny - vždy (zobrazené přímo pod CZ)
+      tasks.push(loadSpotTable('DE', 'tbl-spot-de'));
     }
     if (now - _lastResLoad > RES_THROTTLE_MS) {
       _lastResLoad = now;
