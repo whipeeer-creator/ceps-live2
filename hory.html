@@ -280,18 +280,6 @@ canvas { max-width: 100%; display: block; }
   <div class="chart-panel">
     <div class="panel-hdr">
       <div>
-        <div class="panel-title">Přeshraniční kapacity · Fanda data</div>
-        <div class="panel-sub" id="fandaKapSub">načítám…</div>
-      </div>
-      <button class="hbtn" onclick="loadFandaKapacity()" style="font-size:10px;">↺</button>
-    </div>
-    <div id="fandaKapContainer" style="overflow-x:auto;font-size:11px;">
-      <div style="padding:20px;color:#888;">Načítám data…</div>
-    </div>
-  </div>
-  <div class="chart-panel">
-    <div class="panel-hdr">
-      <div>
         <div class="panel-title">15minutové bloky — průměrná regulace [MW]</div>
         <div class="panel-sub">červené číslo = průměr MW za 15 min · modrá = záporná · červená = kladná odchylka</div>
       </div>
@@ -302,6 +290,18 @@ canvas { max-width: 100%; display: block; }
     <div class="panel-legend">
       <span class="pleg"><span class="pleg-sq" style="background:#1565c0;opacity:.7"></span>záporná odchylka (deficit)</span>
       <span class="pleg"><span class="pleg-sq" style="background:#e53935;opacity:.7"></span>kladná odchylka (přebytek)</span>
+    </div>
+  </div>
+  <div class="chart-panel">
+    <div class="panel-hdr">
+      <div>
+        <div class="panel-title">Přeshraniční kapacity · Fanda data</div>
+        <div class="panel-sub" id="fandaKapSub">načítám…</div>
+      </div>
+      <button class="hbtn" onclick="loadFandaKapacity()" style="font-size:10px;">↺</button>
+    </div>
+    <div id="fandaKapContainer" style="overflow-x:auto;font-size:11px;">
+      <div style="padding:20px;color:#888;">Načítám data…</div>
     </div>
   </div>
 
