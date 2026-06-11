@@ -955,11 +955,26 @@ function drawBotChart(canvas, odch15, ap15, am15) {
       // zobrazená hodnota v grafu je -v (invert): v>=0 = deficit (modrá), v<0 = přebytek (červená)
       const disp = -last.v;
       const isDeficit = last.v >= 0;
-      const signal = Math.abs(last.v) < 5 ? 'vyrovnáno' : (isDeficit ? 'DEFICIT' : 'PŘEBYTEK');
-      const color = Math.abs(last.v) < 5 ? '#666' : (isDeficit ? '#1565c0' : '#c0392b');
-      dv.innerHTML = `<span style="color:${color};">${disp>=0?'+':''}${disp.toFixed(1)}</span><span class="kpi-u">MW · ${signal}</span>`;
-      ds.innerHTML = `15min blok ${last.lbl || ''} · aktuální`;
-      if (crd) crd.style.borderLeft = `3px solid ${color}`;
+      const signal = isDeficit ? 'DEFICIT' : 'PŘEBYTEK';
+      // pozadí celé karty podle sloupce: modrá (deficit) / červená (přebytek)
+      const bg = last.v >= 0 ? '#bbdefb' : '#ffcdd2';
+      // celý čtvrthodinový interval: "13:45" -> "13:45–14:00"
+      let interval = last.lbl || '';
+      const m = String(last.lbl||'').match(/^(\d{1,2}):(\d{2})$/);
+      if (m) {
+        const startMin = parseInt(m[1])*60 + parseInt(m[2]);
+        const endMin = (startMin + 15) % 1440;
+        const eh = String(Math.floor(endMin/60)).padStart(2,'0');
+        const em = String(endMin%60).padStart(2,'0');
+        interval = `${m[1].padStart(2,'0')}:${m[2]}–${eh}:${em}`;
+      }
+      dv.innerHTML = `<span style="color:#000;">${disp>=0?'+':''}${disp.toFixed(1)}</span><span class="kpi-u" style="color:#000;">MW · ${signal}</span>`;
+      ds.innerHTML = `15min blok ${interval} · aktuální`;
+      if (crd) {
+        crd.style.background = bg;
+        crd.style.borderLeft = '';
+        crd.style.color = '#000';
+      }
     }
   } catch(e) { console.warn('lastBlock KPI:', e); }
 }
