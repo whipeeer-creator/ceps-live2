@@ -7,52 +7,64 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #080810; color: #e2e8f0; font-family: 'Space Mono', 'Courier New', monospace; padding: 24px; min-height: 100vh; }
-  h1 { font-size: 20px; font-weight: 700; color: #fff; margin-bottom: 4px; }
-  .subtitle { font-size: 12px; color: #475569; margin-bottom: 20px; }
+  body { background: #080810; color: #cbd5e1; font-family: 'Space Mono', 'Courier New', monospace; padding: 24px; min-height: 100vh; }
+  h1 { font-size: 20px; font-weight: 700; color: #f8fafc; margin-bottom: 4px; }
+  .subtitle { font-size: 13px; color: #94a3b8; margin-bottom: 20px; }
   .eyebrow { font-size: 11px; color: #00e676; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 6px; }
-  .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
-  .tab-btn { padding: 7px 16px; border-radius: 6px; border: 1px solid #1e293b; background: transparent; cursor: pointer; font-size: 12px; color: #64748b; font-family: inherit; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; }
+  .tab-btn { padding: 7px 16px; border-radius: 6px; border: 1px solid #334155; background: transparent; cursor: pointer; font-size: 12px; color: #94a3b8; font-family: inherit; }
   .tab-btn.active { background: #00e676; color: #080810; border-color: #00e676; font-weight: 700; }
   .risk-btns { display: flex; gap: 8px; margin-bottom: 16px; }
   .risk-btn { padding: 5px 14px; border-radius: 6px; border: 1px solid; background: transparent; cursor: pointer; font-size: 12px; font-family: inherit; font-weight: 700; }
   .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
   .metric { background: #0f172a; border-radius: 8px; padding: 12px 14px; border: 1px solid #1e293b; }
-  .metric-label { font-size: 10px; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
+  .metric-label { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
   .metric-val { font-size: 22px; font-weight: 700; }
   .card { background: #0f172a; border-radius: 10px; padding: 16px; margin-bottom: 12px; border: 1px solid #1e293b; }
-  .card-title { font-size: 10px; color: #475569; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
-  table { width: 100%; border-collapse: collapse; font-size: 12px; }
-  td, th { padding: 8px; border-bottom: 1px solid #1e293b; text-align: left; }
-  th { font-size: 10px; color: #475569; font-weight: 400; }
+  .card-title { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  td, th { padding: 9px 8px; border-bottom: 1px solid #1e293b; text-align: left; }
+  th { font-size: 11px; color: #94a3b8; font-weight: 400; }
+  td { color: #cbd5e1; }
   .badge { display: inline-block; padding: 2px 10px; border-radius: 4px; font-size: 11px; font-weight: 700; white-space: nowrap; }
-  .code-block { background: #020208; border-radius: 6px; padding: 14px; font-family: 'Courier New', monospace; font-size: 12px; line-height: 2; margin-top: 12px; }
+  .code-block { background: #020208; border-radius: 6px; padding: 14px; font-family: 'Courier New', monospace; font-size: 13px; line-height: 2; margin-top: 12px; color: #cbd5e1; }
   .tf-row { display: grid; grid-template-columns: 70px 1fr 100px 80px 36px; gap: 8px; align-items: center; padding: 9px 10px; border-radius: 8px; margin-bottom: 6px; background: #0f172a; }
   .tf-row.best { background: #0c1f0e; border: 1px solid #166534; }
+  .tf-row span { font-size: 13px; color: #94a3b8; }
   .atr-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .atr-item { background: #020208; border-radius: 6px; padding: 10px; text-align: center; }
   .atr-val { font-size: 18px; font-weight: 700; color: #00e676; margin-top: 4px; }
-  .atr-lbl { font-size: 10px; color: #475569; }
+  .atr-lbl { font-size: 11px; color: #94a3b8; }
   .signal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
   .signal-card { border-radius: 10px; padding: 16px; }
   .signal-card.long { background: #0c1f0e; border: 1px solid #166534; }
   .signal-card.short { background: #1f0c0c; border: 1px solid #991b1b; }
+  .signal-card p { font-size: 13px; color: #cbd5e1; line-height: 1.7; margin: 0; }
   .exit-row { display: flex; gap: 12px; align-items: flex-start; margin-bottom: 10px; }
+  .exit-row span:last-child { font-size: 13px; color: #cbd5e1; line-height: 1.6; }
   .stat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
   .stat-item { background: #0f172a; border-radius: 8px; padding: 14px; text-align: center; border: 1px solid #1e293b; }
   .stat-val { font-size: 24px; font-weight: 700; margin: 4px 0; }
-  .stat-note { font-size: 10px; color: #475569; }
-  #tab-cci, #tab-timeframes { display: none; }
+  .stat-note { font-size: 11px; color: #94a3b8; }
+  .results-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+  .res-block { background: #020208; border-radius: 8px; padding: 14px; }
+  .res-block-title { font-size: 10px; color: #94a3b8; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+  .res-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 0; border-bottom: 1px solid #1e293b; font-size: 13px; }
+  .res-row:last-child { border-bottom: none; }
+  .res-label { color: #94a3b8; }
+  .res-val { font-weight: 700; color: #f8fafc; }
+  #tab-cci, #tab-timeframes, #tab-results { display: none; }
 </style>
 </head>
 <body>
 
 <div class="eyebrow">AVAX V4b · 5m · Next Open</div>
 <h1>Aktivace 1.5% · Trail 1.0% · SL 0.6%</h1>
-<p class="subtitle">WR 37.2% · RR 2.48x · DD −3.1% · Maker 0.02% · 5.6 let dat</p>
+<p class="subtitle">WR 37.2% · RR 2.48x · DD −3.1% · Maker 0.02% · 5.6 let dat · Start $1,000</p>
 
 <div class="tabs">
   <button class="tab-btn active" onclick="showTab('compound',this)">Compound</button>
+  <button class="tab-btn" onclick="showTab('results',this)">Results</button>
   <button class="tab-btn" onclick="showTab('cci',this)">CCI strategie</button>
   <button class="tab-btn" onclick="showTab('timeframes',this)">Timeframes</button>
 </div>
@@ -64,21 +76,18 @@
     <button class="risk-btn" style="border-color:#3b82f6;color:#3b82f6;" onclick="setRisk('2%',this)">Risk 2%</button>
     <button class="risk-btn" style="border-color:#f59e0b;color:#f59e0b;" onclick="setRisk('5%',this)">Risk 5%</button>
   </div>
-
   <div class="metrics">
     <div class="metric"><div class="metric-label">Finální účet</div><div class="metric-val" id="m-final" style="color:#22c55e;">$4.3K</div></div>
     <div class="metric"><div class="metric-label">Max DD</div><div class="metric-val" id="m-dd" style="color:#f87171;">−0.2%</div></div>
     <div class="metric"><div class="metric-label">WR</div><div class="metric-val" id="m-wr" style="color:#60a5fa;">37.2%</div></div>
     <div class="metric"><div class="metric-label">Max Streak</div><div class="metric-val" id="m-streak" style="color:#f59e0b;">15×</div></div>
   </div>
-
   <div class="card">
     <div class="card-title">Equity curve — start $1,000</div>
     <div style="position:relative;width:100%;height:220px;">
       <canvas id="eqChart" role="img" aria-label="Equity curve">Equity curve</canvas>
     </div>
   </div>
-
   <div class="card">
     <div class="card-title">Rok po roku</div>
     <table>
@@ -86,12 +95,95 @@
       <tbody id="yearly-body"></tbody>
     </table>
   </div>
+  <div class="card">
+    <div class="card-title">Srovnání risk levelů</div>
+    <div style="position:relative;width:100%;height:200px;">
+      <canvas id="cmpChart" role="img" aria-label="Srovnání">Srovnání</canvas>
+    </div>
+  </div>
+</div>
+
+<!-- RESULTS -->
+<div id="tab-results">
+  <div class="card">
+    <div class="card-title">Celkové výsledky — L+S · $1,000 fixní pozice · 5.6 let</div>
+    <div class="results-grid">
+      <div class="res-block">
+        <div class="res-block-title">Profit</div>
+        <div class="res-row"><span class="res-label">P&L celkem</span><span class="res-val" style="color:#4ade80;">$147,000</span></div>
+        <div class="res-row"><span class="res-label">P&L / rok</span><span class="res-val" style="color:#4ade80;">$26,173</span></div>
+        <div class="res-row"><span class="res-label">Long P&L</span><span class="res-val" style="color:#4ade80;">$63,787</span></div>
+        <div class="res-row"><span class="res-label">Short P&L</span><span class="res-val" style="color:#4ade80;">$74,102</span></div>
+        <div class="res-row"><span class="res-label">Gross P&L (před fees)</span><span class="res-val">~$184K</span></div>
+        <div class="res-row"><span class="res-label">Fees celkem</span><span class="res-val" style="color:#f87171;">~$37K</span></div>
+      </div>
+      <div class="res-block">
+        <div class="res-block-title">Riziko</div>
+        <div class="res-row"><span class="res-label">Max DD</span><span class="res-val" style="color:#f87171;">−3.1%</span></div>
+        <div class="res-row"><span class="res-label">Long DD</span><span class="res-val" style="color:#f87171;">−12.1%</span></div>
+        <div class="res-row"><span class="res-label">Short DD</span><span class="res-val" style="color:#f87171;">−6.4%</span></div>
+        <div class="res-row"><span class="res-label">Max streak ztrát</span><span class="res-val" style="color:#f59e0b;">21×</span></div>
+        <div class="res-row"><span class="res-label">Risk / trade</span><span class="res-val">$6 (0.6%)</span></div>
+        <div class="res-row"><span class="res-label">Fee / trade</span><span class="res-val">$0.40</span></div>
+      </div>
+    </div>
+    <div class="results-grid">
+      <div class="res-block">
+        <div class="res-block-title">Statistiky</div>
+        <div class="res-row"><span class="res-label">WR celkem</span><span class="res-val" style="color:#60a5fa;">37.2%</span></div>
+        <div class="res-row"><span class="res-label">WR Long</span><span class="res-val" style="color:#60a5fa;">36.0%</span></div>
+        <div class="res-row"><span class="res-label">WR Short</span><span class="res-val" style="color:#60a5fa;">38.0%</span></div>
+        <div class="res-row"><span class="res-label">RR ratio</span><span class="res-val" style="color:#4ade80;">2.45x</span></div>
+        <div class="res-row"><span class="res-label">Sharpe (odhad)</span><span class="res-val">~3.2</span></div>
+        <div class="res-row"><span class="res-label">Profit faktor</span><span class="res-val" style="color:#4ade80;">~1.48</span></div>
+      </div>
+      <div class="res-block">
+        <div class="res-block-title">Obchody</div>
+        <div class="res-row"><span class="res-label">Tradů celkem</span><span class="res-val">84,821</span></div>
+        <div class="res-row"><span class="res-label">Tradů / rok</span><span class="res-val">15,102</span></div>
+        <div class="res-row"><span class="res-label">Tradů / den</span><span class="res-val">~41</span></div>
+        <div class="res-row"><span class="res-label">Long signálů</span><span class="res-val">42,691</span></div>
+        <div class="res-row"><span class="res-label">Short signálů</span><span class="res-val">42,130</span></div>
+        <div class="res-row"><span class="res-label">Hold max</span><span class="res-val">4h (48 barů)</span></div>
+      </div>
+    </div>
+  </div>
 
   <div class="card">
-    <div class="card-title">Srovnání risk levelů — equity</div>
-    <div style="position:relative;width:100%;height:200px;">
-      <canvas id="cmpChart" role="img" aria-label="Srovnání risk levelů">Srovnání</canvas>
+    <div class="card-title">Parametry strategie</div>
+    <div class="results-grid">
+      <div class="res-block">
+        <div class="res-block-title">Vstup</div>
+        <div class="res-row"><span class="res-label">Indikátor</span><span class="res-val">CCI(10)</span></div>
+        <div class="res-row"><span class="res-label">Long trigger</span><span class="res-val">CCI křiží −100 ↑</span></div>
+        <div class="res-row"><span class="res-label">Short trigger</span><span class="res-val">CCI křiží +100 ↓</span></div>
+        <div class="res-row"><span class="res-label">Vstupní cena</span><span class="res-val">Open další svíčky</span></div>
+        <div class="res-row"><span class="res-label">Timeframe</span><span class="res-val">5m</span></div>
+        <div class="res-row"><span class="res-label">Repaint</span><span class="res-val" style="color:#4ade80;">NE ✓</span></div>
+      </div>
+      <div class="res-block">
+        <div class="res-block-title">Výstup</div>
+        <div class="res-row"><span class="res-label">Aktivace trail</span><span class="res-val">+1.5% od vstupu</span></div>
+        <div class="res-row"><span class="res-label">Trailing vzdál.</span><span class="res-val">1.0% od maxima</span></div>
+        <div class="res-row"><span class="res-label">Fixed SL</span><span class="res-val" style="color:#f87171;">−0.6% od vstupu</span></div>
+        <div class="res-row"><span class="res-label">Time exit</span><span class="res-val">48 barů (4h)</span></div>
+        <div class="res-row"><span class="res-label">Fee model</span><span class="res-val">Maker 0.02%</span></div>
+        <div class="res-row"><span class="res-label">Pozice</span><span class="res-val">$1,000 fixní</span></div>
+      </div>
     </div>
+  </div>
+
+  <div class="card">
+    <div class="card-title">Reálný odhad po korekcích</div>
+    <table>
+      <thead><tr><th>Scénář</th><th>P&L/rok</th><th>P&L celkem</th><th>Poznámka</th></tr></thead>
+      <tbody>
+        <tr><td style="color:#4ade80;font-weight:700;">Backtest</td><td style="color:#4ade80;">$26,173</td><td style="color:#4ade80;">$147K</td><td style="color:#94a3b8;">Maker orders, next open</td></tr>
+        <tr><td style="color:#f59e0b;font-weight:700;">Reálné (market order)</td><td style="color:#f59e0b;">$17–20K</td><td style="color:#f59e0b;">$95–112K</td><td style="color:#94a3b8;">Po slippage 0.05–0.15%</td></tr>
+        <tr><td style="color:#f59e0b;font-weight:700;">Reálné (limit order)</td><td style="color:#f59e0b;">$22–24K</td><td style="color:#f59e0b;">$123–135K</td><td style="color:#94a3b8;">~10–15% missed vstupů</td></tr>
+        <tr><td style="color:#f87171;font-weight:700;">Taker fees (0.055%)</td><td style="color:#f87171;">ztrátové</td><td style="color:#f87171;">−</td><td style="color:#94a3b8;">Nutně maker orders!</td></tr>
+      </tbody>
+    </table>
   </div>
 </div>
 
@@ -99,7 +191,7 @@
 <div id="tab-cci">
   <div class="card">
     <div class="card-title">Co je CCI</div>
-    <p style="font-size:13px;color:#94a3b8;line-height:1.8;margin-bottom:12px;">
+    <p style="font-size:13px;color:#cbd5e1;line-height:1.8;margin-bottom:12px;">
       Commodity Channel Index měří vzdálenost aktuální ceny od klouzavého průměru za posledních 10 barů. Výsledek osciluje typicky mezi −200 a +200.
     </p>
     <div class="code-block">
@@ -109,62 +201,27 @@
       <span style="color:#f59e0b;">CCI</span> = (TP − MA) / (0.015 × MD)
     </div>
   </div>
-
   <div class="signal-grid">
     <div class="signal-card long">
       <div style="font-size:11px;color:#4ade80;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">📈 Long signál</div>
-      <p style="font-size:12px;color:#94a3b8;line-height:1.7;margin:0;">
-        CCI překříží <strong style="color:#4ade80;">−100 zdola nahoru</strong><br>
-        Trh byl přeprodaný → odraz zpět<br>
-        Vstup na open další 5m svíčky
-      </p>
+      <p>CCI překříží <strong style="color:#4ade80;">−100 zdola nahoru</strong><br>Trh byl přeprodaný → odraz zpět<br>Vstup na open další 5m svíčky</p>
     </div>
     <div class="signal-card short">
       <div style="font-size:11px;color:#f87171;text-transform:uppercase;letter-spacing:1px;margin-bottom:10px;">📉 Short signál</div>
-      <p style="font-size:12px;color:#94a3b8;line-height:1.7;margin:0;">
-        CCI překříží <strong style="color:#f87171;">+100 shora dolů</strong><br>
-        Trh byl překoupený → otočení dolů<br>
-        Vstup na open další 5m svíčky
-      </p>
+      <p>CCI překříží <strong style="color:#f87171;">+100 shora dolů</strong><br>Trh byl překoupený → otočení dolů<br>Vstup na open další 5m svíčky</p>
     </div>
   </div>
-
   <div class="card">
     <div class="card-title">Výstupní logika</div>
-    <div class="exit-row">
-      <span class="badge" style="background:#1e3a5f;color:#60a5fa;">Aktivace 1.5%</span>
-      <span style="font-size:12px;color:#94a3b8;line-height:1.6;">Cena musí udělat +1.5% tvým směrem → teprve pak se spustí trailing</span>
-    </div>
-    <div class="exit-row">
-      <span class="badge" style="background:#14532d;color:#4ade80;">Trail 1.0%</span>
-      <span style="font-size:12px;color:#94a3b8;line-height:1.6;">Sleduje maximum s odstupem 1% — při poklesu o 1% od maxima → výstup se ziskem</span>
-    </div>
-    <div class="exit-row">
-      <span class="badge" style="background:#7f1d1d;color:#f87171;">Fixed SL 0.6%</span>
-      <span style="font-size:12px;color:#94a3b8;line-height:1.6;">Pokud cena jde okamžitě −0.6% od vstupu → výstup se ztrátou $6 z $1,000</span>
-    </div>
-    <div class="exit-row" style="margin-bottom:0;">
-      <span class="badge" style="background:#1e293b;color:#94a3b8;">Time exit 4h</span>
-      <span style="font-size:12px;color:#94a3b8;line-height:1.6;">Po 48 barech bez TP/SL → zavři na aktuální ceně</span>
-    </div>
+    <div class="exit-row"><span class="badge" style="background:#1e3a5f;color:#93c5fd;">Aktivace 1.5%</span><span>Cena musí udělat +1.5% tvým směrem → teprve pak se spustí trailing</span></div>
+    <div class="exit-row"><span class="badge" style="background:#14532d;color:#86efac;">Trail 1.0%</span><span>Sleduje maximum s odstupem 1% — při poklesu o 1% od maxima → výstup se ziskem</span></div>
+    <div class="exit-row"><span class="badge" style="background:#7f1d1d;color:#fca5a5;">Fixed SL 0.6%</span><span>Pokud cena jde okamžitě −0.6% od vstupu → výstup se ztrátou $6 z $1,000</span></div>
+    <div class="exit-row" style="margin-bottom:0;"><span class="badge" style="background:#1e293b;color:#94a3b8;">Time exit 4h</span><span>Po 48 barech bez TP/SL → zavři na aktuální ceně</span></div>
   </div>
-
   <div class="stat-grid">
-    <div class="stat-item">
-      <div class="metric-label">WR</div>
-      <div class="stat-val" style="color:#f87171;">37%</div>
-      <div class="stat-note">63% obchodů prohraje</div>
-    </div>
-    <div class="stat-item">
-      <div class="metric-label">RR</div>
-      <div class="stat-val" style="color:#4ade80;">2.48x</div>
-      <div class="stat-note">výhra je 2.48× ztráta</div>
-    </div>
-    <div class="stat-item">
-      <div class="metric-label">DD</div>
-      <div class="stat-val" style="color:#60a5fa;">−3.1%</div>
-      <div class="stat-note">nejhorší série ztrát</div>
-    </div>
+    <div class="stat-item"><div class="metric-label">WR</div><div class="stat-val" style="color:#f87171;">37%</div><div class="stat-note">63% obchodů prohraje</div></div>
+    <div class="stat-item"><div class="metric-label">RR</div><div class="stat-val" style="color:#4ade80;">2.48x</div><div class="stat-note">výhra je 2.48× ztráta</div></div>
+    <div class="stat-item"><div class="metric-label">DD</div><div class="stat-val" style="color:#60a5fa;">−3.1%</div><div class="stat-note">nejhorší série ztrát</div></div>
   </div>
 </div>
 
@@ -172,16 +229,15 @@
 <div id="tab-timeframes">
   <div class="card">
     <div class="card-title">Srovnání timeframů pro AVAX</div>
-    <div style="display:grid;grid-template-columns:70px 1fr 100px 70px 36px;gap:8px;font-size:10px;color:#475569;padding:0 10px 8px;border-bottom:1px solid #1e293b;margin-bottom:8px;">
+    <div style="display:grid;grid-template-columns:70px 1fr 100px 70px 36px;gap:8px;font-size:11px;color:#94a3b8;padding:0 10px 8px;border-bottom:1px solid #1e293b;margin-bottom:8px;">
       <span>TF</span><span>Poznámka</span><span>Signálů/rok</span><span>ATR</span><span></span>
     </div>
-    <div class="tf-row"><span style="font-size:14px;font-weight:700;color:#94a3b8;">1m</span><span style="font-size:12px;color:#64748b;">ATR příliš malý, fees pohltí profit</span><span style="font-size:12px;color:#64748b;">~43,800</span><span style="font-size:12px;color:#64748b;">~0.15%</span><span>❌</span></div>
-    <div class="tf-row best"><span style="font-size:14px;font-weight:700;color:#4ade80;">5m ★</span><span style="font-size:12px;color:#94a3b8;">Optimální — dostatek signálů + reálná volatilita</span><span style="font-size:12px;color:#94a3b8;">~15,100</span><span style="font-size:12px;color:#94a3b8;">~0.47%</span><span>✅</span></div>
-    <div class="tf-row"><span style="font-size:14px;font-weight:700;color:#94a3b8;">15m</span><span style="font-size:12px;color:#64748b;">Méně signálů, vyšší SL nutný</span><span style="font-size:12px;color:#64748b;">~5,000</span><span style="font-size:12px;color:#64748b;">~0.85%</span><span>⚠️</span></div>
-    <div class="tf-row"><span style="font-size:14px;font-weight:700;color:#94a3b8;">1H</span><span style="font-size:12px;color:#64748b;">Málo signálů, OBV divergence funguje lépe</span><span style="font-size:12px;color:#64748b;">~1,200</span><span style="font-size:12px;color:#64748b;">~1.8%</span><span>⚠️</span></div>
-    <div class="tf-row"><span style="font-size:14px;font-weight:700;color:#94a3b8;">4H</span><span style="font-size:12px;color:#64748b;">Příliš málo signálů pro statistiku</span><span style="font-size:12px;color:#64748b;">~300</span><span style="font-size:12px;color:#64748b;">~3.5%</span><span>❌</span></div>
+    <div class="tf-row"><span style="color:#94a3b8;font-weight:700;">1m</span><span>ATR příliš malý, fees pohltí profit</span><span>~43,800</span><span>~0.15%</span><span>❌</span></div>
+    <div class="tf-row best"><span style="color:#4ade80;font-weight:700;">5m ★</span><span style="color:#cbd5e1;">Optimální — dostatek signálů + reálná volatilita</span><span style="color:#cbd5e1;">~15,100</span><span style="color:#cbd5e1;">~0.47%</span><span>✅</span></div>
+    <div class="tf-row"><span style="color:#94a3b8;font-weight:700;">15m</span><span>Méně signálů, vyšší SL nutný</span><span>~5,000</span><span>~0.85%</span><span>⚠️</span></div>
+    <div class="tf-row"><span style="color:#94a3b8;font-weight:700;">1H</span><span>Málo signálů, OBV divergence funguje lépe</span><span>~1,200</span><span>~1.8%</span><span>⚠️</span></div>
+    <div class="tf-row"><span style="color:#94a3b8;font-weight:700;">4H</span><span>Příliš málo signálů pro statistiku</span><span>~300</span><span>~3.5%</span><span>❌</span></div>
   </div>
-
   <div class="card">
     <div class="card-title">AVAX 5m ATR analýza</div>
     <div class="atr-grid">
@@ -211,7 +267,7 @@ const fmt = n => {
   return '$'+Math.round(n);
 };
 
-let eqChart = null, cmpChart = null;
+let eqChart=null, cmpChart=null;
 
 function updateDashboard(risk) {
   const d = DATA[risk];
@@ -219,35 +275,33 @@ function updateDashboard(risk) {
   document.getElementById('m-dd').textContent = d.mdd+'%';
   document.getElementById('m-wr').textContent = d.wr+'%';
   document.getElementById('m-streak').textContent = d.streak+'×';
-
-  document.getElementById('yearly-body').innerHTML = d.yearly.map(r => `
+  document.getElementById('yearly-body').innerHTML = d.yearly.map(r=>`
     <tr>
-      <td style="color:#94a3b8">${r.y}</td>
-      <td style="color:#94a3b8">${r.n.toLocaleString()}</td>
+      <td>${r.y}</td>
+      <td>${r.n.toLocaleString()}</td>
       <td style="color:${r.wr>=37?'#4ade80':'#f87171'}">${r.wr}%</td>
       <td style="color:${r.pnl>0?'#4ade80':'#f87171'}">${fmt(r.pnl)}</td>
-      <td style="font-weight:700;color:#fff">${fmt(r.eq)}</td>
+      <td style="font-weight:700;color:#f8fafc">${fmt(r.eq)}</td>
     </tr>`).join('');
-
   if(eqChart) eqChart.destroy();
-  eqChart = new Chart(document.getElementById('eqChart').getContext('2d'), {
-    type: 'line',
-    data: { labels: d.yearly.map(r=>r.y), datasets: [{ label:'Účet', data: d.yearly.map(r=>r.eq), borderColor: d.color, backgroundColor: d.color+'22', borderWidth:2, pointBackgroundColor: d.color, pointRadius:4, fill:true, tension:0.3 }] },
-    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:{ x:{ticks:{color:'#475569',font:{size:11}},grid:{color:'rgba(255,255,255,0.05)'}}, y:{ticks:{color:'#475569',font:{size:11},callback:v=>fmt(v)},grid:{color:'rgba(255,255,255,0.05)'}} } }
+  eqChart = new Chart(document.getElementById('eqChart').getContext('2d'),{
+    type:'line',
+    data:{labels:d.yearly.map(r=>r.y),datasets:[{label:'Účet',data:d.yearly.map(r=>r.eq),borderColor:d.color,backgroundColor:d.color+'22',borderWidth:2,pointBackgroundColor:d.color,pointRadius:4,fill:true,tension:0.3}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:'#94a3b8',font:{size:11}},grid:{color:'rgba(255,255,255,0.05)'}},y:{ticks:{color:'#94a3b8',font:{size:11},callback:v=>fmt(v)},grid:{color:'rgba(255,255,255,0.05)'}}}}
   });
 }
 
 function buildCmpChart() {
   if(cmpChart) return;
   const years = DATA['1%'].yearly.map(r=>r.y);
-  cmpChart = new Chart(document.getElementById('cmpChart').getContext('2d'), {
-    type: 'line',
-    data: { labels: years, datasets: [
-      { label:'Risk 1%', data: DATA['1%'].yearly.map(r=>r.eq), borderColor:'#22c55e', borderWidth:2, pointRadius:3, tension:0.3, fill:false },
-      { label:'Risk 2%', data: DATA['2%'].yearly.map(r=>r.eq), borderColor:'#3b82f6', borderWidth:2, pointRadius:3, tension:0.3, fill:false },
-      { label:'Risk 5%', data: DATA['5%'].yearly.map(r=>r.eq), borderColor:'#f59e0b', borderWidth:2, pointRadius:3, tension:0.3, fill:false }
+  cmpChart = new Chart(document.getElementById('cmpChart').getContext('2d'),{
+    type:'line',
+    data:{labels:years,datasets:[
+      {label:'Risk 1%',data:DATA['1%'].yearly.map(r=>r.eq),borderColor:'#22c55e',borderWidth:2,pointRadius:3,tension:0.3,fill:false},
+      {label:'Risk 2%',data:DATA['2%'].yearly.map(r=>r.eq),borderColor:'#3b82f6',borderWidth:2,pointRadius:3,tension:0.3,fill:false},
+      {label:'Risk 5%',data:DATA['5%'].yearly.map(r=>r.eq),borderColor:'#f59e0b',borderWidth:2,pointRadius:3,tension:0.3,fill:false}
     ]},
-    options: { responsive:true, maintainAspectRatio:false, plugins:{legend:{labels:{color:'#94a3b8',font:{size:11}}}}, scales:{ x:{ticks:{color:'#475569',font:{size:11}},grid:{color:'rgba(255,255,255,0.05)'}}, y:{ticks:{color:'#475569',font:{size:11},callback:v=>fmt(v)},grid:{color:'rgba(255,255,255,0.05)'}} } }
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{color:'#94a3b8',font:{size:11}}}},scales:{x:{ticks:{color:'#94a3b8',font:{size:11}},grid:{color:'rgba(255,255,255,0.05)'}},y:{ticks:{color:'#94a3b8',font:{size:11},callback:v=>fmt(v)},grid:{color:'rgba(255,255,255,0.05)'}}}}
   });
 }
 
@@ -258,16 +312,16 @@ function setRisk(risk, btn) {
 }
 
 function showTab(tab, btn) {
-  ['compound','cci','timeframes'].forEach(t => {
+  ['compound','results','cci','timeframes'].forEach(t=>{
     document.getElementById('tab-'+t).style.display = t===tab?'block':'none';
   });
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.remove('active'));
   btn.classList.add('active');
-  if(tab==='compound') buildCmpChart();
+  if(tab==='compound') { setTimeout(buildCmpChart, 50); }
 }
 
 updateDashboard('1%');
-buildCmpChart();
+setTimeout(buildCmpChart, 50);
 </script>
 </body>
 </html>
