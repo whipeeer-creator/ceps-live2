@@ -5306,7 +5306,7 @@ async function loadFandaKapacity() {
     }
     const hourToCol = {};          // 0..23 -> datový label
     const hourToMs  = {};          // 0..23 -> ms intervalu (pro zvýraznění)
-    hourCols.forEach((c, i) => {
+    hourLabels.forEach((c, i) => {
       const hr = colToHour(c);
       if (hr != null && !(hr in hourToCol)) { hourToCol[hr] = c; hourToMs[hr] = intervalMs[i]; }
     });
