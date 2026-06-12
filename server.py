@@ -1076,6 +1076,9 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/metdesk/magma":
             self._metdesk_magma(qs); return
 
+        if parsed.path == "/metdesk/observations":
+            self._metdesk_observations(qs); return
+
         if parsed.path == "/metdesk/weather":
             self._metdesk_weather(qs); return
 
@@ -3691,6 +3694,81 @@ class Handler(BaseHTTPRequestHandler):
             self._json(out)
         except Exception as e:
             print(f"  -> POWER ERROR: {e}", flush=True)
+            self._json({"error": str(e)}, 502)
+
+    def _metdesk_observations(self, qs):
+        """MetDesk PowerGen V2 observations = ACTUAL naměřená generace.
+        Query: ?country=DE&generation_type=solar  (volitelně &hours=24)
+        Vrací stejný formát jako /metdesk/magma: {points:[{ts,value}], ...}
+        """
+        try:
+            import urllib.request, urllib.error, re
+            api_key = os.environ.get("METDESK_API_KEY", "")
+            api_key = re.sub(r'\s+', ' ', api_key).strip()
+            if not api_key:
+                self._json({"error": "METDESK_API_KEY not configured"}, 200); return
+
+            if "_MAGMA_OBS_CACHE" not in globals():
+                globals()["_MAGMA_OBS_CACHE"] = {}
+
+            country = qs.get("country", ["CZ"])[0]
+            gen_type = qs.get("generation_type", ["solar"])[0]
+            try:
+                hours = int(qs.get("hours", ["24"])[0])
+            except:
+                hours = 24
+            hours = max(1, min(hours, 72))
+
+            cache_key = f"obs|{country}|{gen_type}|{hours}"
+            cache_all = globals()["_MAGMA_OBS_CACHE"]
+            now = time.time()
+            if cache_key in cache_all and (now - cache_all[cache_key]["ts"]) < 900:
+                out = dict(cache_all[cache_key]["data"]); out["_cache"] = "hit"
+                out["_age_sec"] = int(now - cache_all[cache_key]["ts"])
+                self._json(out); return
+
+            raw_token = api_key.split(" ", 1)[1] if " " in api_key else api_key
+            auth_hdr = api_key if api_key.lower().startswith("jwt ") else f"jwt {raw_token}"
+
+            def fetch(url):
+                req = urllib.request.Request(url, headers={"Authorization": auth_hdr})
+                with urllib.request.urlopen(req, timeout=20) as r:
+                    return json.loads(r.read().decode("utf-8"))
+
+            # observations: časový rozsah posledních N hodin až teď, bez issue
+            start = (datetime.now(timezone.utc) - timedelta(hours=hours)).strftime("%Y-%m-%dT%H:00:00Z")
+            end = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:00:00Z")
+            obs_url = (f"https://api.metdesk.com/get/metdesk/powergen/v2/observations"
+                       f"?location={country}&location_type=country&element={gen_type}"
+                       f"&interval=hires&start_dtg={start}&end_dtg={end}")
+            try:
+                raw = fetch(obs_url)
+            except urllib.error.HTTPError as e:
+                err_body = ""
+                try: err_body = e.read().decode("utf-8")[:300]
+                except: pass
+                self._json({"error": f"observations {e.code}", "detail": err_body, "url": obs_url}, 200); return
+
+            data = raw.get("data", [])
+            points = []
+            for item in data:
+                dtg = item.get("dtg") or item.get("datetime")
+                val = item.get("value")
+                if dtg is None or val is None: continue
+                try: vf = float(val)
+                except: continue
+                points.append({"ts": dtg, "value": vf, "pseudo": item.get("pseudo", 0)})
+
+            out = {
+                "model": "magma", "country": country, "generation_type": gen_type,
+                "kind": "observations", "points": points, "n": len(points),
+                "fetched_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "_cache": "miss"
+            }
+            cache_all[cache_key] = {"ts": now, "data": {k: v for k, v in out.items() if k != "_cache"}}
+            self._json(out)
+        except Exception as e:
+            print(f"  -> OBS ERROR: {e}", flush=True)
             self._json({"error": str(e)}, 502)
 
     def _metdesk_weather(self, qs):

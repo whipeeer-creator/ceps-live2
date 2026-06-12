@@ -174,9 +174,7 @@ async function fetchData(model, country, type) {
 
 async function fetchActual(country, type) {
   try {
-    const today = new Date();
-    const dayStr = today.toISOString().substring(0, 10);
-    const r = await fetch(`${API_URL}/entsoe/actual?country=${country}&type=${type}&day=${dayStr}`, { cache: 'no-store' });
+    const r = await fetch(`${API_URL}/metdesk/observations?country=${country}&generation_type=${type}&hours=24`, { cache: 'no-store' });
     if (!r.ok) return null;
     const d = await r.json();
     if (d.error || !d.points || !d.points.length) return null;
@@ -189,19 +187,27 @@ async function main() {
   
   const tasks = [];
   for (const c of COUNTRIES) {
-    tasks.push(fetchData('magma', c.code, 'solar').then(d => ({ country: c.code, type: 'solar', data: d })));
-    tasks.push(fetchData('magma', c.code, 'wind').then(d => ({ country: c.code, type: 'wind', data: d })));
+    tasks.push(fetchData('magma', c.code, 'solar').then(d => ({ country: c.code, type: 'solar', kind: 'fc', data: d })));
+    tasks.push(fetchData('magma', c.code, 'wind').then(d => ({ country: c.code, type: 'wind', kind: 'fc', data: d })));
+    tasks.push(fetchActual(c.code, 'solar').then(p => ({ country: c.code, type: 'solar', kind: 'actual', points: p })));
+    tasks.push(fetchActual(c.code, 'wind').then(p => ({ country: c.code, type: 'wind', kind: 'actual', points: p })));
   }
   status.textContent = `Stahuji ${tasks.length} datových sad...`;
   const results = await Promise.all(tasks);
   
   const dataMap = {};
+  const actualMap = {};
   for (const r of results) {
-    if (!dataMap[r.country]) dataMap[r.country] = {};
-    dataMap[r.country][r.type] = (r.data && r.data.points) ? r.data.points : null;
+    if (r.kind === 'actual') {
+      if (!actualMap[r.country]) actualMap[r.country] = {};
+      actualMap[r.country][r.type] = (r.points && r.points.length) ? r.points : null;
+    } else {
+      if (!dataMap[r.country]) dataMap[r.country] = {};
+      dataMap[r.country][r.type] = (r.data && r.data.points) ? r.data.points : null;
+    }
   }
   _dataMap = dataMap;
-  _actualMap = {};  // Zatím prázdné - bude doplněno až najdeme MetDesk observations endpoint
+  _actualMap = actualMap;
   
   status.style.display = 'none';
   document.getElementById('content').style.display = 'block';
