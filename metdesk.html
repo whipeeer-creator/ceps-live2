@@ -327,11 +327,23 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
     return;
   }
   
-  // X axis = time (use first series for time range)
+  // X axis = time. Rozsah musí pokrýt forecast (dopředu) i actual (dozadu).
   const timeSeries = series[0].points;
-  const tMin = new Date(timeSeries[0].ts).getTime();
-  const tMax = new Date(timeSeries[timeSeries.length-1].ts).getTime();
-  const tR = tMax - tMin;
+  let tMin = new Date(timeSeries[0].ts).getTime();
+  let tMax = new Date(timeSeries[timeSeries.length-1].ts).getTime();
+  // zahrnout i actual body, které jdou do minulosti
+  for (const s of series) {
+    const act = _actualMap?.[s.country.code]?.[type];
+    if (act && act.length) {
+      for (const p of act) {
+        const tMs = new Date(p.ts).getTime();
+        if (!isFinite(tMs)) continue;
+        if (tMs < tMin) tMin = tMs;
+        if (tMs > tMax) tMax = tMs;
+      }
+    }
+  }
+  const tR = (tMax - tMin) || 1;
   // Y axis = % of max (0-100)
   // Background
   ctx.fillStyle = '#fafbfc';
