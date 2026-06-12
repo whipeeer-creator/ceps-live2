@@ -187,26 +187,31 @@ async function main() {
   
   const tasks = [];
   for (const c of COUNTRIES) {
-    tasks.push(fetchData('magma', c.code, 'solar').then(d => ({ country: c.code, type: 'solar', kind: 'fc', data: d })));
-    tasks.push(fetchData('magma', c.code, 'wind').then(d => ({ country: c.code, type: 'wind', kind: 'fc', data: d })));
-    tasks.push(fetchActual(c.code, 'solar').then(p => ({ country: c.code, type: 'solar', kind: 'actual', points: p })));
-    tasks.push(fetchActual(c.code, 'wind').then(p => ({ country: c.code, type: 'wind', kind: 'actual', points: p })));
+    tasks.push(fetchData('magma', c.code, 'solar').then(d => ({ country: c.code, type: 'solar', data: d })));
+    tasks.push(fetchData('magma', c.code, 'wind').then(d => ({ country: c.code, type: 'wind', data: d })));
   }
   status.textContent = `Stahuji ${tasks.length} datových sad...`;
   const results = await Promise.all(tasks);
   
   const dataMap = {};
-  const actualMap = {};
   for (const r of results) {
-    if (r.kind === 'actual') {
-      if (!actualMap[r.country]) actualMap[r.country] = {};
-      actualMap[r.country][r.type] = (r.points && r.points.length) ? r.points : null;
-    } else {
-      if (!dataMap[r.country]) dataMap[r.country] = {};
-      dataMap[r.country][r.type] = (r.data && r.data.points) ? r.data.points : null;
-    }
+    if (!dataMap[r.country]) dataMap[r.country] = {};
+    dataMap[r.country][r.type] = (r.data && r.data.points) ? r.data.points : null;
   }
   _dataMap = dataMap;
+
+  // ACTUAL (MetDesk observations) pro každou zemi/typ
+  const actualTasks = [];
+  for (const c of COUNTRIES) {
+    actualTasks.push(fetchActual(c.code, 'solar').then(p => ({ country: c.code, type: 'solar', points: p })));
+    actualTasks.push(fetchActual(c.code, 'wind').then(p => ({ country: c.code, type: 'wind', points: p })));
+  }
+  const actualResults = await Promise.all(actualTasks);
+  const actualMap = {};
+  for (const r of actualResults) {
+    if (!actualMap[r.country]) actualMap[r.country] = {};
+    actualMap[r.country][r.type] = r.points || null;
+  }
   _actualMap = actualMap;
   
   status.style.display = 'none';
