@@ -120,13 +120,13 @@
   <div id="topCharts" style="display:grid; gap:12px;">
     <div class="chart-card">
       <h2>☀️ Solar 48h forecast</h2>
-      <div class="h-sub">Normalizováno na max kapacitu (% z peak)</div>
+      <div class="h-sub">Plná = forecast · černá čárkovaná = actual (observations) · % z peak</div>
       <canvas id="canvasSolarAll"></canvas>
       <div id="solarLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
     </div>
     <div class="chart-card">
       <h2>💨 Wind 48h forecast</h2>
-      <div class="h-sub">Normalizováno na max kapacitu (% z peak)</div>
+      <div class="h-sub">Plná = forecast · černá čárkovaná = actual (observations) · % z peak</div>
       <canvas id="canvasWindAll"></canvas>
       <div id="windLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
     </div>
@@ -155,6 +155,11 @@ const COUNTRIES = [
 
 // Toggle state - default all visible
 const visibleState = {
+  solar: { CZ: true, DE: true, AT: true, HU: true, NL: true },
+  wind:  { CZ: true, DE: true, AT: true, HU: true, NL: true },
+};
+// viditelnost actual (observations) - per typ a zemi
+const actualVisible = {
   solar: { CZ: true, DE: true, AT: true, HU: true, NL: true },
   wind:  { CZ: true, DE: true, AT: true, HU: true, NL: true },
 };
@@ -404,14 +409,16 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
     }
     ctx.stroke();
     
-    // ACTUAL - přerušovaná tlustší čára stejné barvy, normalizováno na stejný maxV
+    // ACTUAL - tmavě šedá přerušovaná, výrazně odlišená od forecastu, stejný maxV
     const actual = _actualMap?.[s.country.code]?.[type];
-    if (actual && actual.length) {
-      ctx.strokeStyle = s.color;
-      ctx.lineWidth = 2.5;
-      ctx.setLineDash([6, 4]);
+    const actualOn = actualVisible[type][s.country.code] !== false;
+    if (actual && actual.length && actualOn) {
+      ctx.strokeStyle = '#222';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([5, 3]);
       ctx.beginPath();
       let firstA = true;
+      let drawnA = 0;
       for (const p of actual) {
         const tMs = new Date(p.ts).getTime();
         if (tMs < tMin || tMs > tMax) continue;
@@ -419,6 +426,7 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
         const y = PAD.top + cH * (1 - p.value / s.maxV);
         if (firstA) { ctx.moveTo(x, y); firstA = false; }
         else ctx.lineTo(x, y);
+        drawnA++;
       }
       ctx.stroke();
       ctx.setLineDash([]);
@@ -429,10 +437,28 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
   ctx.strokeStyle = '#bdc3c7';
   ctx.lineWidth = 1;
   ctx.strokeRect(PAD.left, PAD.top, cW, cH);
+
+  // Indikátor: kolik actual (observation) bodů je k dispozici
+  let actCount = 0, actCountries = [];
+  for (const s of series) {
+    const a = _actualMap?.[s.country.code]?.[type];
+    if (a && a.length) { actCount += a.length; actCountries.push(s.country.code); }
+  }
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  if (actCount > 0) {
+    ctx.fillStyle = '#222';
+    ctx.fillText(`actual: ${actCount} bodů (${actCountries.join(',')})`, PAD.left + cW - 4, PAD.top + 2);
+  } else {
+    ctx.fillStyle = '#c0392b';
+    ctx.fillText('actual: žádná data', PAD.left + cW - 4, PAD.top + 2);
+  }
   
   // Legend - clickable toggle
   const lEl = document.getElementById(legendId);
   lEl.innerHTML = '';
+  // FORECAST položky (per země)
   for (const s of series) {
     const opacity = s.visible ? '1' : '0.35';
     const strikeStyle = s.visible ? 'none' : 'line-through';
@@ -445,17 +471,54 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
       </span>
     `);
   }
+  // oddělovač
+  lEl.insertAdjacentHTML('beforeend', `<span style="width:100%;height:0;flex-basis:100%;"></span>`);
+  // ACTUAL globální přepínač
+  const anyActualOn = series.some(s => actualVisible[type][s.country.code] !== false);
+  lEl.insertAdjacentHTML('beforeend', `
+    <span style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:3px 6px;border-radius:3px;user-select:none;font-weight:600;opacity:${anyActualOn?'1':'0.45'};"
+      onclick="toggleAllActual('${type}')">
+      <span style="width:14px;height:0;border-top:2px dashed #222;display:inline-block;"></span>
+      actual ${anyActualOn ? '(vše zap)' : '(vše vyp)'}
+    </span>
+  `);
+  // ACTUAL per země (jen kde actual data jsou)
+  for (const s of series) {
+    const hasActual = _actualMap?.[s.country.code]?.[type]?.length;
+    if (!hasActual) continue;
+    const on = actualVisible[type][s.country.code] !== false;
+    lEl.insertAdjacentHTML('beforeend', `
+      <span style="display:flex;align-items:center;gap:4px;cursor:pointer;padding:3px 6px;border-radius:3px;user-select:none;opacity:${on?'1':'0.35'};text-decoration:${on?'none':'line-through'};font-size:11px;"
+        onclick="toggleActual('${type}', '${s.country.code}')">
+        <span style="width:14px;height:0;border-top:2px dashed #222;display:inline-block;"></span>
+        ${s.country.flag} actual
+      </span>
+    `);
+  }
 }
 
 // Toggle a redraw
 function toggleCountry(type, code) {
   visibleState[type][code] = !visibleState[type][code];
+  _redrawAll();
+}
+// Toggle actual jedné země
+function toggleActual(type, code) {
+  actualVisible[type][code] = actualVisible[type][code] === false ? true : false;
+  _redrawAll();
+}
+// Toggle všech actual daného typu
+function toggleAllActual(type) {
+  const codes = Object.keys(actualVisible[type]);
+  const anyOn = codes.some(c => actualVisible[type][c] !== false);
+  // pokud něco zapnuto -> vypni vše, jinak zapni vše
+  codes.forEach(c => { actualVisible[type][c] = !anyOn; });
+  _redrawAll();
+}
+function _redrawAll() {
   if (!_dataMap) return;
-  if (type === 'solar') {
-    drawAllChart('canvasSolarAll', 'solarLegend', _dataMap, 'solar');
-  } else {
-    drawAllChart('canvasWindAll', 'windLegend', _dataMap, 'wind');
-  }
+  drawAllChart('canvasSolarAll', 'solarLegend', _dataMap, 'solar');
+  drawAllChart('canvasWindAll', 'windLegend', _dataMap, 'wind');
 }
 
 function drawCountryChart(canvasId, country, solar, wind) {
