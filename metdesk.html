@@ -55,11 +55,13 @@
   
   /* Default heights (mobile) */
   #canvasSolarAll, #canvasWindAll { height: 280px; }
+  #canvasSolarErr, #canvasWindErr { height: 200px; }
   .perc-canvas { height: 220px; }
   
   /* Smaller on PC */
   @media (min-width: 900px) {
     #canvasSolarAll, #canvasWindAll { height: 180px; }
+    #canvasSolarErr, #canvasWindErr { height: 140px; }
     .perc-canvas { height: 140px; }
   }
   
@@ -129,6 +131,22 @@
       <div class="h-sub">Plná = forecast · černá čárkovaná = actual (observations) · % z peak</div>
       <canvas id="canvasWindAll"></canvas>
       <div id="windLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
+    </div>
+  </div>
+
+  <h2 style="font-size:14px; margin: 14px 0 6px;">⚠️ Forecast error (actual − forecast)</h2>
+  <div style="display:grid; gap:12px;">
+    <div class="chart-card">
+      <h2>☀️ Solar error</h2>
+      <div class="h-sub">Kladné = skutečnost vyšší než forecast · % z peak · jen překryvové okno</div>
+      <canvas id="canvasSolarErr"></canvas>
+      <div id="solarErrLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
+    </div>
+    <div class="chart-card">
+      <h2>💨 Wind error</h2>
+      <div class="h-sub">Kladné = skutečnost vyšší než forecast · % z peak · jen překryvové okno</div>
+      <canvas id="canvasWindErr"></canvas>
+      <div id="windErrLegend" style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;margin-top:6px;justify-content:center;"></div>
     </div>
   </div>
   
@@ -282,6 +300,8 @@ function renderAll() {
   setTimeout(() => {
     drawAllChart('canvasSolarAll', 'solarLegend', dataMap, 'solar');
     drawAllChart('canvasWindAll', 'windLegend', dataMap, 'wind');
+    drawErrorChart('canvasSolarErr', 'solarErrLegend', dataMap, 'solar');
+    drawErrorChart('canvasWindErr', 'windErrLegend', dataMap, 'wind');
     
     for (const c of COUNTRIES) {
       const solar = dataMap[c.code]?.solar;
@@ -497,7 +517,112 @@ function drawAllChart(canvasId, legendId, dataMap, type) {
   }
 }
 
-// Toggle a redraw
+// Graf chyby: actual - forecast (% z peak) pro stejné časy
+function drawErrorChart(canvasId, legendId, dataMap, type) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth, H = canvas.offsetHeight || 200;
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.clearRect(0,0,W,H);
+
+  const PAD = { left: 50, top: 12, right: 8, bottom: 28 };
+  const cW = W - PAD.left - PAD.right, cH = H - PAD.top - PAD.bottom;
+
+  // pro každou zemi spočítej error = (actual - forecast)/maxV * 100 v překryvu
+  const errSeries = [];
+  let tMin = Infinity, tMax = -Infinity, eMax = 5;
+  for (const c of COUNTRIES) {
+    if (visibleState[type][c.code] === false) continue;
+    if (actualVisible[type][c.code] === false) continue;
+    const fc = dataMap[c.code]?.[type];
+    const ac = _actualMap?.[c.code]?.[type];
+    if (!fc || !fc.length || !ac || !ac.length) continue;
+    const maxV = Math.max(...fc.map(p=>p.value)) || 1;
+    // mapa forecastu podle ts
+    const fcMap = {}; fc.forEach(p => { fcMap[p.ts] = p.value; });
+    const pts = [];
+    for (const p of ac) {
+      const f = fcMap[p.ts];
+      if (f == null) continue;
+      const errPct = (p.value - f) / maxV * 100;
+      const tMs = new Date(p.ts).getTime();
+      pts.push({ tMs, err: errPct });
+      if (tMs < tMin) tMin = tMs;
+      if (tMs > tMax) tMax = tMs;
+      if (Math.abs(errPct) > eMax) eMax = Math.abs(errPct);
+    }
+    if (pts.length) errSeries.push({ country: c, color: type==='solar'?c.color_solar:c.color_wind, pts });
+  }
+
+  ctx.fillStyle = '#fafbfc'; ctx.fillRect(PAD.left, PAD.top, cW, cH);
+
+  if (!errSeries.length) {
+    ctx.fillStyle = '#c0392b'; ctx.font = '12px sans-serif'; ctx.textAlign='left'; ctx.textBaseline='top';
+    ctx.fillText('Žádná překryvová data (chybí actual nebo forecast)', PAD.left+10, H/2);
+    const lEl = document.getElementById(legendId); if (lEl) lEl.innerHTML='';
+    return;
+  }
+
+  eMax = Math.ceil(eMax/5)*5;  // zaokrouhli osu
+  const tR = (tMax - tMin) || 1;
+  const xP = t => PAD.left + cW * ((t - tMin)/tR);
+  const yP = e => PAD.top + cH * (1 - (e + eMax)/(2*eMax));  // -eMax dole, +eMax nahoře
+
+  // mřížka + osa Y (%)
+  ctx.strokeStyle = '#eee'; ctx.fillStyle = '#999'; ctx.font='10px sans-serif'; ctx.textAlign='right'; ctx.textBaseline='middle';
+  for (const e of [-eMax, -eMax/2, 0, eMax/2, eMax]) {
+    const y = yP(e);
+    ctx.strokeStyle = e===0 ? '#bbb' : '#eee'; ctx.lineWidth = e===0?1.5:1;
+    ctx.beginPath(); ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+cW,y); ctx.stroke();
+    ctx.fillStyle='#999'; ctx.fillText((e>0?'+':'')+e.toFixed(0)+'%', PAD.left-4, y);
+  }
+  // hodinové popisky
+  ctx.textAlign='center'; ctx.textBaseline='top'; ctx.fillStyle='#999';
+  for (let i=0;i<=48;i+=6){
+    const ts=tMin+i*3600*1000; if(ts>tMax)break;
+    const x=xP(ts); const d=new Date(ts);
+    ctx.fillText(String(d.getHours()).padStart(2,'0')+':00', x, PAD.top+cH+4);
+  }
+  // now line
+  const nowMs=Date.now();
+  if(nowMs>=tMin&&nowMs<=tMax){ const nx=xP(nowMs);
+    ctx.strokeStyle='#e74c3c'; ctx.lineWidth=1.5; ctx.setLineDash([4,3]);
+    ctx.beginPath(); ctx.moveTo(nx,PAD.top); ctx.lineTo(nx,PAD.top+cH); ctx.stroke(); ctx.setLineDash([]);
+  }
+
+  // čáry chyby
+  for (const s of errSeries) {
+    ctx.strokeStyle = s.color; ctx.lineWidth = 2;
+    ctx.beginPath(); let first=true;
+    for (const p of s.pts) {
+      const x=xP(p.tMs), y=yP(p.err);
+      if(first){ctx.moveTo(x,y);first=false;} else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+  }
+
+  ctx.strokeStyle='#bdc3c7'; ctx.lineWidth=1; ctx.strokeRect(PAD.left,PAD.top,cW,cH);
+
+  // legenda
+  const lEl = document.getElementById(legendId);
+  if (lEl) {
+    lEl.innerHTML='';
+    for (const s of errSeries) {
+      const avgErr = s.pts.reduce((a,p)=>a+p.err,0)/s.pts.length;
+      lEl.insertAdjacentHTML('beforeend', `
+        <span style="display:flex;align-items:center;gap:4px;font-size:11px;">
+          <span style="width:14px;height:3px;background:${s.color};display:inline-block;"></span>
+          ${s.country.flag} ${s.country.name} (ø ${avgErr>0?'+':''}${avgErr.toFixed(1)}%)
+        </span>`);
+    }
+  }
+}
+
+
+// Toggle forecast jedné země
 function toggleCountry(type, code) {
   visibleState[type][code] = !visibleState[type][code];
   _redrawAll();
@@ -519,6 +644,8 @@ function _redrawAll() {
   if (!_dataMap) return;
   drawAllChart('canvasSolarAll', 'solarLegend', _dataMap, 'solar');
   drawAllChart('canvasWindAll', 'windLegend', _dataMap, 'wind');
+  drawErrorChart('canvasSolarErr', 'solarErrLegend', _dataMap, 'solar');
+  drawErrorChart('canvasWindErr', 'windErrLegend', _dataMap, 'wind');
 }
 
 function drawCountryChart(canvasId, country, solar, wind) {
