@@ -197,11 +197,13 @@ async function fetchData(model, country, type) {
 
 async function fetchActual(country, type) {
   try {
-    const r = await fetch(`${API_URL}/metdesk/observations?country=${country}&generation_type=${type}&hours=24`, { cache: 'no-store' });
+    const r = await fetch(`${API_URL}/metdesk/observations?country=${country}&generation_type=${type}&hours=72`, { cache: 'no-store' });
     if (!r.ok) return null;
     const d = await r.json();
     if (d.error || !d.points || !d.points.length) return null;
-    return d.points;
+    // jen skutečně naměřené body (pseudo:0), zahoď model-fill (pseudo:1)
+    const real = d.points.filter(p => p.pseudo === 0 || p.pseudo === '0');
+    return real.length ? real : null;
   } catch(e) { return null; }
 }
 
