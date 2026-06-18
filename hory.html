@@ -3667,10 +3667,9 @@ function drawQhProbHistogram(byDay, curHourH, curQhMin) {
 
 async function loadCenaTable() {
   try {
-    const now = new Date();
-    const pad = n => String(n).padStart(2,'0');
-    const df = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T00:00:00`;
-    const dt = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}T23:59:59`;
+    const pp = pragueParts();
+    const df = `${pp.Y}-${pp.Mo}-${pp.D}T00:00:00`;
+    const dt = `${pp.Y}-${pp.Mo}-${pp.D}T23:59:59`;
     const p = new URLSearchParams({ method:'OdhadovanaCenaOdchylky', dateFrom:df, dateTo:dt });
     const r = await fetch(`${API_URL}/api?${p}`);
     const d = await r.json();
@@ -3714,7 +3713,7 @@ async function loadCenaTable() {
     }
 
     const tbl = document.getElementById('tbl-cena');
-    const curHour = now.getHours() + 1;  // 0-23 -> H01-H24
+    const curHour = parseInt(pp.h) + 1;  // 0-23 -> H01-H24
     let html = '<colgroup><col style="width:40px;">';
     for (let h = 1; h <= 24; h++) html += '<col style="width:52px;">';
     html += '</colgroup><thead><tr><th style="padding:4px 6px;background:#f4f5f9;border:1px solid #dde;width:40px !important;"></th>';
