@@ -133,7 +133,7 @@ footer .ft-brand{font-family:'Fraunces',serif;font-style:italic;font-size:2.4rem
     <a href="#kolekce" class="hero-cta">Prohlédnout kolekci</a>
   </div>
   <div class="hero-photo">
-    <img src="https://images.unsplash.com/photo-1594552072238-b8a33785b261?auto=format&fit=crop&w=1200&q=80" alt="Nevěsta ve svatebních šatech">
+    <img src="https://source.unsplash.com/featured/1200x1500/?bride,wedding-dress&sig=1" alt="Nevěsta ve svatebních šatech">
     <span class="cap">Aurelie · Jaro 2026</span>
   </div>
 </section>
@@ -159,7 +159,7 @@ footer .ft-brand{font-family:'Fraunces',serif;font-style:italic;font-size:2.4rem
       <div><span>100%</span><small>na míru</small></div>
     </div>
   </div>
-  <div class="side"><img src="https://images.unsplash.com/photo-1525258834e?auto=format&fit=crop&w=900&q=80" alt="Detail svatebních šatů" onerror="this.src='https://images.unsplash.com/photo-1606800052052-a08af7148866?auto=format&fit=crop&w=900&q=80'"></div>
+  <div class="side"><img src="https://source.unsplash.com/featured/900x900/?wedding-dress,lace&sig=2" alt="Detail svatebních šatů"></div>
 </section>
 
 <footer id="kontakt">
@@ -176,44 +176,42 @@ footer .ft-brand{font-family:'Fraunces',serif;font-style:italic;font-size:2.4rem
 </footer>
 
 <script>
-/* fotky: Unsplash CDN, vícero ID na model + fallback přes onerror */
+/* fotky: Unsplash Source podle klíčových slov -> vždy svatební tematika, žádná náhodná ID */
 const dresses=[
-  {name:'Aurelie',sil:'A-linie',price:'42 000 Kč',tag:'Novinka',ids:['1594552072238-b8a33785b261','1519741497674-611481863552']},
-  {name:'Bianca',sil:'Mořská panna',price:'56 000 Kč',tag:'',ids:['1606800052052-a08af7148866','1583391733956-3750e0ff4e8b']},
-  {name:'Colette',sil:'Princeznovské',price:'63 000 Kč',tag:'Bestseller',ids:['1525257831700-2bba0967ee68','1525257831700-2bba0967ee68']},
-  {name:'Delphine',sil:'Rovné',price:'38 000 Kč',tag:'',ids:['1591604466107-ec97de577aff','1546804909-5a4d6e6e0c0c']},
-  {name:'Elodie',sil:'A-linie',price:'45 000 Kč',tag:'',ids:['1535378917042-10a22c95931a','1519741497674-611481863552']},
-  {name:'Faye',sil:'Boho',price:'34 000 Kč',tag:'Limitovaná',ids:['1583391733981-8498408ee9f0','1606800052052-a08af7148866']},
-  {name:'Giselle',sil:'Mořská panna',price:'59 000 Kč',tag:'',ids:['1519225421980-715cb0215aed','1594552072238-b8a33785b261']},
-  {name:'Helena',sil:'Princeznovské',price:'68 000 Kč',tag:'',ids:['1525257831700-2bba0967ee68','1606800052052-a08af7148866']},
-  {name:'Iris',sil:'A-linie',price:'40 000 Kč',tag:'',ids:['1511285560929-80b456fea0bc','1519741497674-611481863552']},
-  {name:'Juno',sil:'Rovné',price:'47 000 Kč',tag:'Novinka',ids:['1546804909-5a4d6e6e0c0c','1591604466107-ec97de577aff']},
+  {name:'Aurelie',sil:'A-linie',price:'42 000 Kč',tag:'Novinka',kw:'bride,wedding-dress'},
+  {name:'Bianca',sil:'Mořská panna',price:'56 000 Kč',tag:'',kw:'bride,wedding-gown'},
+  {name:'Colette',sil:'Princeznovské',price:'63 000 Kč',tag:'Bestseller',kw:'wedding-dress,bridal'},
+  {name:'Delphine',sil:'Rovné',price:'38 000 Kč',tag:'',kw:'bride,bridal-gown'},
+  {name:'Elodie',sil:'A-linie',price:'45 000 Kč',tag:'',kw:'wedding-dress,bride'},
+  {name:'Faye',sil:'Boho',price:'34 000 Kč',tag:'Limitovaná',kw:'boho-wedding,bride'},
+  {name:'Giselle',sil:'Mořská panna',price:'59 000 Kč',tag:'',kw:'bridal,wedding-dress'},
+  {name:'Helena',sil:'Princeznovské',price:'68 000 Kč',tag:'',kw:'wedding-gown,bride'},
+  {name:'Iris',sil:'A-linie',price:'40 000 Kč',tag:'',kw:'bride,wedding'},
+  {name:'Juno',sil:'Rovné',price:'47 000 Kč',tag:'Novinka',kw:'bridal-gown,bride'},
 ];
-const FALLBACKS=['1594552072238-b8a33785b261','1606800052052-a08af7148866','1525257831700-2bba0967ee68','1519741497674-611481863552'];
-const u=id=>`https://images.unsplash.com/photo-${id}?auto=format&fit=crop&w=800&q=80`;
+/* sig = unikátní seed, aby každá karta dostala jinou fotku a neopakovaly se */
+const u=(kw,sig)=>`https://source.unsplash.com/featured/800x1000/?${encodeURIComponent(kw)}&sig=${sig}`;
 
 const grid=document.getElementById('grid');
 dresses.forEach((d,i)=>{
   const card=document.createElement('article');
   card.className='card reveal';
   card.style.transitionDelay=(i%3)*0.08+'s';
-  const fb=FALLBACKS[i%FALLBACKS.length];
   card.innerHTML=`
     <div class="frame">
       ${d.tag?`<span class="tag">${d.tag}</span>`:''}
       <button class="fav" aria-label="Uložit do oblíbených">&hearts;</button>
-      <img src="${u(d.ids[0])}" alt="${d.name}" data-alt="${u(d.ids[1]||fb)}" data-fb="${u(fb)}">
+      <img src="${u(d.kw,i+10)}" alt="${d.name}" data-fb="${u('wedding-dress',i+50)}">
     </div>
     <div class="meta"><span class="name">${d.name}</span><span class="price">${d.price}</span></div>
     <div class="meta-bottom"><span class="silhouette">${d.sil}</span><span class="silhouette">No. ${String(i+1).padStart(2,'0')}</span></div>`;
   grid.appendChild(card);
 });
 
-/* fotka spadne -> zkus druhou -> pak fallback */
+/* když fotka nenačte, jeden retry na obecnější heslo */
 grid.querySelectorAll('img').forEach(img=>{
   img.addEventListener('error',function(){
-    if(this.dataset.alt){this.src=this.dataset.alt;this.dataset.alt='';}
-    else if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb='';}
+    if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb='';}
   });
 });
 
