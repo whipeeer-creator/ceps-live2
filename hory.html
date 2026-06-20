@@ -181,7 +181,7 @@ canvas { max-width: 100%; display: block; }
 
   <div class="kpi-row">
     <div class="kpi" id="crd-OZE5" style="grid-column: span 2;"><div class="kpi-l">Poslední 15min blok · průměrná regulace</div><div class="kpi-v" id="dv-OZE5">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-OZE5">—</div></div>
-    <div class="kpi" id="crd-SOLAR" style="grid-column: span 2;"><div class="kpi-l">🇨🇿 Solar výroba (ČEPS)</div><div class="kpi-v" id="dv-SOLAR">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-SOLAR">—</div></div>
+    <div class="kpi" id="crd-SOLAR" style="grid-column: span 2;"><div class="kpi-l">🇨🇿 Solar: výroba − forecast</div><div class="kpi-v" id="dv-SOLAR">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-SOLAR">—</div></div>
   </div>
 
   <div class="chart-panel">
@@ -2051,12 +2051,14 @@ function renderResStats(rows, cols, daPoints, idPoints) {
         }
         fcVal = best;
       }
-      dvS.innerHTML = `${solActual.toFixed(0)}<span class="kpi-u">MW</span>`;
+      dvS.innerHTML = ``;
       if (fcVal != null && isFinite(fcVal)) {
         const diff = solActual - fcVal;
         const col = diff >= 0 ? '#0b8a3e' : '#c0392b';
-        dsS.innerHTML = `forecast ${fcVal.toFixed(0)} MW · <span style="color:${col};font-weight:600;">${diff>=0?'+':''}${diff.toFixed(0)} MW</span>`;
+        dvS.innerHTML = `<span style="color:${col};">${diff>=0?'+':''}${diff.toFixed(0)}</span><span class="kpi-u">MW</span>`;
+        dsS.innerHTML = `výroba ${solActual.toFixed(0)} MW · forecast ${fcVal.toFixed(0)} MW`;
       } else {
+        dvS.innerHTML = `${solActual.toFixed(0)}<span class="kpi-u">MW</span>`;
         dsS.textContent = 'forecast: —';
       }
     }
