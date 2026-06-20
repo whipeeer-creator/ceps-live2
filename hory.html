@@ -180,7 +180,8 @@ canvas { max-width: 100%; display: block; }
   </div>
 
   <div class="kpi-row">
-    <div class="kpi" id="crd-OZE5" style="grid-column: span 4;"><div class="kpi-l">Poslední 15min blok · průměrná regulace</div><div class="kpi-v" id="dv-OZE5">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-OZE5">—</div></div>
+    <div class="kpi" id="crd-OZE5" style="grid-column: span 2;"><div class="kpi-l">Poslední 15min blok · průměrná regulace</div><div class="kpi-v" id="dv-OZE5">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-OZE5">—</div></div>
+    <div class="kpi" id="crd-SOLAR" style="grid-column: span 2;"><div class="kpi-l">🇨🇿 Solar výroba (ČEPS)</div><div class="kpi-v" id="dv-SOLAR">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-SOLAR">—</div></div>
   </div>
 
   <div class="chart-panel">
@@ -2027,6 +2028,39 @@ function renderResStats(rows, cols, daPoints, idPoints) {
   const stats = document.getElementById('resStats');
   if (stats) stats.innerHTML = parts.join(' · ');
 
+  // === KPI karta: Solar výroba (ČEPS) + diference vs forecast (ENTSO-E) ===
+  try {
+    // najdi solar sloupec v ČEPS datech
+    const solCol = cols.find(c => /FVE|fotovolt|solar|pv/i.test(c));
+    const dvS = document.getElementById('dv-SOLAR');
+    const dsS = document.getElementById('ds-SOLAR');
+    if (solCol && dvS) {
+      const solActual = parseFloat(last[solCol]) || 0;
+      // forecast pro aktuální čas: vezmi nejbližší bod z ID (intraday), fallback DA
+      const fc = (idPoints && idPoints.length) ? idPoints : (daPoints || []);
+      let fcVal = null;
+      if (fc.length) {
+        // poslední čas z ČEPS dat
+        const lastTs = new Date(last.date || last.Date).getTime();
+        let best = null, bestDiff = Infinity;
+        for (const p of fc) {
+          const pts = new Date(p.ts || p.time || p.dtg).getTime();
+          if (!isFinite(pts)) continue;
+          const dd = Math.abs(pts - lastTs);
+          if (dd < bestDiff) { bestDiff = dd; best = p.value; }
+        }
+        fcVal = best;
+      }
+      dvS.innerHTML = `${solActual.toFixed(0)}<span class="kpi-u">MW</span>`;
+      if (fcVal != null && isFinite(fcVal)) {
+        const diff = solActual - fcVal;
+        const col = diff >= 0 ? '#0b8a3e' : '#c0392b';
+        dsS.innerHTML = `forecast ${fcVal.toFixed(0)} MW · <span style="color:${col};font-weight:600;">${diff>=0?'+':''}${diff.toFixed(0)} MW</span>`;
+      } else {
+        dsS.textContent = 'forecast: —';
+      }
+    }
+  } catch(e) { console.warn('solar KPI:', e); }
 }
 
 let _resMeta = null;
