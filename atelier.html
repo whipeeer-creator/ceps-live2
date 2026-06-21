@@ -133,7 +133,7 @@ footer .ft-brand{font-family:'Fraunces',serif;font-style:italic;font-size:2.4rem
     <a href="#kolekce" class="hero-cta">Prohlédnout kolekci</a>
   </div>
   <div class="hero-photo">
-    <img src="https://source.unsplash.com/featured/1200x1500/?bride,wedding-dress&sig=1" alt="Nevěsta ve svatebních šatech">
+    <img src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/b7/Ecru_and_White_Wedding_Dress_with_Train.jpg/900px-Ecru_and_White_Wedding_Dress_with_Train.jpg" alt="Nevěsta ve svatebních šatech">
     <span class="cap">Aurelie · Jaro 2026</span>
   </div>
 </section>
@@ -159,7 +159,7 @@ footer .ft-brand{font-family:'Fraunces',serif;font-style:italic;font-size:2.4rem
       <div><span>100%</span><small>na míru</small></div>
     </div>
   </div>
-  <div class="side"><img src="https://source.unsplash.com/featured/900x900/?wedding-dress,lace&sig=2" alt="Detail svatebních šatů"></div>
+  <div class="side"><img src="https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Valentino_wedding_dress.jpg/700px-Valentino_wedding_dress.jpg" alt="Detail svatebních šatů"></div>
 </section>
 
 <footer id="kontakt">
@@ -176,21 +176,20 @@ footer .ft-brand{font-family:'Fraunces',serif;font-style:italic;font-size:2.4rem
 </footer>
 
 <script>
-/* fotky: Unsplash Source podle klíčových slov -> vždy svatební tematika, žádná náhodná ID */
+/* fotky: přímé odkazy na Wikimedia Commons (volné, stabilní URL) */
+const W='https://upload.wikimedia.org/wikipedia/commons/thumb/';
 const dresses=[
-  {name:'Aurelie',sil:'A-linie',price:'42 000 Kč',tag:'Novinka',kw:'bride,wedding-dress'},
-  {name:'Bianca',sil:'Mořská panna',price:'56 000 Kč',tag:'',kw:'bride,wedding-gown'},
-  {name:'Colette',sil:'Princeznovské',price:'63 000 Kč',tag:'Bestseller',kw:'wedding-dress,bridal'},
-  {name:'Delphine',sil:'Rovné',price:'38 000 Kč',tag:'',kw:'bride,bridal-gown'},
-  {name:'Elodie',sil:'A-linie',price:'45 000 Kč',tag:'',kw:'wedding-dress,bride'},
-  {name:'Faye',sil:'Boho',price:'34 000 Kč',tag:'Limitovaná',kw:'boho-wedding,bride'},
-  {name:'Giselle',sil:'Mořská panna',price:'59 000 Kč',tag:'',kw:'bridal,wedding-dress'},
-  {name:'Helena',sil:'Princeznovské',price:'68 000 Kč',tag:'',kw:'wedding-gown,bride'},
-  {name:'Iris',sil:'A-linie',price:'40 000 Kč',tag:'',kw:'bride,wedding'},
-  {name:'Juno',sil:'Rovné',price:'47 000 Kč',tag:'Novinka',kw:'bridal-gown,bride'},
+  {name:'Aurelie',sil:'A-linie',price:'42 000 Kč',tag:'Novinka',img:W+'b/b7/Ecru_and_White_Wedding_Dress_with_Train.jpg/600px-Ecru_and_White_Wedding_Dress_with_Train.jpg'},
+  {name:'Bianca',sil:'Mořská panna',price:'56 000 Kč',tag:'',img:W+'5/53/Valentino_wedding_dress.jpg/600px-Valentino_wedding_dress.jpg'},
+  {name:'Colette',sil:'Princeznovské',price:'63 000 Kč',tag:'Bestseller',img:W+'a/a5/Wedding_dress_princess_seams.jpg/600px-Wedding_dress_princess_seams.jpg'},
+  {name:'Delphine',sil:'Rovné',price:'38 000 Kč',tag:'',img:W+'c/cd/White-wedding-dress.jpg/600px-White-wedding-dress.jpg'},
+  {name:'Elodie',sil:'A-linie',price:'45 000 Kč',tag:'',img:W+'9/9a/Female_wedding_dress_01.JPG/600px-Female_wedding_dress_01.JPG'},
+  {name:'Faye',sil:'Boho',price:'34 000 Kč',tag:'Limitovaná',img:W+'d/dc/Ukrainian_Bride.jpg/600px-Ukrainian_Bride.jpg'},
+  {name:'Giselle',sil:'Mořská panna',price:'59 000 Kč',tag:'',img:W+'5/53/Valentino_wedding_dress.jpg/600px-Valentino_wedding_dress.jpg'},
+  {name:'Helena',sil:'Princeznovské',price:'68 000 Kč',tag:'',img:W+'b/b7/Ecru_and_White_Wedding_Dress_with_Train.jpg/600px-Ecru_and_White_Wedding_Dress_with_Train.jpg'},
+  {name:'Iris',sil:'A-linie',price:'40 000 Kč',tag:'',img:W+'a/a5/Wedding_dress_princess_seams.jpg/600px-Wedding_dress_princess_seams.jpg'},
+  {name:'Juno',sil:'Rovné',price:'47 000 Kč',tag:'Novinka',img:W+'c/cd/White-wedding-dress.jpg/600px-White-wedding-dress.jpg'},
 ];
-/* sig = unikátní seed, aby každá karta dostala jinou fotku a neopakovaly se */
-const u=(kw,sig)=>`https://source.unsplash.com/featured/800x1000/?${encodeURIComponent(kw)}&sig=${sig}`;
 
 const grid=document.getElementById('grid');
 dresses.forEach((d,i)=>{
@@ -201,18 +200,11 @@ dresses.forEach((d,i)=>{
     <div class="frame">
       ${d.tag?`<span class="tag">${d.tag}</span>`:''}
       <button class="fav" aria-label="Uložit do oblíbených">&hearts;</button>
-      <img src="${u(d.kw,i+10)}" alt="${d.name}" data-fb="${u('wedding-dress',i+50)}">
+      <img src="${d.img}" alt="${d.name}" loading="lazy">
     </div>
     <div class="meta"><span class="name">${d.name}</span><span class="price">${d.price}</span></div>
     <div class="meta-bottom"><span class="silhouette">${d.sil}</span><span class="silhouette">No. ${String(i+1).padStart(2,'0')}</span></div>`;
   grid.appendChild(card);
-});
-
-/* když fotka nenačte, jeden retry na obecnější heslo */
-grid.querySelectorAll('img').forEach(img=>{
-  img.addEventListener('error',function(){
-    if(this.dataset.fb){this.src=this.dataset.fb;this.dataset.fb='';}
-  });
 });
 
 grid.addEventListener('click',e=>{const b=e.target.closest('.fav');if(b){b.classList.toggle('on');e.stopPropagation();}});
