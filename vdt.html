@@ -169,7 +169,10 @@ function flashCls(row){
   return f;
 }
 
-// ---- MOJE OBCHODY: nacteni z XLSX (list cleve_obchody) ----
+// ---- MOJE OBCHODY: nacteni z XLSX, QH sekce z listu "Tomas" ----
+// Sekce "SEPARATNE VSE": 96 ctvrthodin. Sloupce: Perioda|Cas|Nakup mn|Prodej mn|
+// Nakup celk|Prodej celk|Pozice(MW)|Nakup/Prodej(cena)|Platba odch|Zisk
+// Smer z pozice (kladna=nakup, zaporna=prodej), cena = abs(cena), MWh = |pozice|*0.25
 document.getElementById('pnlbar').style.display='block';
 document.getElementById('tradesFile').addEventListener('change', async (ev)=>{
   const f = ev.target.files[0];
@@ -177,57 +180,60 @@ document.getElementById('tradesFile').addEventListener('change', async (ev)=>{
   try{
     const buf = await f.arrayBuffer();
     const wb = XLSX.read(buf, {type:'array'});
-    const ws = wb.Sheets['cleve_obchody'];
-    if(!ws){ document.getElementById('pnlsummary').textContent='⚠️ list "cleve_obchody" nenalezen'; return; }
+    const ws = wb.Sheets['Tomas'] || wb.Sheets['celkem'];
+    if(!ws){ document.getElementById('pnlsummary').textContent='⚠️ list "Tomas" nenalezen'; return; }
     const rows = XLSX.utils.sheet_to_json(ws, {header:1});
-    // hlavicka na radku 0; najdi sloupce
-    const hdr = rows[0].map(x=>String(x||''));
-    const ci = (name)=> hdr.findIndex(h=>h.toLowerCase().includes(name.toLowerCase()));
-    const cShort=ci('Krátký název'), cSide=ci('Nákup/Prodej'), cMwh=ci('Množství [MWh]'), cPx=ci('Cena');
-    if(cShort<0||cSide<0||cMwh<0||cPx<0){ document.getElementById('pnlsummary').textContent='⚠️ chybí očekávané sloupce'; return; }
-    const agg={};
+    // najdi QH hlavicku: radek kde prvni bunka == "Perioda" a druha "Čas"
+    let hr=-1;
+    for(let i=0;i<rows.length;i++){
+      const r=rows[i]||[];
+      if(String(r[0]||'').trim()==='Perioda' && String(r[1]||'').indexOf('as')>=0){ hr=i; break; }
+    }
+    if(hr<0){ document.getElementById('pnlsummary').textContent='⚠️ QH sekce nenalezena'; return; }
+    const byKey={};  // from "HH:MM" -> list obchodu
     let n=0;
-    for(let i=1;i<rows.length;i++){
-      const r=rows[i]; if(!r||!r[cShort]) continue;
-      const key=MYKEY(r[cShort]); if(!key) continue;
-      const side=String(r[cSide]||''); const mwh=parseFloat(r[cMwh]); const px=parseFloat(r[cPx]);
-      if(isNaN(mwh)||isNaN(px)) continue;
-      const a=agg[key]||(agg[key]={buy_mwh:0,buy_eur:0,sell_mwh:0,sell_eur:0});
-      if(side.indexOf('Nákup')>=0||side.indexOf('Nakup')>=0){ a.buy_mwh+=mwh; a.buy_eur+=mwh*px; }
-      else { a.sell_mwh+=mwh; a.sell_eur+=mwh*px; }
+    for(let i=hr+1;i<rows.length && i<=hr+200;i++){
+      const r=rows[i]; if(!r) continue;
+      const per=parseInt(r[0],10);
+      if(isNaN(per)||per<1||per>96) continue;
+      const cas=String(r[1]||'');                 // "05:00-05:15"
+      const from=(cas.match(/^(\d{2}:\d{2})/)||[])[1];
+      if(!from) continue;
+      const poz=parseFloat(r[6]);                  // MW (kladne nakup, zaporne prodej)
+      let cena=parseFloat(r[7]);                   // cena EUR/MWh
+      if(isNaN(poz)||poz===0||isNaN(cena)) continue;
+      const buy = poz>0;
+      const mwh = Math.abs(poz)*0.25;              // QH = 0.25h
+      const px = Math.abs(cena);
+      (byKey[from]=byKey[from]||[]).push({buy, mwh, px});
       n++;
     }
-    myTrades=agg;
-    document.getElementById('pnlsummary').innerHTML='✅ '+n+' obchodů na '+Object.keys(agg).length+' kontraktech načteno';
+    myTrades=byKey;
+    document.getElementById('pnlsummary').innerHTML='✅ '+n+' čtvrthodin načteno';
     if(window._lastRows) render(window._lastRows);
   }catch(e){
     document.getElementById('pnlsummary').textContent='⚠️ chyba čtení: '+e.message;
   }
 });
 
-// P/L proti protistrane (realne zavreni):
+// P/L proti protistrane (realne zavreni), PER OBCHOD:
 //  - prodal jsem -> zavru NAKUPEM za ask: (moje_prodejni - ask) * mwh
 //  - nakoupil jsem -> zavru PRODEJEM za bid: (bid - moje_nakupni) * mwh
-// vraci {pl, txt} nebo null kdyz na kontraktu nemam pozici nebo neni zivy
+// vraci {trades:[{buy,mwh,px,pl}], total} nebo null kdyz nemam pozici
 function myPnl(row){
   const key = row.kontrakt && row.kontrakt.from;
   if(!key) return null;
-  const a = myTrades[key];
-  if(!a) return null;
-  let pl=0, parts=[];
-  // cista pozice
-  const net = a.sell_mwh - a.buy_mwh; // kladne = cisty prodej
-  if(a.sell_mwh>0){
-    const avgSell=a.sell_eur/a.sell_mwh;
-    if(row.ask!=null){ pl += (avgSell-row.ask)*a.sell_mwh; }
-    else return {pl:null, txt:'×'}; // neni protistrana -> nelze zavrit
+  const list = myTrades[key];
+  if(!list || !list.length) return null;
+  let total=0; const out=[];
+  for(const t of list){
+    let pl=null;
+    if(t.buy){ if(row.bid!=null) pl=(row.bid-t.px)*t.mwh; }
+    else     { if(row.ask!=null) pl=(t.px-row.ask)*t.mwh; }
+    if(pl!=null) total+=pl;
+    out.push({buy:t.buy, mwh:t.mwh, px:t.px, pl});
   }
-  if(a.buy_mwh>0){
-    const avgBuy=a.buy_eur/a.buy_mwh;
-    if(row.bid!=null){ pl += (row.bid-avgBuy)*a.buy_mwh; }
-    else return {pl:null, txt:'×'};
-  }
-  return {pl, net};
+  return {trades:out, total};
 }
 
 function cell(row, dtPrice){
@@ -251,12 +257,20 @@ function cell(row, dtPrice){
   const lvStr = longVw==null?'\u2013':(longVw>=0?'+':'')+longVw.toFixed(2);
   const svStr = shortVw==null?'\u2013':(shortVw>=0?'+':'')+shortVw.toFixed(2);
 
-  // MOJE P/L (mark-to-market proti protistrane)
+  // MOJE P/L (mark-to-market proti protistrane), per obchod
   const pn = myPnl(row);
-  let pnStr='', pnCls='dim';
-  if(pn===null){ pnStr='\u2013'; pnCls='dim'; }
-  else if(pn.pl===null){ pnStr='×'; pnCls='dim'; }
-  else { pnCls = pn.pl>=0?'diff-pos':'diff-neg'; pnStr=(pn.pl>=0?'+':'')+pn.pl.toFixed(2); }
+  let pnHtml='';
+  if(pn===null){ pnHtml='<span class="dim">\u2013</span>'; }
+  else {
+    const lines = pn.trades.map(t=>{
+      const dir = t.buy?'N':'P';   // Nakup / Prodej
+      const dcls = t.buy?'diff-pos':'diff-neg';
+      const plTxt = t.pl==null ? '×' : (t.pl>=0?'+':'')+t.pl.toFixed(1);
+      const plCls = t.pl==null ? 'dim' : (t.pl>=0?'diff-pos':'diff-neg');
+      return `<span class="${dcls}">${dir}</span> ${t.px.toFixed(2)}\u00d7${t.mwh.toFixed(2)} <span class="${plCls}">${plTxt}</span>`;
+    });
+    pnHtml = lines.join('<br>');
+  }
 
   return `
     <td class="bidcell"><span class="bid">${fmt(row.bid)}</span></td>
@@ -269,7 +283,7 @@ function cell(row, dtPrice){
     <td class="sep dtcell">${fmt(dtPrice)}</td>
     <td class="dtcell ${sCls}">${sStr}</td>
     <td class="dtcell ${lCls}">${lStr}</td>
-    <td class="sep plcell ${pnCls}">${pnStr}</td>`;
+    <td class="sep plcell" style="text-align:left;white-space:nowrap">${pnHtml}</td>`;
 }
 
 // vykresli tabulku pro jeden den
@@ -298,7 +312,7 @@ function tableFor(rows, dayY){
         <th class="panel-label" colspan="4" style="text-align:center;color:var(--bid)">VDT (live)</th>
         <th class="panel-label sep vwhead" colspan="3" style="text-align:center">VWAP</th>
         <th class="panel-label sep dthead" colspan="3" style="text-align:center">DT spot</th>
-        <th class="panel-label sep plhead" colspan="1" style="text-align:center">Moje P/L</th>
+        <th class="panel-label sep plhead" colspan="1" style="text-align:center">Moje (směr cena×MWh zisk)</th>
       </tr>
       <tr>
         <th class="l">Kontrakt</th><th>Bid</th><th>Ask</th><th>Last</th><th>Spread</th>
@@ -341,16 +355,15 @@ function render(rows){
     `<div class="daytitle">ZÍTRA \u00b7 ${czFromYmd(tom)}</div>` + tableFor(rows, tom);
   // celkovy P/L pres zive kontrakty (kde mam pozici a je protistrana)
   if(Object.keys(myTrades).length){
-    let total=0, nLive=0, nOpen=0;
+    let total=0, nLive=0;
     for(const row of rows){
       const pn=myPnl(row);
-      if(pn && pn.pl!=null){ total+=pn.pl; nLive++; }
-      else if(pn && pn.pl==null){ nOpen++; }
+      if(pn){ total+=pn.total; nLive++; }
     }
     const cls = total>=0?'#0b8a3e':'#c0392b';
     document.getElementById('pnlsummary').innerHTML =
-      'Celkové P/L (živé pozice): <b style="color:'+cls+'">'+(total>=0?'+':'')+total.toFixed(2)+' EUR</b>'+
-      ' <span class="dim">· '+nLive+' kontraktů'+(nOpen?(' · '+nOpen+' bez protistrany'):'')+'</span>';
+      'Celkový zisk (živé pozice): <b style="color:'+cls+'">'+(total>=0?'+':'')+total.toFixed(2)+' EUR</b>'+
+      ' <span class="dim">· '+nLive+' kontraktů</span>';
   }
 }
 
