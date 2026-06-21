@@ -54,6 +54,9 @@
   th.dthead{color:#2a4d8f}
   td.dtcell{background:#f3f6fc}
   tr.hour td.dtcell{background:#e7eefb}
+  th.vwhead{color:#8a5a00}
+  td.vwcell{background:#fcf7ef}
+  tr.hour td.vwcell{background:#f7eeda}
   .diff-pos{color:#0b8a3e}
   .diff-neg{color:#c0392b}
   .panel-label{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
@@ -156,11 +159,24 @@ function cell(row, dtPrice){
   const sCls = shortSp==null?'dim':(shortSp>=0?'diff-pos':'diff-neg');
   const lStr = longSp==null?'\u2013':(longSp>=0?'+':'')+longSp.toFixed(2);
   const sStr = shortSp==null?'\u2013':(shortSp>=0?'+':'')+shortSp.toFixed(2);
+
+  // VWAP blok (doprostred): spready proti vazenemu prumeru
+  const vw = (row.vwap!=null && !isNaN(row.vwap)) ? row.vwap : null;
+  let longVw  = (row.ask!=null && vw!=null) ? vw-row.ask : null;
+  let shortVw = (row.bid!=null && vw!=null) ? row.bid-vw : null;
+  const lvCls = longVw==null?'dim':(longVw>=0?'diff-pos':'diff-neg');
+  const svCls = shortVw==null?'dim':(shortVw>=0?'diff-pos':'diff-neg');
+  const lvStr = longVw==null?'\u2013':(longVw>=0?'+':'')+longVw.toFixed(2);
+  const svStr = shortVw==null?'\u2013':(shortVw>=0?'+':'')+shortVw.toFixed(2);
+
   return `
     <td class="bidcell"><span class="bid">${fmt(row.bid)}</span></td>
     <td class="askcell"><span class="ask">${fmt(row.ask)}</span></td>
     <td>${fmt(row.last)}</td>
     <td class="${sp!=null?'':'dim'}">${fmt(sp)}</td>
+    <td class="sep vwcell">${fmt(vw)}</td>
+    <td class="vwcell ${svCls}">${svStr}</td>
+    <td class="vwcell ${lvCls}">${lvStr}</td>
     <td class="sep dtcell">${fmt(dtPrice)}</td>
     <td class="dtcell ${sCls}">${sStr}</td>
     <td class="dtcell ${lCls}">${lStr}</td>`;
@@ -190,15 +206,17 @@ function tableFor(rows, dayY){
       <tr>
         <th class="l"></th>
         <th class="panel-label" colspan="4" style="text-align:center;color:var(--bid)">VDT (live)</th>
+        <th class="panel-label sep vwhead" colspan="3" style="text-align:center">VWAP</th>
         <th class="panel-label sep dthead" colspan="3" style="text-align:center">DT spot</th>
       </tr>
       <tr>
         <th class="l">Kontrakt</th><th>Bid</th><th>Ask</th><th>Last</th><th>Spread</th>
+        <th class="sep vwhead">VWAP</th><th class="vwhead">Short spread</th><th class="vwhead">Long spread</th>
         <th class="sep dthead">DT</th><th class="dthead">Short spread</th><th class="dthead">Long spread</th>
       </tr>
     </thead>`;
   if(hours.length===0){
-    return `<table>${thead}<tbody><tr><td class="l dim" colspan="8">žádná data</td></tr></tbody></table>`;
+    return `<table>${thead}<tbody><tr><td class="l dim" colspan="11">žádná data</td></tr></tbody></table>`;
   }
   let body='';
   for(const h of hours){
@@ -209,7 +227,7 @@ function tableFor(rows, dayY){
       body+=`<tr class="hour${flashCls(g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow,dtH)}</tr>`;
     }else{
       const s=dtH!=null?dtH.toFixed(2):'\u2014';
-      body+=`<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">\u2014</td><td class="sep dtcell">${s}</td><td class="dtcell dim">\u2013</td><td class="dtcell dim">\u2013</td></tr>`;
+      body+=`<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">\u2014</td><td class="sep vwcell dim">\u2014</td><td class="vwcell dim">\u2013</td><td class="vwcell dim">\u2013</td><td class="sep dtcell">${s}</td><td class="dtcell dim">\u2013</td><td class="dtcell dim">\u2013</td></tr>`;
     }
     g.qh.sort((a,b)=>((a.kontrakt&&a.kontrakt.from)||'').localeCompare((b.kontrakt&&b.kontrakt.from)||''));
     for(const q of g.qh){
