@@ -174,45 +174,75 @@ function flashCls(row){
 // Nakup celk|Prodej celk|Pozice(MW)|Nakup/Prodej(cena)|Platba odch|Zisk
 // Smer z pozice (kladna=nakup, zaporna=prodej), cena = abs(cena), MWh = |pozice|*0.25
 document.getElementById('pnlbar').style.display='block';
+
+// parsuje workbook (array buffer) -> naplni myTrades; vraci pocet QH
+function parseTradesWB(buf){
+  const wb = XLSX.read(buf, {type:'array'});
+  const ws = wb.Sheets['Tomas'] || wb.Sheets['celkem'];
+  if(!ws) throw new Error('list "Tomas" nenalezen');
+  const rows = XLSX.utils.sheet_to_json(ws, {header:1});
+  let hr=-1;
+  for(let i=0;i<rows.length;i++){
+    const r=rows[i]||[];
+    if(String(r[0]||'').trim()==='Perioda' && String(r[1]||'').indexOf('as')>=0){ hr=i; break; }
+  }
+  if(hr<0) throw new Error('QH sekce nenalezena');
+  const byKey={}; let n=0;
+  for(let i=hr+1;i<rows.length && i<=hr+200;i++){
+    const r=rows[i]; if(!r) continue;
+    const per=parseInt(r[0],10);
+    if(isNaN(per)||per<1||per>96) continue;
+    const cas=String(r[1]||'');
+    const from=(cas.match(/^(\d{2}:\d{2})/)||[])[1];
+    if(!from) continue;
+    const poz=parseFloat(r[6]); let cena=parseFloat(r[7]);
+    if(isNaN(poz)||poz===0||isNaN(cena)) continue;
+    const buy = poz>0;
+    const mwh = Math.abs(poz)*0.25;
+    (byKey[from]=byKey[from]||[]).push({buy, mwh, px:Math.abs(cena)});
+    n++;
+  }
+  myTrades=byKey;
+  return n;
+}
+
+// pri startu: zkus nacist ulozenou tabulku z localStorage
+try{
+  const saved = localStorage.getItem('myTradesXlsx');
+  if(saved){
+    const bytes = Uint8Array.from(atob(saved), c=>c.charCodeAt(0));
+    const n = parseTradesWB(bytes.buffer);
+    document.getElementById('pnlsummary').innerHTML='✅ '+n+' čtvrthodin (uloženo) · <a href="#" id="clearTrades" style="color:#c0392b">smazat</a>';
+  }
+}catch(e){ /* ignoruj poskozeny ulozeny stav */ }
+
 document.getElementById('tradesFile').addEventListener('change', async (ev)=>{
   const f = ev.target.files[0];
   if(!f) return;
   try{
     const buf = await f.arrayBuffer();
-    const wb = XLSX.read(buf, {type:'array'});
-    const ws = wb.Sheets['Tomas'] || wb.Sheets['celkem'];
-    if(!ws){ document.getElementById('pnlsummary').textContent='⚠️ list "Tomas" nenalezen'; return; }
-    const rows = XLSX.utils.sheet_to_json(ws, {header:1});
-    // najdi QH hlavicku: radek kde prvni bunka == "Perioda" a druha "Čas"
-    let hr=-1;
-    for(let i=0;i<rows.length;i++){
-      const r=rows[i]||[];
-      if(String(r[0]||'').trim()==='Perioda' && String(r[1]||'').indexOf('as')>=0){ hr=i; break; }
-    }
-    if(hr<0){ document.getElementById('pnlsummary').textContent='⚠️ QH sekce nenalezena'; return; }
-    const byKey={};  // from "HH:MM" -> list obchodu
-    let n=0;
-    for(let i=hr+1;i<rows.length && i<=hr+200;i++){
-      const r=rows[i]; if(!r) continue;
-      const per=parseInt(r[0],10);
-      if(isNaN(per)||per<1||per>96) continue;
-      const cas=String(r[1]||'');                 // "05:00-05:15"
-      const from=(cas.match(/^(\d{2}:\d{2})/)||[])[1];
-      if(!from) continue;
-      const poz=parseFloat(r[6]);                  // MW (kladne nakup, zaporne prodej)
-      let cena=parseFloat(r[7]);                   // cena EUR/MWh
-      if(isNaN(poz)||poz===0||isNaN(cena)) continue;
-      const buy = poz>0;
-      const mwh = Math.abs(poz)*0.25;              // QH = 0.25h
-      const px = Math.abs(cena);
-      (byKey[from]=byKey[from]||[]).push({buy, mwh, px});
-      n++;
-    }
-    myTrades=byKey;
-    document.getElementById('pnlsummary').innerHTML='✅ '+n+' čtvrthodin načteno';
+    const n = parseTradesWB(buf);
+    // uloz do localStorage (base64)
+    try{
+      let bin=''; const b=new Uint8Array(buf);
+      for(let i=0;i<b.length;i++) bin+=String.fromCharCode(b[i]);
+      localStorage.setItem('myTradesXlsx', btoa(bin));
+    }catch(e){ /* moc velke nebo blokovane - bez ulozeni */ }
+    document.getElementById('pnlsummary').innerHTML='✅ '+n+' čtvrthodin načteno · <a href="#" id="clearTrades" style="color:#c0392b">smazat</a>';
     if(window._lastRows) render(window._lastRows);
   }catch(e){
     document.getElementById('pnlsummary').textContent='⚠️ chyba čtení: '+e.message;
+  }
+});
+
+// delegovany klik na "smazat"
+document.addEventListener('click',(e)=>{
+  if(e.target && e.target.id==='clearTrades'){
+    e.preventDefault();
+    localStorage.removeItem('myTradesXlsx');
+    myTrades={};
+    document.getElementById('pnlsummary').textContent='tabulka smazána';
+    if(window._lastRows) render(window._lastRows);
   }
 });
 
@@ -221,17 +251,19 @@ document.getElementById('tradesFile').addEventListener('change', async (ev)=>{
 //  - nakoupil jsem -> zavru PRODEJEM za bid: (bid - moje_nakupni) * mwh
 // vraci {trades:[{buy,mwh,px,pl}], total} nebo null kdyz nemam pozici
 function myPnl(row){
-  const key = row.kontrakt && row.kontrakt.from;
+  const k = row.kontrakt || {};
+  if(k.type !== "QH") return null;          // JEN ctvrthodiny
+  const key = k.from;
   if(!key) return null;
   const list = myTrades[key];
   if(!list || !list.length) return null;
   let total=0; const out=[];
   for(const t of list){
+    const cur = t.buy ? row.bid : row.ask;   // aktualni cena proti ktere zaviram
     let pl=null;
-    if(t.buy){ if(row.bid!=null) pl=(row.bid-t.px)*t.mwh; }
-    else     { if(row.ask!=null) pl=(t.px-row.ask)*t.mwh; }
+    if(cur!=null){ pl = t.buy ? (cur-t.px)*t.mwh : (t.px-cur)*t.mwh; }
     if(pl!=null) total+=pl;
-    out.push({buy:t.buy, mwh:t.mwh, px:t.px, pl});
+    out.push({buy:t.buy, mwh:t.mwh, lots:Math.round(t.mwh/0.25), px:t.px, cur, pl});
   }
   return {trades:out, total};
 }
@@ -257,19 +289,23 @@ function cell(row, dtPrice){
   const lvStr = longVw==null?'\u2013':(longVw>=0?'+':'')+longVw.toFixed(2);
   const svStr = shortVw==null?'\u2013':(shortVw>=0?'+':'')+shortVw.toFixed(2);
 
-  // MOJE P/L (mark-to-market proti protistrane), per obchod
+  // MOJE: 4 sloupce - nakupni cena | aktualni cena | loty | profit (jen QH)
   const pn = myPnl(row);
-  let pnHtml='';
-  if(pn===null){ pnHtml='<span class="dim">\u2013</span>'; }
-  else {
-    const lines = pn.trades.map(t=>{
-      const dir = t.buy?'N':'P';   // Nakup / Prodej
-      const dcls = t.buy?'diff-pos':'diff-neg';
-      const plTxt = t.pl==null ? '×' : (t.pl>=0?'+':'')+t.pl.toFixed(1);
-      const plCls = t.pl==null ? 'dim' : (t.pl>=0?'diff-pos':'diff-neg');
-      return `<span class="${dcls}">${dir}</span> ${t.px.toFixed(2)}\u00d7${t.mwh.toFixed(2)} <span class="${plCls}">${plTxt}</span>`;
-    });
-    pnHtml = lines.join('<br>');
+  let cBuy='<span class="dim">\u2013</span>', cCur='<span class="dim">\u2013</span>',
+      cLot='<span class="dim">\u2013</span>', cPl='<span class="dim">\u2013</span>';
+  if(pn && pn.trades.length){
+    const join = (arr)=>arr.join('<br>');
+    cBuy = join(pn.trades.map(t=>{
+      const d=t.buy?'N':'P'; const dc=t.buy?'diff-pos':'diff-neg';
+      return `<span class="${dc}">${d}</span> ${t.px.toFixed(2)}`;
+    }));
+    cCur = join(pn.trades.map(t=> t.cur==null?'\u2013':t.cur.toFixed(2)));
+    cLot = join(pn.trades.map(t=> String(t.lots)));
+    cPl  = join(pn.trades.map(t=>{
+      if(t.pl==null) return '<span class="dim">\u00d7</span>';
+      const c=t.pl>=0?'diff-pos':'diff-neg';
+      return `<span class="${c}">${(t.pl>=0?'+':'')+t.pl.toFixed(2)}</span>`;
+    }));
   }
 
   return `
@@ -283,7 +319,10 @@ function cell(row, dtPrice){
     <td class="sep dtcell">${fmt(dtPrice)}</td>
     <td class="dtcell ${sCls}">${sStr}</td>
     <td class="dtcell ${lCls}">${lStr}</td>
-    <td class="sep plcell" style="text-align:left;white-space:nowrap">${pnHtml}</td>`;
+    <td class="sep plcell" style="white-space:nowrap">${cBuy}</td>
+    <td class="plcell">${cCur}</td>
+    <td class="plcell">${cLot}</td>
+    <td class="plcell" style="font-weight:600">${cPl}</td>`;
 }
 
 // vykresli tabulku pro jeden den
@@ -312,17 +351,17 @@ function tableFor(rows, dayY){
         <th class="panel-label" colspan="4" style="text-align:center;color:var(--bid)">VDT (live)</th>
         <th class="panel-label sep vwhead" colspan="3" style="text-align:center">VWAP</th>
         <th class="panel-label sep dthead" colspan="3" style="text-align:center">DT spot</th>
-        <th class="panel-label sep plhead" colspan="1" style="text-align:center">Moje (směr cena×MWh zisk)</th>
+        <th class="panel-label sep plhead" colspan="4" style="text-align:center">Moje obchody (QH)</th>
       </tr>
       <tr>
         <th class="l">Kontrakt</th><th>Bid</th><th>Ask</th><th>Last</th><th>Spread</th>
         <th class="sep vwhead">VWAP</th><th class="vwhead">Short spread</th><th class="vwhead">Long spread</th>
         <th class="sep dthead">DT</th><th class="dthead">Short spread</th><th class="dthead">Long spread</th>
-        <th class="sep plhead">EUR</th>
+        <th class="sep plhead">Nákup</th><th class="plhead">Akt.</th><th class="plhead">Loty</th><th class="plhead">Profit</th>
       </tr>
     </thead>`;
   if(hours.length===0){
-    return `<table>${thead}<tbody><tr><td class="l dim" colspan="12">žádná data</td></tr></tbody></table>`;
+    return `<table>${thead}<tbody><tr><td class="l dim" colspan="15">žádná data</td></tr></tbody></table>`;
   }
   let body='';
   for(const h of hours){
@@ -333,7 +372,7 @@ function tableFor(rows, dayY){
       body+=`<tr class="hour${flashCls(g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow,dtH)}</tr>`;
     }else{
       const s=dtH!=null?dtH.toFixed(2):'\u2014';
-      body+=`<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">\u2014</td><td class="sep vwcell dim">\u2014</td><td class="vwcell dim">\u2013</td><td class="vwcell dim">\u2013</td><td class="sep dtcell">${s}</td><td class="dtcell dim">\u2013</td><td class="dtcell dim">\u2013</td><td class="sep plcell dim">\u2013</td></tr>`;
+      body+=`<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">\u2014</td><td class="sep vwcell dim">\u2014</td><td class="vwcell dim">\u2013</td><td class="vwcell dim">\u2013</td><td class="sep dtcell">${s}</td><td class="dtcell dim">\u2013</td><td class="dtcell dim">\u2013</td><td class="sep plcell dim">\u2013</td><td class="plcell dim">\u2013</td><td class="plcell dim">\u2013</td><td class="plcell dim">\u2013</td></tr>`;
     }
     g.qh.sort((a,b)=>((a.kontrakt&&a.kontrakt.from)||'').localeCompare((b.kontrakt&&b.kontrakt.from)||''));
     for(const q of g.qh){
