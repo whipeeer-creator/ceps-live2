@@ -57,6 +57,9 @@
   th.vwhead{color:#8a5a00}
   td.vwcell{background:#fcf7ef}
   tr.hour td.vwcell{background:#f7eeda}
+  th.plhead{color:#1a6b4a}
+  td.plcell{background:#eef7f1;font-weight:600}
+  tr.hour td.plcell{background:#dff0e6}
   .diff-pos{color:#0b8a3e}
   .diff-neg{color:#c0392b}
   .panel-label{font-size:10px;font-weight:700;letter-spacing:.6px;text-transform:uppercase}
@@ -73,11 +76,20 @@
     <div class="meta" id="meta"></div>
   </header>
 
+  <div id="pnlbar" style="margin:8px 0;padding:8px 12px;background:#faf7f0;border:1px solid #e8dcc0;border-radius:6px;font-size:14px;display:none">
+    <label style="cursor:pointer;color:#8a5a00;font-weight:600">
+      📂 Nahrát moje obchody (XLSX)
+      <input type="file" id="tradesFile" accept=".xlsx,.xls" style="display:none">
+    </label>
+    <span id="pnlsummary" style="margin-left:16px"></span>
+  </div>
+
   <div id="container">
     <div class="loading dim">čekám na data z bota…</div>
   </div>
   <div class="err" id="err"></div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script>
 const BASE = (location.origin.startsWith("http") && location.origin !== "null")
   ? location.origin : "https://ceps-live2.onrender.com";
@@ -85,6 +97,15 @@ const ENDPOINT = BASE + "/vdt/orderbook";
 const REFRESH  = 1500;
 let prev = {};
 const pad = n => String(n).padStart(2,'0');
+
+// MOJE OBCHODY: agregace per kontrakt (klic = "from", napr "05:00")
+// myTrades[from] = {buy_mwh, buy_eur, sell_mwh, sell_eur}
+let myTrades = {};
+const MYKEY = (raw) => {
+  // z "20260621 05:00-20260621 05:15" nebo "05:00-05:15" vytahni "05:00"
+  const m = String(raw).match(/(\d{2}:\d{2})/);
+  return m ? m[1] : null;
+};
 
 // DT ceny per den: dt[YYYYMMDD] = { hour:{h:eur}, qh:{"HH:MM":eur} }
 let dt = {};
@@ -148,6 +169,67 @@ function flashCls(row){
   return f;
 }
 
+// ---- MOJE OBCHODY: nacteni z XLSX (list cleve_obchody) ----
+document.getElementById('pnlbar').style.display='block';
+document.getElementById('tradesFile').addEventListener('change', async (ev)=>{
+  const f = ev.target.files[0];
+  if(!f) return;
+  try{
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, {type:'array'});
+    const ws = wb.Sheets['cleve_obchody'];
+    if(!ws){ document.getElementById('pnlsummary').textContent='⚠️ list "cleve_obchody" nenalezen'; return; }
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1});
+    // hlavicka na radku 0; najdi sloupce
+    const hdr = rows[0].map(x=>String(x||''));
+    const ci = (name)=> hdr.findIndex(h=>h.toLowerCase().includes(name.toLowerCase()));
+    const cShort=ci('Krátký název'), cSide=ci('Nákup/Prodej'), cMwh=ci('Množství [MWh]'), cPx=ci('Cena');
+    if(cShort<0||cSide<0||cMwh<0||cPx<0){ document.getElementById('pnlsummary').textContent='⚠️ chybí očekávané sloupce'; return; }
+    const agg={};
+    let n=0;
+    for(let i=1;i<rows.length;i++){
+      const r=rows[i]; if(!r||!r[cShort]) continue;
+      const key=MYKEY(r[cShort]); if(!key) continue;
+      const side=String(r[cSide]||''); const mwh=parseFloat(r[cMwh]); const px=parseFloat(r[cPx]);
+      if(isNaN(mwh)||isNaN(px)) continue;
+      const a=agg[key]||(agg[key]={buy_mwh:0,buy_eur:0,sell_mwh:0,sell_eur:0});
+      if(side.indexOf('Nákup')>=0||side.indexOf('Nakup')>=0){ a.buy_mwh+=mwh; a.buy_eur+=mwh*px; }
+      else { a.sell_mwh+=mwh; a.sell_eur+=mwh*px; }
+      n++;
+    }
+    myTrades=agg;
+    document.getElementById('pnlsummary').innerHTML='✅ '+n+' obchodů na '+Object.keys(agg).length+' kontraktech načteno';
+    if(window._lastRows) render(window._lastRows);
+  }catch(e){
+    document.getElementById('pnlsummary').textContent='⚠️ chyba čtení: '+e.message;
+  }
+});
+
+// P/L proti protistrane (realne zavreni):
+//  - prodal jsem -> zavru NAKUPEM za ask: (moje_prodejni - ask) * mwh
+//  - nakoupil jsem -> zavru PRODEJEM za bid: (bid - moje_nakupni) * mwh
+// vraci {pl, txt} nebo null kdyz na kontraktu nemam pozici nebo neni zivy
+function myPnl(row){
+  const key = row.kontrakt && row.kontrakt.from;
+  if(!key) return null;
+  const a = myTrades[key];
+  if(!a) return null;
+  let pl=0, parts=[];
+  // cista pozice
+  const net = a.sell_mwh - a.buy_mwh; // kladne = cisty prodej
+  if(a.sell_mwh>0){
+    const avgSell=a.sell_eur/a.sell_mwh;
+    if(row.ask!=null){ pl += (avgSell-row.ask)*a.sell_mwh; }
+    else return {pl:null, txt:'×'}; // neni protistrana -> nelze zavrit
+  }
+  if(a.buy_mwh>0){
+    const avgBuy=a.buy_eur/a.buy_mwh;
+    if(row.bid!=null){ pl += (row.bid-avgBuy)*a.buy_mwh; }
+    else return {pl:null, txt:'×'};
+  }
+  return {pl, net};
+}
+
 function cell(row, dtPrice){
   const sp=row.spread;
   // KLADNE = vyhodne, ZAPORNE = nevyhodne (jednotne pro obe strany)
@@ -169,6 +251,13 @@ function cell(row, dtPrice){
   const lvStr = longVw==null?'\u2013':(longVw>=0?'+':'')+longVw.toFixed(2);
   const svStr = shortVw==null?'\u2013':(shortVw>=0?'+':'')+shortVw.toFixed(2);
 
+  // MOJE P/L (mark-to-market proti protistrane)
+  const pn = myPnl(row);
+  let pnStr='', pnCls='dim';
+  if(pn===null){ pnStr='\u2013'; pnCls='dim'; }
+  else if(pn.pl===null){ pnStr='×'; pnCls='dim'; }
+  else { pnCls = pn.pl>=0?'diff-pos':'diff-neg'; pnStr=(pn.pl>=0?'+':'')+pn.pl.toFixed(2); }
+
   return `
     <td class="bidcell"><span class="bid">${fmt(row.bid)}</span></td>
     <td class="askcell"><span class="ask">${fmt(row.ask)}</span></td>
@@ -179,7 +268,8 @@ function cell(row, dtPrice){
     <td class="vwcell ${lvCls}">${lvStr}</td>
     <td class="sep dtcell">${fmt(dtPrice)}</td>
     <td class="dtcell ${sCls}">${sStr}</td>
-    <td class="dtcell ${lCls}">${lStr}</td>`;
+    <td class="dtcell ${lCls}">${lStr}</td>
+    <td class="sep plcell ${pnCls}">${pnStr}</td>`;
 }
 
 // vykresli tabulku pro jeden den
@@ -208,15 +298,17 @@ function tableFor(rows, dayY){
         <th class="panel-label" colspan="4" style="text-align:center;color:var(--bid)">VDT (live)</th>
         <th class="panel-label sep vwhead" colspan="3" style="text-align:center">VWAP</th>
         <th class="panel-label sep dthead" colspan="3" style="text-align:center">DT spot</th>
+        <th class="panel-label sep plhead" colspan="1" style="text-align:center">Moje P/L</th>
       </tr>
       <tr>
         <th class="l">Kontrakt</th><th>Bid</th><th>Ask</th><th>Last</th><th>Spread</th>
         <th class="sep vwhead">VWAP</th><th class="vwhead">Short spread</th><th class="vwhead">Long spread</th>
         <th class="sep dthead">DT</th><th class="dthead">Short spread</th><th class="dthead">Long spread</th>
+        <th class="sep plhead">EUR</th>
       </tr>
     </thead>`;
   if(hours.length===0){
-    return `<table>${thead}<tbody><tr><td class="l dim" colspan="11">žádná data</td></tr></tbody></table>`;
+    return `<table>${thead}<tbody><tr><td class="l dim" colspan="12">žádná data</td></tr></tbody></table>`;
   }
   let body='';
   for(const h of hours){
@@ -227,7 +319,7 @@ function tableFor(rows, dayY){
       body+=`<tr class="hour${flashCls(g.hourRow)}"><td class="l">${label}</td>${cell(g.hourRow,dtH)}</tr>`;
     }else{
       const s=dtH!=null?dtH.toFixed(2):'\u2014';
-      body+=`<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">\u2014</td><td class="sep vwcell dim">\u2014</td><td class="vwcell dim">\u2013</td><td class="vwcell dim">\u2013</td><td class="sep dtcell">${s}</td><td class="dtcell dim">\u2013</td><td class="dtcell dim">\u2013</td></tr>`;
+      body+=`<tr class="hour"><td class="l">${label}</td><td colspan="4" class="dim">\u2014</td><td class="sep vwcell dim">\u2014</td><td class="vwcell dim">\u2013</td><td class="vwcell dim">\u2013</td><td class="sep dtcell">${s}</td><td class="dtcell dim">\u2013</td><td class="dtcell dim">\u2013</td><td class="sep plcell dim">\u2013</td></tr>`;
     }
     g.qh.sort((a,b)=>((a.kontrakt&&a.kontrakt.from)||'').localeCompare((b.kontrakt&&b.kontrakt.from)||''));
     for(const q of g.qh){
@@ -241,11 +333,25 @@ function tableFor(rows, dayY){
 }
 
 function render(rows){
+  window._lastRows = rows;
   const {today, tom} = dayKeys();
   const c = document.getElementById('container');
   c.innerHTML =
     `<div class="daytitle">DNES \u00b7 ${czFromYmd(today)}</div>` + tableFor(rows, today) +
     `<div class="daytitle">ZÍTRA \u00b7 ${czFromYmd(tom)}</div>` + tableFor(rows, tom);
+  // celkovy P/L pres zive kontrakty (kde mam pozici a je protistrana)
+  if(Object.keys(myTrades).length){
+    let total=0, nLive=0, nOpen=0;
+    for(const row of rows){
+      const pn=myPnl(row);
+      if(pn && pn.pl!=null){ total+=pn.pl; nLive++; }
+      else if(pn && pn.pl==null){ nOpen++; }
+    }
+    const cls = total>=0?'#0b8a3e':'#c0392b';
+    document.getElementById('pnlsummary').innerHTML =
+      'Celkové P/L (živé pozice): <b style="color:'+cls+'">'+(total>=0?'+':'')+total.toFixed(2)+' EUR</b>'+
+      ' <span class="dim">· '+nLive+' kontraktů'+(nOpen?(' · '+nOpen+' bez protistrany'):'')+'</span>';
+  }
 }
 
 async function tick(){
