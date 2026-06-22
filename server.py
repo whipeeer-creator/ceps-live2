@@ -8,7 +8,7 @@ POZADAVKY (requirements.txt):
     (zadne extra knihovny - pouziva jen Python stdlib)
 """
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
-import json, requests, xml.etree.ElementTree as ET, os, time, io, threading
+import json, requests, xml.etree.ElementTree as ET, os, time, io, threading, re
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta, timezone
 # Pouzivame vlastni rychly XLSX streamer pres zipfile + iterparse
@@ -4352,86 +4352,89 @@ class Handler(BaseHTTPRequestHandler):
 
     def _ceps_txt(self, qs):
         """
-        Download ČEPS TXT file with REAL settled prices (not API estimate).
-        Format: https://www.ceps.cz/download-data/?...
-        Returns JSON kompatibilní s /api?method=OdhadovanaCenaOdchylky:
-          {columns: ["Estimated price [Kč/MWh]", "Date", "Interval"], 
-           rows: [{Estimated...: "4216.16", Date: "29.05.2026", Interval: "00:00-00:15"}, ...]}
+        ČEPS Odhadovaná cena odchylky přes SOAP API (call_ceps).
+        Dřív stahoval TXT z ceps.cz/download-data ale ta URL vrací 404.
+        Teď používá funkční SOAP endpoint stejně jako /api.
+        Returns JSON: {columns, rows:[{Estimated price [Kč/MWh], Date, Interval}], ...}
         """
-        import urllib.parse
         date_str = qs.get("date", [None])[0]
         if not date_str:
             self._json({"error": "missing date param"}, 400); return
-        
+
         try:
-            # Parse date YYYY-MM-DD → DD.MM.YYYY format expected by ČEPS
             from datetime import datetime as _dt
             d = _dt.strptime(date_str, "%Y-%m-%d")
             df_iso = f"{date_str}T00:00:00"
             dt_iso = f"{date_str}T23:59:59"
-            
-            # ČEPS TXT download URL (z reverse-engineered z ceps.cz/cs/data)
+
+            # CACHE (historicka data 10 min, dnesek 1 min)
+            if not hasattr(self.__class__, '_cepstxt_cache'):
+                self.__class__._cepstxt_cache = {}
+            cache = self.__class__._cepstxt_cache
+            now_ts = time.time()
+            is_today = date_str == _dt.now().strftime("%Y-%m-%d")
+            ttl = 60 if is_today else 600
+            if date_str in cache:
+                ts, cached = cache[date_str]
+                if now_ts - ts < ttl:
+                    print(f"  -> /ceps_txt {date_str}: CACHED", flush=True)
+                    self._json(cached); return
+
             params = {
-                "method": "OdhadovanaCenaOdchylky",
-                "format": "TXT",
-                "version": "RT",  # real-time = reálná data
-                "agregation": "QH",
-                "function": "AVG",
                 "dateFrom": df_iso,
                 "dateTo": dt_iso,
+                "agregation": "QH",
+                "function": "AVG",
             }
-            url = "https://www.ceps.cz/download-data/?" + urllib.parse.urlencode(params)
-            
-            req = urllib.request.Request(url, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "text/plain,*/*;q=0.8",
-                "Referer": "https://www.ceps.cz/cs/data",
-            })
-            with urllib.request.urlopen(req, timeout=20) as r:
-                raw = r.read()
-            
-            # Auto-detect encoding (ČEPS používá utf-8 nebo cp1250)
-            text = None
-            for enc in ("utf-8", "cp1250", "iso-8859-2"):
-                try:
-                    text = raw.decode(enc)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            if text is None:
-                text = raw.decode("utf-8", errors="replace")
-            
-            # Parse TXT formát:
-            #   Verze dat;Od;Do;Agregační funkce;Agregace;
-            #   reálná data;...
-            #   Datum;;Odhadovaná cena [Kč/MWh];
-            #   29.05.2026;00:00-00:15;4216.16;
-            lines = [l.strip() for l in text.split("\n") if l.strip()]
+            xml_text, status = call_ceps("OdhadovanaCenaOdchylky", params)
+            if status != 200:
+                if date_str in cache:
+                    self._json(cache[date_str][1]); return
+                self._json({"error": f"CEPS SOAP HTTP {status}", "rows": []}, 502); return
+
+            parsed = parse_ceps(xml_text)  # {columns, rows:[{date, <colname>:val}]}
+
+            # Najdi sloupec s cenou
+            price_col = None
+            for c in parsed.get("columns", []):
+                cl = c.lower()
+                if "cena" in cl or "price" in cl:
+                    price_col = c; break
+            if not price_col and parsed.get("columns"):
+                price_col = parsed["columns"][0]
+
             rows = []
-            for line in lines:
-                parts = [p.strip() for p in line.rstrip(";").split(";")]
-                # Datový řádek má 3 části: datum, interval, cena
-                if len(parts) != 3: continue
-                date_part, interval, price = parts
-                # Datum musí být DD.MM.YYYY
-                if not (len(date_part) == 10 and date_part[2] == '.' and date_part[5] == '.'):
+            for r in parsed.get("rows", []):
+                raw_date = r.get("date") or ""
+                m = re.search(r"(\d{2}):(\d{2})", raw_date)
+                if not m:
                     continue
-                # Interval HH:MM-HH:MM
-                if not (len(interval) == 11 and interval[5] == '-'):
+                hh, mm = m.group(1), m.group(2)
+                endMM = int(mm) + 15
+                endHH = int(hh)
+                if endMM >= 60:
+                    endMM = 0; endHH += 1
+                interval = f"{hh}:{mm}-{str(endHH).zfill(2)}:{str(endMM).zfill(2)}"
+                price = r.get(price_col)
+                if price is None or price == "":
                     continue
+                dm = re.search(r"(\d{4})-(\d{2})-(\d{2})", raw_date)
+                date_part = f"{dm.group(3)}.{dm.group(2)}.{dm.group(1)}" if dm else date_str
                 rows.append({
-                    "Estimated price [Kč/MWh]": price,  # string, jako z API
+                    "Estimated price [Kč/MWh]": str(price),
                     "Date": date_part,
                     "Interval": interval,
                 })
-            
-            print(f"  -> /ceps_txt {date_str}: {len(rows)} QH", flush=True)
-            self._json({
+
+            result = {
                 "columns": ["Estimated price [Kč/MWh]", "Date", "Interval"],
                 "rows": rows,
-                "source": "ceps.cz TXT (real data)",
+                "source": "ceps SOAP OdhadovanaCenaOdchylky",
                 "date": date_str,
-            })
+            }
+            cache[date_str] = (now_ts, result)
+            print(f"  -> /ceps_txt {date_str}: {len(rows)} QH (SOAP)", flush=True)
+            self._json(result)
         except Exception as e:
             import traceback
             print(f"  -> /ceps_txt ERROR: {e}\n{traceback.format_exc()}", flush=True)
