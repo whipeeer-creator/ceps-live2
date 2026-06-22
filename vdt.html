@@ -267,15 +267,24 @@ function myPnl(row){
   if(!key) return null;
   const list = myTrades[key];
   if(!list || !list.length) return null;
-  let total=0; const out=[];
+
+  // Slouc nakupni a prodejni stranu, vykrat se -> zobraz jen OTEVRENY zbytek
+  let buyMwh=0, buyEur=0, sellMwh=0, sellEur=0;
   for(const t of list){
-    const cur = t.buy ? row.bid : row.ask;   // aktualni cena proti ktere zaviram
-    let pl=null;
-    if(cur!=null){ pl = t.buy ? (cur-t.px)*t.mwh : (t.px-cur)*t.mwh; }
-    if(pl!=null) total+=pl;
-    out.push({buy:t.buy, mwh:t.mwh, lots:Math.round(t.mwh/0.25), px:t.px, cur, pl});
+    if(t.buy){ buyMwh+=t.mwh; buyEur+=t.mwh*t.px; }
+    else     { sellMwh+=t.mwh; sellEur+=t.mwh*t.px; }
   }
-  return {trades:out, total};
+  const netMwh = buyMwh - sellMwh;          // kladne=cisty nakup, zaporne=cisty prodej
+  if(Math.abs(netMwh) < 1e-9) return null;  // vyrovnano -> nic neukazuj
+
+  const t = (netMwh > 0)
+    ? { buy:true,  mwh: netMwh,        px: buyEur/buyMwh }    // cisty nakup za prum. nakupni cenu
+    : { buy:false, mwh: Math.abs(netMwh), px: sellEur/sellMwh }; // cisty prodej za prum. prodejni cenu
+
+  const cur = t.buy ? row.bid : row.ask;
+  let pl = (cur!=null) ? (t.buy ? (cur-t.px)*t.mwh : (t.px-cur)*t.mwh) : null;
+  const out = [{ buy:t.buy, mwh:t.mwh, lots:Math.round(t.mwh/0.25), px:t.px, cur, pl }];
+  return { trades: out, total: (pl||0) };
 }
 
 function cell(row, dtPrice){
