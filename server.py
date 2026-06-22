@@ -4374,7 +4374,9 @@ class Handler(BaseHTTPRequestHandler):
             now_ts = time.time()
             is_today = date_str == _dt.now().strftime("%Y-%m-%d")
             ttl = 60 if is_today else 600
-            if date_str in cache:
+            _debug = qs.get("debug", ["0"])[0] in ("1", "true")
+            _nocache = qs.get("nocache", ["0"])[0] in ("1", "true")
+            if date_str in cache and not _debug and not _nocache:
                 ts, cached = cache[date_str]
                 if now_ts - ts < ttl:
                     print(f"  -> /ceps_txt {date_str}: CACHED", flush=True)
@@ -4392,42 +4394,29 @@ class Handler(BaseHTTPRequestHandler):
                     self._json(cache[date_str][1]); return
                 self._json({"error": f"CEPS SOAP HTTP {status}", "rows": []}, 502); return
 
-            parsed = parse_ceps(xml_text)  # {columns, rows:[{date, <colname>:val}]}
+            parsed = parse_ceps(xml_text)  # {columns, rows:[{Date, Interval, Estimated price...}]}
 
             # DEBUG: &debug=1 vrati surovy SOAP + parsed strukturu
-            if qs.get("debug", ["0"])[0] in ("1", "true"):
+            if _debug:
                 self._json({
-                    "raw_xml_first2000": xml_text[:2000],
+                    "raw_xml_first3000": xml_text[:3000],
                     "parsed_columns": parsed.get("columns"),
                     "parsed_rows_count": len(parsed.get("rows", [])),
                     "parsed_rows_first3": parsed.get("rows", [])[:3],
                     "status": status,
                 }); return
 
-            # Najdi sloupec s cenou
-            price_col = None
-            for c in parsed.get("columns", []):
-                cl = c.lower()
-                if "cena" in cl or "price" in cl:
-                    price_col = c; break
-            if not price_col and parsed.get("columns"):
-                price_col = parsed["columns"][0]
-
             rows = []
             for r in parsed.get("rows", []):
-                raw_date = r.get("date") or ""
-                m = re.search(r"(\d{2}):(\d{2})", raw_date)
-                if not m:
+                interval = r.get("Interval") or ""
+                # Interval musí být HH:MM-HH:MM
+                if not re.match(r"^\d{2}:\d{2}-\d{2}:\d{2}$", interval):
                     continue
-                hh, mm = m.group(1), m.group(2)
-                endMM = int(mm) + 15
-                endHH = int(hh)
-                if endMM >= 60:
-                    endMM = 0; endHH += 1
-                interval = f"{hh}:{mm}-{str(endHH).zfill(2)}:{str(endMM).zfill(2)}"
-                price = r.get(price_col)
+                price = r.get("Estimated price [Kč/MWh]")
                 if price is None or price == "":
                     continue
+                # Datum z value13 (Date sloupec) → DD.MM.YYYY
+                raw_date = r.get("Date") or ""
                 dm = re.search(r"(\d{4})-(\d{2})-(\d{2})", raw_date)
                 date_part = f"{dm.group(3)}.{dm.group(2)}.{dm.group(1)}" if dm else date_str
                 rows.append({
