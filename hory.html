@@ -4229,29 +4229,56 @@ function updateDateLabels() {
 
 async function exportDay() {
   if (!API_URL) { alert('Nejdřív spusť dashboard'); return; }
-  setDot('idle', 'Stahuji data pro analýzu…');
+  setDot('idle', 'Stahuji KOMPLETNÍ data…');
   const now = new Date();
   const pad = n => String(n).padStart(2,'0');
   const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
-  const df = `${today}T00:00:00`;
-  const dt = `${today}T23:59:59`;
-  // klicove endpointy pro analyzu soustavy
+  const tom = (()=>{const t=new Date(now.getTime()+86400000);return `${t.getFullYear()}-${pad(t.getMonth()+1)}-${pad(t.getDate())}`;})();
+  const df = `${today}T00:00:00`, dt = `${today}T23:59:59`;
+
+  // KOMPLETNI sada vsech endpointu co hory.html pouziva
   const eps = {
-    odchylka:      `/api?method=AktualniSystemovaOdchylkaCR&dateFrom=${df}&dateTo=${dt}&agregation=MI&function=AVG`,
-    aktivace_svr:  `/api?method=AktivaceSVRvCR&dateFrom=${df}&dateTo=${dt}&agregation=MI&function=AVG&para1=all`,
-    cena_re:       `/api?method=AktualniCenaRE&agregation=MI&function=AVG`,
-    odhad_cena_odch: `/api?method=OdhadovanaCenaOdchylky`,
-    vdt:           `/ote/vdt?date=${today}`,
-    spot_cz:       `/spot/prices?country=CZ&date=${today}`,
-    spot_de:       `/spot/prices?country=DE&date=${today}`,
-    ote_spot:      `/ote/spot`,
-    magma_solar:   `/metdesk/magma?model=magma&country=CZ&generation_type=solar`,
-    magma_wind:    `/metdesk/magma?model=magma&country=CZ&generation_type=wind`,
-    entsoe_solar:  `/entsoe/solar`,
-    last7d:        `/ote/last7d-stats`,
+    // CEPS /api metody
+    odchylka:        `/api?method=AktualniSystemovaOdchylkaCR&dateFrom=${df}&dateTo=${dt}&agregation=MI&function=AVG`,
+    aktivace_svr:    `/api?method=AktivaceSVRvCR&dateFrom=${df}&dateTo=${dt}&agregation=MI&function=AVG&para1=all`,
+    cena_re:         `/api?method=AktualniCenaRE&dateFrom=${df}&dateTo=${dt}&agregation=MI&function=AVG`,
+    odhad_cena_odch: `/api?method=OdhadovanaCenaOdchylky&dateFrom=${df}&dateTo=${dt}`,
+    generation_res:  `/api?method=GenerationRES&dateFrom=${df}&dateTo=${dt}&agregation=MI&function=AVG&version=RT`,
+    // OTE
+    vdt:             `/ote/vdt?date=${today}`,
+    vdt_orderbook:   `/vdt/orderbook`,
+    ote_spot:        `/ote/spot`,
+    ote_qh:          `/ote/qh`,
+    ote_dt15_0:      `/ote/dt15?day=0`,
+    ote_dt15_1:      `/ote/dt15?day=1`,
+    ote_yearly:      `/ote/yearly-profile`,
+    ote_last7d:      `/ote/last7d-stats`,
+    // spot ceny
+    spot_cz:         `/spot/prices?country=CZ&date=${today}`,
+    spot_cz_tom:     `/spot/prices?country=CZ&date=${tom}`,
+    spot_de:         `/spot/prices?country=DE&date=${today}`,
+    spot_de_tom:     `/spot/prices?country=DE&date=${tom}`,
+    // kapacity / fanda
+    fanda_kapacity:  `/ingest/data?source=fanda&limit=1`,
+    // predpovedi vyroby
+    magma_solar:     `/metdesk/magma?model=magma&country=CZ&generation_type=solar`,
+    magma_wind:      `/metdesk/magma?model=magma&country=CZ&generation_type=wind`,
+    entsoe_solar:    `/entsoe/solar`,
+    entsoe_actual:   `/entsoe/actual`,
+    entsoe_cz_resid_fc: `/entsoe/cz-residual-forecast`,
+    entsoe_cz_resid:    `/entsoe/cz-residual-load`,
+    entsoe_resid:    `/entsoe/residual-load`,
+    smard_resid:     `/smard/residual-load`,
+    forecast_de:     `/forecast/de`,
+    // regulace DE/aFRR energy
+    afrr_energy:     `/regelleistung/afrr-energy?date=${today}`,
+    netz_activated:  `/netztransparenz/activated`,
+    wind_de:         `/wind-de`,
+    weather:         `/weather`,
   };
-  const out = { exported_at: new Date().toISOString(), date: today, data: {} };
+
   const keys = Object.keys(eps);
+  const out = { exported_at: new Date().toISOString(), date: today, local_time: `${pad(now.getHours())}:${pad(now.getMinutes())}`, data: {} };
   const results = await Promise.all(keys.map(k =>
     fetch(`${API_URL}${eps[k]}`, { cache: 'no-store' })
       .then(r => r.ok ? r.json() : ({ _error: `HTTP ${r.status}` }))
@@ -4259,14 +4286,25 @@ async function exportDay() {
   ));
   keys.forEach((k, i) => { out.data[k] = results[i]; });
 
+  // diagnostika cerstvosti - posledni timestamp u casovych rad
+  out._freshness = {};
+  for (const k of keys) {
+    const v = out.data[k];
+    const rows = v && (v.rows || v.data || v.points);
+    if (Array.isArray(rows) && rows.length) {
+      const last = rows[rows.length-1];
+      out._freshness[k] = last.date || last.timestamp || last.ts || last.time || '?';
+    }
+  }
+
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `hory_data_${today}_${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+  a.download = `hory_FULL_${today}_${pad(now.getHours())}${pad(now.getMinutes())}.json`;
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
-  setDot('ok', 'Data stažena');
+  setDot('ok', `Staženo ${keys.length} datových sad`);
 }
 
 async function loadAll() {
