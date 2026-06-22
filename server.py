@@ -4394,6 +4394,16 @@ class Handler(BaseHTTPRequestHandler):
 
             parsed = parse_ceps(xml_text)  # {columns, rows:[{date, <colname>:val}]}
 
+            # DEBUG: &debug=1 vrati surovy SOAP + parsed strukturu
+            if qs.get("debug", ["0"])[0] in ("1", "true"):
+                self._json({
+                    "raw_xml_first2000": xml_text[:2000],
+                    "parsed_columns": parsed.get("columns"),
+                    "parsed_rows_count": len(parsed.get("rows", [])),
+                    "parsed_rows_first3": parsed.get("rows", [])[:3],
+                    "status": status,
+                }); return
+
             # Najdi sloupec s cenou
             price_col = None
             for c in parsed.get("columns", []):
