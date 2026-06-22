@@ -195,12 +195,22 @@ function parseTradesWB(buf){
     const cas=String(r[1]||'');
     const from=(cas.match(/^(\d{2}:\d{2})/)||[])[1];
     if(!from) continue;
-    const poz=parseFloat(r[6]); let cena=parseFloat(r[7]);
-    if(isNaN(poz)||poz===0||isNaN(cena)) continue;
-    const buy = poz>0;
-    const mwh = Math.abs(poz)*0.25;
-    (byKey[from]=byKey[from]||[]).push({buy, mwh, px:Math.abs(cena)});
-    n++;
+    // Sloupce: 2=Nakup mn (MW), 3=Prodej mn (MW, zaporne), 4=Nakup celkem (EUR),
+    //          5=Prodej celkem (EUR). Cteme OBE strany zvlast - resi prikupovani.
+    const nakMw  = Math.abs(parseFloat(r[2])||0);
+    const proMw  = Math.abs(parseFloat(r[3])||0);
+    const nakEur = Math.abs(parseFloat(r[4])||0);
+    const proEur = Math.abs(parseFloat(r[5])||0);
+    const list=[];
+    if(nakMw>0){
+      const mwh=nakMw*0.25;
+      list.push({buy:true,  mwh, px: nakEur/mwh});   // nakupni pozice
+    }
+    if(proMw>0){
+      const mwh=proMw*0.25;
+      list.push({buy:false, mwh, px: proEur/mwh});   // prodejni pozice
+    }
+    if(list.length){ byKey[from]=list; n++; }
   }
   myTrades=byKey;
   return n;
