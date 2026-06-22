@@ -364,6 +364,15 @@ async function load30DayBacktest() {
       }
     }
     console.log(`[30d DIAG] days=${totalDays}/30, rows=${totalRows}, daysWithVDT=${daysWithVdt}`);
+    // DIAGNOSTIKA na stránce
+    document.getElementById('bkProfitKc').innerHTML =
+      `<span style="font-size:10px;color:#1565c0;">DIAG: dní s daty=${totalDays}/31, QH řádků=${totalRows}, dní s VDT=${daysWithVdt}</span>`;
+    if (totalDays === 0 || totalRows === 0) {
+      document.getElementById('bkProfit').innerHTML = '<span style="color:#c62828;font-size:13px;">⚠ API nevrátilo žádná data</span>';
+      document.getElementById('bkProfitKc').innerHTML +=
+        '<br><span style="font-size:10px;color:#c62828;">Server /ceps_txt nevrací historii. Možná Render spal nebo nemá data starší X dní.</span>';
+      return;
+    }
     
     // BACKTEST per day, sum up
     let netProfit = 0, wins = 0, losses = 0, trades = 0;
