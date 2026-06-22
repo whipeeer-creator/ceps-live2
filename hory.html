@@ -4227,6 +4227,48 @@ function updateDateLabels() {
   if (ceps) ceps.textContent = '· ' + todayStr;
 }
 
+async function exportDay() {
+  if (!API_URL) { alert('Nejdřív spusť dashboard'); return; }
+  setDot('idle', 'Stahuji data pro analýzu…');
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+  const df = `${today}T00:00:00`;
+  const dt = `${today}T23:59:59`;
+  // klicove endpointy pro analyzu soustavy
+  const eps = {
+    odchylka:      `/api?method=AktualniSystemovaOdchylkaCR&dateFrom=${df}&dateTo=${dt}&agregation=MI&function=AVG`,
+    aktivace_svr:  `/api?method=AktivaceSVRvCR&dateFrom=${df}&dateTo=${dt}&agregation=MI&function=AVG&para1=all`,
+    cena_re:       `/api?method=AktualniCenaRE&agregation=MI&function=AVG`,
+    odhad_cena_odch: `/api?method=OdhadovanaCenaOdchylky`,
+    vdt:           `/ote/vdt?date=${today}`,
+    spot_cz:       `/spot/prices?country=CZ&date=${today}`,
+    spot_de:       `/spot/prices?country=DE&date=${today}`,
+    ote_spot:      `/ote/spot`,
+    magma_solar:   `/metdesk/magma?model=magma&country=CZ&generation_type=solar`,
+    magma_wind:    `/metdesk/magma?model=magma&country=CZ&generation_type=wind`,
+    entsoe_solar:  `/entsoe/solar`,
+    last7d:        `/ote/last7d-stats`,
+  };
+  const out = { exported_at: new Date().toISOString(), date: today, data: {} };
+  const keys = Object.keys(eps);
+  const results = await Promise.all(keys.map(k =>
+    fetch(`${API_URL}${eps[k]}`, { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : ({ _error: `HTTP ${r.status}` }))
+      .catch(e => ({ _error: String(e) }))
+  ));
+  keys.forEach((k, i) => { out.data[k] = results[i]; });
+
+  const blob = new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `hory_data_${today}_${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  setDot('ok', 'Data stažena');
+}
+
 async function loadAll() {
   if (!API_URL) return;
   setDot('idle', 'Načítám…');
