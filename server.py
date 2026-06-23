@@ -1128,6 +1128,10 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/ceps_txt":
             self._ceps_txt(qs); return
         
+        # OTE oficialni VWAP (z XLSX VDT_15MIN) - pro porovnani s botem
+        if parsed.path == "/ote/vdt-official":
+            self._ote_vdt_official(qs); return
+        
         # Staticke HTML soubory (hruska.html, kapacity.html, live_odchylky.html)
         if parsed.path in ("/hruska.html", "/kapacity.html", "/live_odchylky.html", "/ema.html", "/odhad.html", "/eisi.html", "/ceny.html", "/fanda.html", "/api_test.html", "/spread.html", "/regulace-vdt.html"):
             try:
@@ -4349,6 +4353,82 @@ class Handler(BaseHTTPRequestHandler):
             import traceback
             print(f"  -> /ote/vdt/range ERROR: {e}\n{traceback.format_exc()}", flush=True)
             self._json({"error": str(e), "data": []}, 502)
+
+    def _ote_vdt_official(self, qs):
+        """
+        Oficialni OTE VWAP z XLSX VDT_15MIN_<DD_MM_YYYY>_CZ.xlsx.
+        List "Výsledky VDT", data od radku 7. Sloupce:
+          0 Casovy interval | 1 Zobchodovane mnozstvi | 2 nakup | 3 prodej |
+          4 Vazeny prumer cen (VWAP) | 5 Min | 6 Max | 7 Posledni
+        Vraci {rows:[{interval, vwap, vol}], ...} - jen uzavrene QH.
+        """
+        date_str = qs.get("date", [None])[0]
+        if not date_str:
+            from datetime import datetime as _dt
+            date_str = _dt.now().strftime("%Y-%m-%d")
+        try:
+            from datetime import datetime as _dt
+            d = _dt.strptime(date_str, "%Y-%m-%d")
+            fname = f"VDT_15MIN_{d.day:02d}_{d.month:02d}_{d.year}_CZ.xlsx"
+
+            # cache (dnesek 60s, historie 1h)
+            if not hasattr(self.__class__, '_otevdt_cache'):
+                self.__class__._otevdt_cache = {}
+            cache = self.__class__._otevdt_cache
+            now_ts = time.time()
+            is_today = date_str == _dt.now().strftime("%Y-%m-%d")
+            ttl = 60 if is_today else 3600
+            nocache = qs.get("nocache", ["0"])[0] in ("1", "true")
+            if date_str in cache and not nocache:
+                ts, cached = cache[date_str]
+                if now_ts - ts < ttl:
+                    self._json(cached); return
+
+            url = (f"https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/vnitrodenni-trh/"
+                   f"@@chmu-aktualni-data-csv?report_date={date_str}")
+            # Spravna cesta: soubor ke stazeni z OTE
+            dl = f"https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/vnitrodenni-trh/files-vnitrodenni-trh/{fname}"
+            req = urllib.request.Request(dl, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "*/*",
+                "Referer": "https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/vnitrodenni-trh",
+            })
+            raw = urllib.request.urlopen(req, timeout=25).read()
+
+            # precti list "Výsledky VDT" pomoci openpyxl (maly soubor)
+            from openpyxl import load_workbook
+            wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+            ws = None
+            for name in wb.sheetnames:
+                if "sledky VDT" in name and "celkem" not in name.lower():
+                    ws = wb[name]; break
+            if ws is None:
+                ws = wb[wb.sheetnames[0]]
+
+            rows = []
+            for r in ws.iter_rows(min_row=7, values_only=True):
+                if not r or r[0] is None:
+                    continue
+                interval = str(r[0]).strip()
+                if not re.match(r"^\d{1,2}:\d{2}", interval):
+                    continue
+                try:
+                    vol = float(r[1]) if r[1] not in (None, "") else None
+                    vwap = float(r[4]) if len(r) > 4 and r[4] not in (None, "") else None
+                except (ValueError, TypeError):
+                    continue
+                if vwap is None:
+                    continue
+                rows.append({"interval": interval, "vwap": vwap, "vol": vol})
+
+            result = {"date": date_str, "source": fname, "rows": rows, "count": len(rows)}
+            cache[date_str] = (now_ts, result)
+            print(f"  -> /ote/vdt-official {date_str}: {len(rows)} QH", flush=True)
+            self._json(result)
+        except Exception as e:
+            import traceback
+            print(f"  -> /ote/vdt-official ERROR: {e}\n{traceback.format_exc()}", flush=True)
+            self._json({"error": str(e), "rows": []}, 502)
 
     def _ceps_txt(self, qs):
         """

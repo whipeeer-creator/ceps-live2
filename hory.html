@@ -182,7 +182,8 @@ canvas { max-width: 100%; display: block; }
   <div class="kpi-row">
     <div class="kpi" id="crd-OZE5" style="grid-column: span 2;"><div class="kpi-l">Poslední 15min blok · průměrná regulace</div><div class="kpi-v" id="dv-OZE5">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-OZE5">—</div></div>
     <div class="kpi" id="crd-SOLAR" style="grid-column: span 2;"><div class="kpi-l">🇨🇿 Solar: výroba − forecast</div><div class="kpi-v" id="dv-SOLAR">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-SOLAR">—</div></div>
-    <div class="kpi" id="crd-VWAP" style="grid-column: span 2;"><div class="kpi-l">VDT VWAP · aktuální QH</div><div class="kpi-v" id="dv-VWAP">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-VWAP">—</div></div>
+    <div class="kpi" id="crd-VWAP"><div class="kpi-l">VDT VWAP (bot) · aktuální QH</div><div class="kpi-v" id="dv-VWAP">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-VWAP">—</div></div>
+    <div class="kpi" id="crd-VWAP-OTE"><div class="kpi-l">OTE VWAP (oficiální) · poslední QH</div><div class="kpi-v" id="dv-VWAP-OTE">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-VWAP-OTE">—</div></div>
   </div>
 
   <div class="chart-panel">
@@ -3832,6 +3833,7 @@ async function loadVwapKpi() {
     if (!r.ok) return;
     const d = await r.json();
     if (!d || !d.rows || !d.rows.length) return;
+    window._lastVdtRows = d.rows;
 
     // aktuální pražská hodina:minuta -> minuty od půlnoci
     const pp = pragueParts();
@@ -3875,6 +3877,42 @@ async function loadVwapKpi() {
       ds.textContent = 'aktuální kontrakt bez obchodů';
     }
   } catch(e) { console.warn('vwapKpi:', e); }
+}
+
+async function loadOteVwapKpi() {
+  const dv = document.getElementById('dv-VWAP-OTE');
+  const ds = document.getElementById('ds-VWAP-OTE');
+  if (!dv || !API_URL) return;
+  try {
+    const now = new Date();
+    const pad = n => String(n).padStart(2,'0');
+    const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
+    const r = await fetch(`${API_URL}/ote/vdt-official?date=${today}`, { cache:'no-store' });
+    const j = await r.json();
+    const rows = (j && j.rows) || [];
+    if (!rows.length) {
+      dv.innerHTML = `—<span class="kpi-u">EUR/MWh</span>`;
+      ds.textContent = j._error ? ('chyba: '+j._error) : 'zatím žádná uzavřená QH';
+      return;
+    }
+    // posledni uzavrena QH = posledni radek s vwap
+    const last = rows[rows.length-1];
+    dv.innerHTML = `${Number(last.vwap).toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
+    let sub = `QH ${last.interval} · vol ${last.vol!=null?last.vol.toFixed(1):'?'} MWh`;
+    // srovnani s botem pro stejnou QH, pokud ji mam
+    try {
+      const botRow = (window._lastVdtRows||[]).find(x => x.kontrakt?.type==='QH' && last.interval.startsWith(x.kontrakt.from));
+      if (botRow && botRow.vwap!=null) {
+        const diff = Number(botRow.vwap) - Number(last.vwap);
+        sub += ` · bot ${Number(botRow.vwap).toFixed(1)} (${diff>=0?'+':''}${diff.toFixed(1)})`;
+      }
+    } catch(_) {}
+    ds.innerHTML = sub;
+  } catch(e) {
+    dv.innerHTML = `—<span class="kpi-u">EUR/MWh</span>`;
+    ds.textContent = 'nedostupné';
+    console.warn('oteVwapKpi:', e);
+  }
 }
 
 async function loadVdtKpi() {
@@ -4351,6 +4389,7 @@ async function loadAll() {
       _lastVdtKpiLoad = now;
       tasks.push(loadVdtKpi());
       tasks.push(loadVwapKpi());
+      tasks.push(loadOteVwapKpi());
     }
     // Regelleistung NENI v await chain - bezi nezavisle na zbytku dashboardu.
     // Vlastni loading state, vlastni 15min throttling, neblokuje setDot('ok').
