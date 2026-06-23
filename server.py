@@ -4370,6 +4370,8 @@ class Handler(BaseHTTPRequestHandler):
             from datetime import datetime as _dt
             d = _dt.strptime(date_str, "%Y-%m-%d")
             fname = f"VDT_15MIN_{d.day:02d}_{d.month:02d}_{d.year}_CZ.xlsx"
+            dl = (f"https://www.ote-cr.cz/pubweb/attachments/27/{d.year}/"
+                  f"month{d.month:02d}/day{d.day:02d}/{fname}")
 
             # cache (dnesek 60s, historie 1h)
             if not hasattr(self.__class__, '_otevdt_cache'):
@@ -4384,10 +4386,6 @@ class Handler(BaseHTTPRequestHandler):
                 if now_ts - ts < ttl:
                     self._json(cached); return
 
-            url = (f"https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/vnitrodenni-trh/"
-                   f"@@chmu-aktualni-data-csv?report_date={date_str}")
-            # Spravna cesta: soubor ke stazeni z OTE
-            dl = f"https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/vnitrodenni-trh/files-vnitrodenni-trh/{fname}"
             req = urllib.request.Request(dl, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Accept": "*/*",
