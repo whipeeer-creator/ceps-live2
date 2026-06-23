@@ -4386,12 +4386,14 @@ class Handler(BaseHTTPRequestHandler):
                 if now_ts - ts < ttl:
                     self._json(cached); return
 
-            req = urllib.request.Request(dl, headers={
+            r0 = requests.get(dl, timeout=25, headers={
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Accept": "*/*",
                 "Referer": "https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/vnitrodenni-trh",
             })
-            raw = urllib.request.urlopen(req, timeout=25).read()
+            if r0.status_code != 200:
+                self._json({"error": f"OTE HTTP {r0.status_code}", "url": dl, "rows": []}, 502); return
+            raw = r0.content
 
             # precti list "Výsledky VDT" pomoci openpyxl (maly soubor)
             from openpyxl import load_workbook
