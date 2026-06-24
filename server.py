@@ -4381,7 +4381,8 @@ class Handler(BaseHTTPRequestHandler):
             is_today = date_str == _dt.now().strftime("%Y-%m-%d")
             ttl = 60 if is_today else 3600
             nocache = qs.get("nocache", ["0"])[0] in ("1", "true")
-            if date_str in cache and not nocache:
+            debug = qs.get("debug", ["0"])[0] in ("1", "true")
+            if date_str in cache and not nocache and not debug:
                 ts, cached = cache[date_str]
                 if now_ts - ts < ttl:
                     self._json(cached); return
@@ -4419,14 +4420,14 @@ class Handler(BaseHTTPRequestHandler):
 
             rows = []
             for r in ws.iter_rows(min_row=7, values_only=True):
-                if not r or r[0] is None:
+                if not r or len(r) < 6 or r[1] is None:
                     continue
-                interval = str(r[0]).strip()
+                interval = str(r[1]).strip()              # sl.1 = Casovy interval
                 if not re.match(r"^\d{1,2}:\d{2}", interval):
                     continue
                 try:
-                    vol = float(r[1]) if r[1] not in (None, "") else None
-                    vwap = float(r[4]) if len(r) > 4 and r[4] not in (None, "") else None
+                    vol  = float(r[2]) if r[2] not in (None, "") else None   # sl.2 = Zobchodovane mnozstvi
+                    vwap = float(r[5]) if r[5] not in (None, "") else None   # sl.5 = Vazeny prumer cen
                 except (ValueError, TypeError):
                     continue
                 if vwap is None:
@@ -4434,7 +4435,8 @@ class Handler(BaseHTTPRequestHandler):
                 rows.append({"interval": interval, "vwap": vwap, "vol": vol})
 
             result = {"date": date_str, "source": fname, "rows": rows, "count": len(rows)}
-            cache[date_str] = (now_ts, result)
+            if rows:  # neukladat prazdny vysledek do cache
+                cache[date_str] = (now_ts, result)
             print(f"  -> /ote/vdt-official {date_str}: {len(rows)} QH", flush=True)
             self._json(result)
         except Exception as e:
