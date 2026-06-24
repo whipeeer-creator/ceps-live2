@@ -184,6 +184,8 @@ canvas { max-width: 100%; display: block; }
     <div class="kpi" id="crd-SOLAR" style="grid-column: span 2;"><div class="kpi-l">🇨🇿 Solar: výroba − forecast</div><div class="kpi-v" id="dv-SOLAR">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-SOLAR">—</div></div>
     <div class="kpi" id="crd-VWAP"><div class="kpi-l">VDT VWAP (bot) · aktuální QH</div><div class="kpi-v" id="dv-VWAP">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-VWAP">—</div></div>
     <div class="kpi" id="crd-VWAP-OTE"><div class="kpi-l">OTE VWAP (oficiální) · poslední QH</div><div class="kpi-v" id="dv-VWAP-OTE">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-VWAP-OTE">—</div></div>
+    <div class="kpi" id="crd-VOL"><div class="kpi-l">Objem obchodů · aktuální QH</div><div class="kpi-v" id="dv-VOL">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-VOL">—</div></div>
+    <div class="kpi" id="crd-VOLCH" style="grid-column: span 2;"><div class="kpi-l">Objem obchodů dnes · po QH [MW]</div><canvas id="cv-VOLCH" height="48" style="width:100%;display:block;margin-top:4px;"></canvas><div class="kpi-s" id="ds-VOLCH">—</div></div>
   </div>
 
   <div class="chart-panel">
@@ -3866,12 +3868,12 @@ async function loadVwapKpi() {
 
     if (curQH && curQH.vwap != null) {
       dv.innerHTML = `${Number(curQH.vwap).toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
-      let sub = `QH ${fmtWin(curQH)} · vol ${curQH.vol||0} MWh`;
+      let sub = `QH ${fmtWin(curQH)} · vol ${((curQH.vol||0)*4).toFixed(1)} MW`;
       if (curH && curH.vwap != null) sub += ` · H: ${Number(curH.vwap).toFixed(1)}`;
       ds.innerHTML = sub;
     } else if (curH && curH.vwap != null) {
       dv.innerHTML = `${Number(curH.vwap).toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
-      ds.innerHTML = `H ${fmtWin(curH)} · vol ${curH.vol||0} MWh (QH bez VWAP)`;
+      ds.innerHTML = `H ${fmtWin(curH)} · vol ${((curH.vol||0)*4).toFixed(1)} MW (QH bez VWAP)`;
     } else {
       dv.innerHTML = `—<span class="kpi-u">EUR/MWh</span>`;
       ds.textContent = 'aktuální kontrakt bez obchodů';
@@ -3898,7 +3900,7 @@ async function loadOteVwapKpi() {
     // posledni uzavrena QH = posledni radek s vwap
     const last = rows[rows.length-1];
     dv.innerHTML = `${Number(last.vwap).toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
-    let sub = `QH ${last.interval} · vol ${last.vol!=null?last.vol.toFixed(1):'?'} MWh`;
+    let sub = `QH ${last.interval} · vol ${last.vol!=null?(last.vol*4).toFixed(1):'?'} MW`;
     // srovnani s botem pro stejnou QH, pokud ji mam
     try {
       const botRow = (window._lastVdtRows||[]).find(x => x.kontrakt?.type==='QH' && last.interval.startsWith(x.kontrakt.from));
@@ -3912,6 +3914,77 @@ async function loadOteVwapKpi() {
     dv.innerHTML = `—<span class="kpi-u">EUR/MWh</span>`;
     ds.textContent = 'nedostupné';
     console.warn('oteVwapKpi:', e);
+  }
+}
+
+async function loadVolumeKpi() {
+  const dv = document.getElementById('dv-VOL');
+  const ds = document.getElementById('ds-VOL');
+  if (!dv || !API_URL) return;
+  try {
+    // pouzij data co uz nacetl loadVwapKpi, jinak fetchni
+    let rows = window._lastVdtRows;
+    if (!rows) {
+      const r = await fetch(`${API_URL}/vdt/orderbook`, { cache:'no-store' });
+      if (r.ok) { const d = await r.json(); rows = d.rows; window._lastVdtRows = rows; }
+    }
+    if (!rows || !rows.length) return;
+
+    const pp = pragueParts();
+    const nowMin = parseInt(pp.h)*60 + parseInt(pp.m);
+    const todayStr = `${pp.Y}${pp.Mo}${pp.D}`;
+    const inWindow = (row) => {
+      const f = row.kontrakt?.from; if (!f) return false;
+      const [h,m] = f.split(':').map(Number);
+      const start = h*60+m;
+      const len = row.kontrakt.type === 'H' ? 60 : 15;
+      return nowMin >= start && nowMin < start + len;
+    };
+    // aktualni QH objem v MW (vol*4)
+    const curQH = rows.find(r => r.kontrakt?.type==='QH' && inWindow(r));
+    if (curQH) {
+      const mw = (curQH.vol||0)*4;
+      dv.innerHTML = `${mw.toFixed(1)}<span class="kpi-u">MW</span>`;
+      ds.textContent = `QH ${curQH.kontrakt.from} · ${(curQH.vol||0).toFixed(1)} MWh`;
+    } else {
+      dv.innerHTML = `—<span class="kpi-u">MW</span>`;
+      ds.textContent = 'aktuální QH bez obchodů';
+    }
+
+    // GRAF: objem po QH za dnesek (jen QH kontrakty dneska, serazene dle from)
+    const qhs = rows
+      .filter(r => r.kontrakt?.type==='QH' && r.kontrakt?.date===todayStr && r.vol>0)
+      .map(r => ({ from: r.kontrakt.from, mw: r.vol*4 }))
+      .sort((a,b) => a.from.localeCompare(b.from));
+    drawVolChart(qhs, nowMin);
+    const dsc = document.getElementById('ds-VOLCH');
+    if (dsc) {
+      const total = qhs.reduce((s,x)=>s+x.mw,0);
+      dsc.textContent = `${qhs.length} QH · součet ${total.toFixed(0)} MW`;
+    }
+  } catch(e) { console.warn('volumeKpi:', e); }
+}
+
+function drawVolChart(qhs, nowMin) {
+  const cv = document.getElementById('cv-VOLCH');
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  // ostre vykresleni na retina
+  const cssW = cv.clientWidth || 300, cssH = cv.height;
+  const dpr = window.devicePixelRatio || 1;
+  cv.width = cssW*dpr; cv.height = cssH*dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0,0,cssW,cssH);
+  if (!qhs.length) return;
+  const maxMw = Math.max(...qhs.map(x=>x.mw), 1);
+  const n = qhs.length;
+  const bw = cssW / n;
+  for (let i=0;i<n;i++){
+    const h = (qhs[i].mw/maxMw) * (cssH-2);
+    const [hh,mm] = qhs[i].from.split(':').map(Number);
+    const isPast = (hh*60+mm+15) <= nowMin;
+    ctx.fillStyle = isPast ? '#1565c0' : '#90caf9';
+    ctx.fillRect(i*bw, cssH-h, Math.max(1,bw-0.5), h);
   }
 }
 
@@ -4390,6 +4463,7 @@ async function loadAll() {
       tasks.push(loadVdtKpi());
       tasks.push(loadVwapKpi());
       tasks.push(loadOteVwapKpi());
+      tasks.push(loadVolumeKpi());
     }
     // Regelleistung NENI v await chain - bezi nezavisle na zbytku dashboardu.
     // Vlastni loading state, vlastni 15min throttling, neblokuje setDot('ok').
