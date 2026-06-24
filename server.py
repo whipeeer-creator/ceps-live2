@@ -4398,6 +4398,18 @@ class Handler(BaseHTTPRequestHandler):
             # precti list "Výsledky VDT" pomoci openpyxl (maly soubor)
             from openpyxl import load_workbook
             wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
+
+            if qs.get("debug", ["0"])[0] in ("1","true"):
+                dbg = {"sheets": wb.sheetnames, "bytes": len(raw)}
+                # ukaz prvnich 12 radku z kazdeho listu co ma "VDT"
+                for nm in wb.sheetnames:
+                    wsx = wb[nm]
+                    sample = []
+                    for i, rr in enumerate(wsx.iter_rows(min_row=1, max_row=12, values_only=True)):
+                        sample.append([str(c)[:18] if c is not None else None for c in rr[:8]])
+                    dbg[nm] = sample
+                self._json(dbg); return
+
             ws = None
             for name in wb.sheetnames:
                 if "sledky VDT" in name and "celkem" not in name.lower():
