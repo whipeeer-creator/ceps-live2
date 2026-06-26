@@ -175,7 +175,7 @@ canvas { max-width: 100%; display: block; }
   <div class="kpi-row">
     <div class="kpi" id="crd-O"><div class="kpi-l">Aktuální regulace</div><div class="kpi-v" id="dv-O">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-O">—</div></div>
     <div class="kpi" id="crd-C"><div class="kpi-l" style="font-weight:700;color:#1a1a2e;">ČEPS</div><div class="kpi-l" style="font-size:10px;">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
-    <div class="kpi" id="crd-F" style="grid-column: span 2;"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
+    <div class="kpi" id="crd-F"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
     <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
   </div>
 
@@ -2265,28 +2265,32 @@ async function loadFreq() {
     const d = await apiFetch('AktualniCenaRE');
     if (!d.rows.length) return;
     const last = d.rows[d.rows.length-1];
-    const num = c => {
-      const v = parseFloat(last[c]);
-      return isNaN(v) ? 0 : v;
-    };
+    const num = c => { const v = parseFloat(last[c]); return isNaN(v) ? 0 : v; };
     const aFRR = num('aFRR [EUR/MWh]');
     const mFRRp = num('mFRR+ [EUR/MWh]');
     const mFRRm = num('mFRR- [EUR/MWh]');
     const mFRR5 = num('mFRR5 [EUR/MWh]');
 
-    // vsechny 4 ceny stejne velke vedle sebe
     const dv = document.getElementById('dv-F');
     const ds = document.getElementById('ds-F');
+
+    // hlavni cislo = aFRR, kladne zelene / zaporne cervene
     if (dv) {
-      const cell = (lbl, v) =>
-        `<span style="display:inline-block;text-align:center;margin:0 6px;">`
-        + `<span style="display:block;font-size:10px;color:#888;font-weight:600;">${lbl}</span>`
-        + `<span style="font-size:17px;font-weight:700;">${v.toFixed(0)}</span></span>`;
-      dv.innerHTML =
-        cell('aFRR', aFRR) + cell('mFRR+', mFRRp) + cell('mFRR−', mFRRm) + cell('mFRR5', mFRR5)
-        + `<span class="kpi-u" style="display:block;margin-top:2px;">EUR/MWh</span>`;
+      const col = aFRR > 0 ? '#27ae60' : (aFRR < 0 ? '#c0392b' : '#1a1a2e');
+      dv.innerHTML = `<span style="color:${col};font-weight:700;">${aFRR.toFixed(1)}</span>`
+        + `<span class="kpi-u">EUR/MWh</span>`;
     }
-    if (ds) ds.textContent = `${ft(last.date)}`;
+
+    // mFRR ceny jen kdyz naskoci (nenulove)
+    if (ds) {
+      const parts = [];
+      if (mFRRp !== 0) parts.push(`mFRR+ ${mFRRp.toFixed(0)}`);
+      if (mFRRm !== 0) parts.push(`mFRR− ${mFRRm.toFixed(0)}`);
+      if (mFRR5 !== 0) parts.push(`mFRR5 ${mFRR5.toFixed(0)}`);
+      ds.textContent = parts.length
+        ? `${parts.join(' · ')} · ${ft(last.date)}`
+        : `aFRR · ${ft(last.date)}`;
+    }
   } catch(e) {}
 }
 
