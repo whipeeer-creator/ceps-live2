@@ -175,7 +175,7 @@ canvas { max-width: 100%; display: block; }
   <div class="kpi-row">
     <div class="kpi" id="crd-O"><div class="kpi-l">Aktuální regulace</div><div class="kpi-v" id="dv-O">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-O">—</div></div>
     <div class="kpi" id="crd-C"><div class="kpi-l" style="font-weight:700;color:#1a1a2e;">ČEPS</div><div class="kpi-l" style="font-size:10px;">Cena odchylky</div><div class="kpi-v" id="dv-C">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-C">—</div></div>
-    <div class="kpi" id="crd-F"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
+    <div class="kpi" id="crd-F" style="grid-column: span 2;"><div class="kpi-l">Cena reg. energie</div><div class="kpi-v" id="dv-F">—<span class="kpi-u">EUR/MWh</span></div><div class="kpi-s" id="ds-F">—</div></div>
     <div class="kpi" id="crd-S"><div class="kpi-l">aFRR aktivní</div><div class="kpi-v" id="dv-S">—<span class="kpi-u">MW</span></div><div class="kpi-s" id="ds-S">—</div></div>
   </div>
 
@@ -814,6 +814,18 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
       ctx.strokeRect(x-bw/2, yTop, bw, yBot-yTop);
     });
   }
+  if (colAp) {
+    ctx.fillStyle = 'rgba(255,152,0,0.65)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.lineWidth = 0.8;
+    apVals.forEach((v, i) => {
+      if (!v) return;
+      const x = xP(i); const bw = cW/(n-1||1);
+      const yTop = yP(-Math.abs(v)); const yBot = y0;
+      ctx.fillRect(x-bw/2, yTop, bw, yBot-yTop);
+      ctx.strokeRect(x-bw/2, yTop, bw, yBot-yTop);
+    });
+  }
   if (colMp) {
     ctx.fillStyle = 'rgba(200,30,30,0.85)';
     mpVals.forEach((v, i) => {
@@ -831,18 +843,6 @@ function drawTopChart(canvas, odchRows, colO, svrRows, colAp, colAm, colMp, colM
       const x = xP(i); const bw = cW/(n-1||1);
       const yTop = y0; const yBot = yP(Math.abs(v));
       ctx.fillRect(x-bw/2, yTop, bw, yBot-yTop);
-    });
-  }
-  if (colAp) {
-    ctx.fillStyle = 'rgba(255,152,0,0.65)';
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx.lineWidth = 0.8;
-    apVals.forEach((v, i) => {
-      if (!v) return;
-      const x = xP(i); const bw = cW/(n-1||1);
-      const yTop = yP(-Math.abs(v)); const yBot = y0;
-      ctx.fillRect(x-bw/2, yTop, bw, yBot-yTop);
-      ctx.strokeRect(x-bw/2, yTop, bw, yBot-yTop);
     });
   }
 
@@ -2264,12 +2264,29 @@ async function loadFreq() {
   try {
     const d = await apiFetch('AktualniCenaRE');
     if (!d.rows.length) return;
-    const col = 'aFRR [EUR/MWh]';
     const last = d.rows[d.rows.length-1];
-    const v = parseFloat(last[col]) || 0;
-    // Cena reg. energie - < 50 EUR = levne (zelena), > 150 EUR = drahe (cervena)
-    setKPI('F', v, 'EUR/MWh', `aFRR · ${ft(last.date)}`, d.fetched_at,
-      {greenBelow: 50, redAbove: 150});
+    const num = c => {
+      const v = parseFloat(last[c]);
+      return isNaN(v) ? 0 : v;
+    };
+    const aFRR = num('aFRR [EUR/MWh]');
+    const mFRRp = num('mFRR+ [EUR/MWh]');
+    const mFRRm = num('mFRR- [EUR/MWh]');
+    const mFRR5 = num('mFRR5 [EUR/MWh]');
+
+    // vsechny 4 ceny stejne velke vedle sebe
+    const dv = document.getElementById('dv-F');
+    const ds = document.getElementById('ds-F');
+    if (dv) {
+      const cell = (lbl, v) =>
+        `<span style="display:inline-block;text-align:center;margin:0 6px;">`
+        + `<span style="display:block;font-size:10px;color:#888;font-weight:600;">${lbl}</span>`
+        + `<span style="font-size:17px;font-weight:700;">${v.toFixed(0)}</span></span>`;
+      dv.innerHTML =
+        cell('aFRR', aFRR) + cell('mFRR+', mFRRp) + cell('mFRR−', mFRRm) + cell('mFRR5', mFRR5)
+        + `<span class="kpi-u" style="display:block;margin-top:2px;">EUR/MWh</span>`;
+    }
+    if (ds) ds.textContent = `${ft(last.date)}`;
   } catch(e) {}
 }
 
@@ -3866,12 +3883,12 @@ async function loadVwapKpi() {
 
     if (curQH && curQH.vwap != null) {
       dv.innerHTML = `${Number(curQH.vwap).toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
-      let sub = `QH ${fmtWin(curQH)} · vol ${((curQH.vol||0)*4).toFixed(1)} MW`;
+      let sub = `QH ${fmtWin(curQH)} · vol ${curQH.vol||0} MWh`;
       if (curH && curH.vwap != null) sub += ` · H: ${Number(curH.vwap).toFixed(1)}`;
       ds.innerHTML = sub;
     } else if (curH && curH.vwap != null) {
       dv.innerHTML = `${Number(curH.vwap).toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
-      ds.innerHTML = `H ${fmtWin(curH)} · vol ${((curH.vol||0)*4).toFixed(1)} MW (QH bez VWAP)`;
+      ds.innerHTML = `H ${fmtWin(curH)} · vol ${curH.vol||0} MWh (QH bez VWAP)`;
     } else {
       dv.innerHTML = `—<span class="kpi-u">EUR/MWh</span>`;
       ds.textContent = 'aktuální kontrakt bez obchodů';
@@ -3898,7 +3915,7 @@ async function loadOteVwapKpi() {
     // posledni uzavrena QH = posledni radek s vwap
     const last = rows[rows.length-1];
     dv.innerHTML = `${Number(last.vwap).toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
-    let sub = `QH ${last.interval} · vol ${last.vol!=null?(last.vol*4).toFixed(1):'?'} MW`;
+    let sub = `QH ${last.interval} · vol ${last.vol!=null?last.vol.toFixed(1):'?'} MWh`;
     // srovnani s botem pro stejnou QH, pokud ji mam
     try {
       const botRow = (window._lastVdtRows||[]).find(x => x.kontrakt?.type==='QH' && last.interval.startsWith(x.kontrakt.from));
