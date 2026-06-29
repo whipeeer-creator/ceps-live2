@@ -203,21 +203,17 @@ function parseTradesWB(buf){
     let endMin = parseInt(mm[3],10)*60 + parseInt(mm[4],10);
     if(endMin <= startMin) endMin += 24*60;       // pres pulnoc
     if(endMin - startMin !== 15) continue;          // NENI ctvrthodina -> preskoc (hodinovy radek)
-    // Sloupce: 2=Nakup mn (MW), 3=Prodej mn (MW, zaporne), 4=Nakup celkem (EUR),
-    //          5=Prodej celkem (EUR). Cteme OBE strany zvlast - resi prikupovani.
-    const nakMw  = Math.abs(parseFloat(r[2])||0);
-    const proMw  = Math.abs(parseFloat(r[3])||0);
-    const nakEur = Math.abs(parseFloat(r[4])||0);
-    const proEur = Math.abs(parseFloat(r[5])||0);
-    const list=[];
-    if(nakMw>0){
-      const mwh=nakMw*0.25;
-      list.push({buy:true,  mwh, eur: nakEur, px: mwh>0 ? nakEur/mwh : 0});
-    }
-    if(proMw>0){
-      const mwh=proMw*0.25;
-      list.push({buy:false, mwh, eur: proEur, px: mwh>0 ? proEur/mwh : 0});
-    }
+    // Pouzivam NETTO sloupce (uz maji vykraceny nakup/prodej v ramci QH):
+    //   sl.6 (G) = Pozice [MW]  (zaporne = cisty prodej, kladne = cisty nakup)
+    //   sl.7 (H) = Nakup/Prodej [EUR] = cista castka za tu pozici
+    const pozMw = parseFloat(r[6]);
+    const castka = parseFloat(r[7]);
+    if(isNaN(pozMw) || isNaN(castka) || pozMw === 0) continue;  // bez pozice nic
+    const mwh = Math.abs(pozMw) * 0.25;
+    if(mwh <= 0) continue;
+    const isBuy = pozMw > 0;
+    const eur = Math.abs(castka);
+    const list = [{ buy:isBuy, mwh, eur, px: eur/mwh }];
     if(list.length){ byKey[from]=list; n++; }
   }
   myTrades=byKey;
