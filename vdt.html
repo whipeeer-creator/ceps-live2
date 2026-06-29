@@ -204,11 +204,12 @@ function parseTradesWB(buf){
     const list=[];
     if(nakMw>0){
       const mwh=nakMw*0.25;
-      list.push({buy:true,  mwh, px: nakEur/mwh});   // nakupni pozice
+      // px = cena za MWh = celkem EUR / MWh. Ulozim i raw eur/mwh aby slo prepocitat bez chyby.
+      list.push({buy:true,  mwh, eur: nakEur, px: mwh>0 ? nakEur/mwh : 0});
     }
     if(proMw>0){
       const mwh=proMw*0.25;
-      list.push({buy:false, mwh, px: proEur/mwh});   // prodejni pozice
+      list.push({buy:false, mwh, eur: proEur, px: mwh>0 ? proEur/mwh : 0});
     }
     if(list.length){ byKey[from]=list; n++; }
   }
@@ -271,15 +272,15 @@ function myPnl(row){
   // Slouc nakupni a prodejni stranu, vykrat se -> zobraz jen OTEVRENY zbytek
   let buyMwh=0, buyEur=0, sellMwh=0, sellEur=0;
   for(const t of list){
-    if(t.buy){ buyMwh+=t.mwh; buyEur+=t.mwh*t.px; }
-    else     { sellMwh+=t.mwh; sellEur+=t.mwh*t.px; }
+    if(t.buy){ buyMwh+=t.mwh; buyEur+=t.eur; }   // scitam primo celkove EUR
+    else     { sellMwh+=t.mwh; sellEur+=t.eur; }
   }
   const netMwh = buyMwh - sellMwh;          // kladne=cisty nakup, zaporne=cisty prodej
   if(Math.abs(netMwh) < 1e-9) return null;  // vyrovnano -> nic neukazuj
 
   const t = (netMwh > 0)
-    ? { buy:true,  mwh: netMwh,        px: buyEur/buyMwh }    // cisty nakup za prum. nakupni cenu
-    : { buy:false, mwh: Math.abs(netMwh), px: sellEur/sellMwh }; // cisty prodej za prum. prodejni cenu
+    ? { buy:true,  mwh: netMwh,        px: buyMwh>0 ? buyEur/buyMwh : 0 }    // prum nakupni cena = EUR/MWh
+    : { buy:false, mwh: Math.abs(netMwh), px: sellMwh>0 ? sellEur/sellMwh : 0 }; // prum prodejni cena = EUR/MWh
 
   const cur = t.buy ? row.bid : row.ask;
   let pl = (cur!=null) ? (t.buy ? (cur-t.px)*t.mwh : (t.px-cur)*t.mwh) : null;
