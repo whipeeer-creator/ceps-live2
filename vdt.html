@@ -217,15 +217,9 @@ function parseTradesWB(buf){
   return n;
 }
 
-// pri startu: zkus nacist ulozenou tabulku z localStorage
-try{
-  const saved = localStorage.getItem('myTradesXlsx');
-  if(saved){
-    const bytes = Uint8Array.from(atob(saved), c=>c.charCodeAt(0));
-    const n = parseTradesWB(bytes.buffer);
-    document.getElementById('pnlsummary').innerHTML='✅ '+n+' čtvrthodin (uloženo) · <a href="#" id="clearTrades" style="color:#c0392b">smazat</a>';
-  }
-}catch(e){ /* ignoruj poskozeny ulozeny stav */ }
+// localStorage VYPNUTO - tabulka se vzdy cte cerstve z nahraneho souboru.
+// Smaz pripadny stary ulozeny stav (mohl byt z bugove verze).
+try{ localStorage.removeItem('myTradesXlsx'); }catch(e){}
 
 document.getElementById('tradesFile').addEventListener('change', async (ev)=>{
   const f = ev.target.files[0];
@@ -233,12 +227,6 @@ document.getElementById('tradesFile').addEventListener('change', async (ev)=>{
   try{
     const buf = await f.arrayBuffer();
     const n = parseTradesWB(buf);
-    // uloz do localStorage (base64)
-    try{
-      let bin=''; const b=new Uint8Array(buf);
-      for(let i=0;i<b.length;i++) bin+=String.fromCharCode(b[i]);
-      localStorage.setItem('myTradesXlsx', btoa(bin));
-    }catch(e){ /* moc velke nebo blokovane - bez ulozeni */ }
     document.getElementById('pnlsummary').innerHTML='✅ '+n+' čtvrthodin načteno · <a href="#" id="clearTrades" style="color:#c0392b">smazat</a>';
     if(window._lastRows) render(window._lastRows);
   }catch(e){
