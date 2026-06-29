@@ -193,8 +193,16 @@ function parseTradesWB(buf){
     const per=parseInt(r[0],10);
     if(isNaN(per)||per<1||per>96) continue;
     const cas=String(r[1]||'');
-    const from=(cas.match(/^(\d{2}:\d{2})/)||[])[1];
-    if(!from) continue;
+    // Vezmi CELY interval HH:MM-HH:MM a over ze je to ctvrthodina (15 min).
+    // Tim se vyhodi hodinove souhrnne radky (napr. 19:00-20:00) ktere by
+    // kolidovaly klicem 'from' s QH radkem 19:00-19:15.
+    const mm = cas.match(/^(\d{2}):(\d{2})\s*-\s*(\d{2}):(\d{2})/);
+    if(!mm) continue;
+    const from = mm[1]+':'+mm[2];
+    const startMin = parseInt(mm[1],10)*60 + parseInt(mm[2],10);
+    let endMin = parseInt(mm[3],10)*60 + parseInt(mm[4],10);
+    if(endMin <= startMin) endMin += 24*60;       // pres pulnoc
+    if(endMin - startMin !== 15) continue;          // NENI ctvrthodina -> preskoc (hodinovy radek)
     // Sloupce: 2=Nakup mn (MW), 3=Prodej mn (MW, zaporne), 4=Nakup celkem (EUR),
     //          5=Prodej celkem (EUR). Cteme OBE strany zvlast - resi prikupovani.
     const nakMw  = Math.abs(parseFloat(r[2])||0);
@@ -204,7 +212,6 @@ function parseTradesWB(buf){
     const list=[];
     if(nakMw>0){
       const mwh=nakMw*0.25;
-      // px = cena za MWh = celkem EUR / MWh. Ulozim i raw eur/mwh aby slo prepocitat bez chyby.
       list.push({buy:true,  mwh, eur: nakEur, px: mwh>0 ? nakEur/mwh : 0});
     }
     if(proMw>0){
