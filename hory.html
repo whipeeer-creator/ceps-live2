@@ -3942,6 +3942,7 @@ async function loadOteVwapKpi() {
     const vwapVal = last.vwap != null ? last.vwap : last.price;
     dv.innerHTML = `${Number(vwapVal).toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
     let sub = `${usedDate===dstr(today)?'dnes':usedDate} QH ${last.interval}`;
+    if (last.vol != null) sub += ` · ${(last.vol*4).toFixed(1)} MW`;
     try {
       const botRow = (window._lastVdtRows||[]).find(x => x.kontrakt?.type==='QH' && String(last.interval).startsWith(x.kontrakt.from));
       if (botRow && botRow.vwap!=null) {
