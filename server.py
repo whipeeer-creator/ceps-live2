@@ -4143,7 +4143,7 @@ class Handler(BaseHTTPRequestHandler):
                     out["_cache"] = "hit"
                     self._json(out); return
             
-            # 3 URL varianty - bez /view, s /view, .xls
+            # URL varianty (puvodni funkcni tvar, bez pubweb)
             urls = [
                 f"https://www.ote-cr.cz/attachments/27/{day_dt.year}/"
                 f"month{day_dt.month:02d}/day{day_dt.day:02d}/"
@@ -4172,138 +4172,41 @@ class Handler(BaseHTTPRequestHandler):
                 self._VDT_CACHE[date_str] = (now_ts, out)
                 self._json(out); return
             
-            # Parse XLSX - _xlsx_iter_rows vraci list stringu per row (pozice = sloupec)
-            # Sbiram vsechny radky a hledam:
-            #  - header row: obsahuje "Posledni" nebo "Last" - urci sloupec ceny
-            #  - interval col: obsahuje "Interval" nebo "Cas"
-            points = []
-            all_rows = []
-            header_row_idx = None
-            last_col_idx = None
-            interval_col_idx = None
-            vwap_col_idx = None  # vážený průměr
-            
-            for row_idx, cells in enumerate(_xlsx_iter_rows(xlsx_bytes)):
-                if not isinstance(cells, list):
-                    cells = list(cells)
-                all_rows.append(cells)
-                
-                if header_row_idx is None:
-                    for ci, val in enumerate(cells):
-                        if isinstance(val, str):
-                            vlow = val.lower()
-                            if "posled" in vlow or "last" in vlow:
-                                last_col_idx = ci
-                                header_row_idx = row_idx
-                            # Vážený průměr - různé varianty
-                            if "vážený" in vlow or "vazeny" in vlow or "vwap" in vlow or "weighted" in vlow:
-                                vwap_col_idx = ci
-                                if header_row_idx is None:
-                                    header_row_idx = row_idx
-                            # Někdy je to "průměrná cena"
-                            if "průměrn" in vlow or "prumern" in vlow or "average" in vlow:
-                                if vwap_col_idx is None:
-                                    vwap_col_idx = ci
-                                    if header_row_idx is None:
-                                        header_row_idx = row_idx
-                    if header_row_idx == row_idx:
-                        for ci, val in enumerate(cells):
-                            if isinstance(val, str):
-                                vlow = val.lower()
-                                if "interval" in vlow or "čas" in vlow or "cas" in vlow:
-                                    interval_col_idx = ci
-                                    break
-                        # Debug log
-                        print(f"  -> VDT {date_str}: header found row {row_idx}, last_col={last_col_idx}, vwap_col={vwap_col_idx}, interval_col={interval_col_idx}", flush=True)
-                        print(f"     headers: {[c for c in cells if isinstance(c, str) and c.strip()]}", flush=True)
-                    continue
-                
-                # Data row - vytahni interval a vwap (preferred) nebo last
-                price_col_idx = vwap_col_idx if vwap_col_idx is not None else last_col_idx
-                if price_col_idx is not None and price_col_idx < len(cells):
-                    interval = None
-                    if interval_col_idx is not None and interval_col_idx < len(cells):
-                        interval = cells[interval_col_idx]
-                    if not interval:
-                        for ci in range(min(3, len(cells))):
-                            v = cells[ci]
-                            if isinstance(v, str) and ":" in v:
-                                interval = v; break
-                    
-                    price_val = cells[price_col_idx]
-                    
-                    if isinstance(interval, str) and ":" in interval and price_val:
-                        try:
-                            time_part = interval.split("-")[0].strip() if "-" in interval else interval.strip()
-                            parts = time_part.split(":")
-                            if len(parts) < 2: continue
-                            hh = int(parts[0]); mm = int(parts[1])
-                            if hh > 23 or mm > 59: continue
-                            ts = day_dt.replace(hour=hh, minute=mm)
-                            price = float(str(price_val).replace(",", "."))
-                            points.append({
-                                "ts": ts.strftime("%Y-%m-%dT%H:%MZ"),
-                                "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%S"),
-                                "last": price,
-                                "price_type": "vwap" if vwap_col_idx is not None else "last"
-                            })
-                        except (ValueError, IndexError):
-                            pass
-            
-            # Heuristic fallback - pokud header parser nic nenasel
-            if not points and all_rows:
-                # DEBUG: vypsat strukturu prvnich 10 NEPRAZDNYCH radku
-                print(f"  -> VDT {date_str}: header parsing FAILED, debug rows:", flush=True)
-                non_empty = [r for r in all_rows if any(c for c in r)]
-                for i, row in enumerate(non_empty[:10]):
-                    print(f"     row {i}: {row[:15]}", flush=True)
-                
-                for cells in all_rows:
-                    if not cells: continue
-                    # Najdi cas v jakemkoli sloupci
-                    interval = None
-                    time_idx = None
-                    for ci, v in enumerate(cells):
-                        if isinstance(v, str) and ":" in v:
-                            interval = v; time_idx = ci; break
-                    if not interval: continue
-                    
-                    # Vsechny numericke v rowu (krome casu)
-                    numerics = []
-                    for ci, v in enumerate(cells):
-                        if ci == time_idx: continue
-                        try:
-                            f = float(str(v).replace(",", "."))
-                            if f != 0 or not isinstance(v, str) or v.strip() in ("0", "0.0"):
-                                numerics.append((ci, f))
-                        except (ValueError, TypeError):
-                            continue
-                    if not numerics: continue
-                    
-                    try:
-                        time_part = interval.split("-")[0].strip() if "-" in interval else interval.strip()
-                        parts = time_part.split(":")
-                        if len(parts) < 2: continue
-                        hh = int(parts[0]); mm = int(parts[1])
-                        if hh > 23 or mm > 59: continue
-                        ts = day_dt.replace(hour=hh, minute=mm)
-                        # Nejpravejsi numericky = "Posledni cena" typicky
-                        numerics.sort(key=lambda x: x[0])
-                        price = float(numerics[-1][1])
-                        points.append({
-                            "ts": ts.strftime("%Y-%m-%dT%H:%MZ"),
-                            "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%S"),
-                            "last": price,
-                        })
-                    except (ValueError, IndexError):
+            # Parse XLSX - PEVNE pozice (overeno na realnem OTE souboru):
+            #   sheet "Vysledky VDT", hlavicka radek 6, data od radku 7
+            #   sl.1 = Casovy interval (napr "00:00-00:15")
+            #   sl.2 = Zobchodovane mnozstvi (MWh)
+            #   sl.5 = Vazeny prumer cen (EUR/MWh) = VWAP
+            rows_out = []
+            try:
+                import openpyxl, io as _io
+                wb = openpyxl.load_workbook(_io.BytesIO(xlsx_bytes), data_only=True, read_only=True)
+                ws = wb[wb.sheetnames[0]]
+                for r in ws.iter_rows(min_row=7, values_only=True):
+                    if not r or len(r) < 6:
                         continue
-                
-                if points:
-                    print(f"  -> VDT {date_str}: heuristic FOUND {len(points)} points", flush=True)
-            
-            out = {"date": date_str, "data": points, "_cache": "miss"}
-            self._VDT_CACHE[date_str] = (now_ts, out)
-            print(f"  -> VDT {date_str}: {len(points)} bodu", flush=True)
+                    interval = r[1]
+                    if not isinstance(interval, str) or ":" not in interval or "-" not in interval:
+                        continue
+                    try:
+                        vwap = float(str(r[5]).replace(",", "."))
+                    except (ValueError, TypeError):
+                        continue
+                    try:
+                        vol = float(str(r[2]).replace(",", "."))
+                    except (ValueError, TypeError):
+                        vol = None
+                    rows_out.append({"interval": interval.strip(), "vwap": vwap, "vol": vol})
+                try: wb.close()
+                except Exception: pass
+            except Exception as _pe:
+                print(f"  -> VDT {date_str} parse error: {_pe}", flush=True)
+
+            out = {"date": date_str, "rows": rows_out, "count": len(rows_out), "_cache": "miss"}
+            # neukladej prazdne do cache
+            if rows_out:
+                self._VDT_CACHE[date_str] = (now_ts, out)
+            print(f"  -> VDT {date_str}: {len(rows_out)} QH", flush=True)
             self._json(out)
         except Exception as e:
             import traceback
