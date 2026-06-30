@@ -2267,9 +2267,18 @@ async function loadFreq() {
     const last = d.rows[d.rows.length-1];
     const num = c => { const v = parseFloat(last[c]); return isNaN(v) ? 0 : v; };
     const aFRR = num('aFRR [EUR/MWh]');
-    const mFRRp = num('mFRR+ [EUR/MWh]');
-    const mFRRm = num('mFRR- [EUR/MWh]');
-    const mFRR5 = num('mFRR5 [EUR/MWh]');
+    // mFRR: vezmi posledni NENULOVOU hodnotu z poslednich ~15 radku (mFRR jen obcas naskoci)
+    const lastNonZero = (col) => {
+      const start = Math.max(0, d.rows.length - 15);
+      for (let i = d.rows.length - 1; i >= start; i--) {
+        const v = parseFloat(d.rows[i][col]);
+        if (!isNaN(v) && v !== 0) return v;
+      }
+      return 0;
+    };
+    const mFRRp = lastNonZero('mFRR+ [EUR/MWh]');
+    const mFRRm = lastNonZero('mFRR- [EUR/MWh]');
+    const mFRR5 = lastNonZero('mFRR5 [EUR/MWh]');
 
     const dv = document.getElementById('dv-F');
     const ds = document.getElementById('ds-F');
@@ -3904,27 +3913,39 @@ async function loadOteVwapKpi() {
   const dv = document.getElementById('dv-VWAP-OTE');
   const ds = document.getElementById('ds-VWAP-OTE');
   if (!dv || !API_URL) return;
+  const pad = n => String(n).padStart(2,'0');
+  const dstr = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  // OTE oficialni VDT XLSX se publikuje az po uzavreni dne. Zkus dnesek;
+  // kdyz jeste neni (404/prazdne), spadni na vcerejsek (a predevcirem).
+  const today = new Date();
+  const yest = new Date(today); yest.setDate(yest.getDate()-1);
+  const ereyest = new Date(today); ereyest.setDate(ereyest.getDate()-2);
+  const candidates = [dstr(today), dstr(yest), dstr(ereyest)];
   try {
-    const now = new Date();
-    const pad = n => String(n).padStart(2,'0');
-    const today = `${now.getFullYear()}-${pad(now.getMonth()+1)}-${pad(now.getDate())}`;
-    const r = await fetch(`${API_URL}/ote/vdt-official?date=${today}`, { cache:'no-store' });
-    const j = await r.json();
-    const rows = (j && j.rows) || [];
+    let rows = [], usedDate = null;
+    for (const dt of candidates) {
+      try {
+        const r = await fetch(`${API_URL}/ote/vdt-official?date=${dt}`, { cache:'no-store' });
+        if (!r.ok) continue;
+        const j = await r.json();
+        const rr = (j && j.rows) || (j && j.data) || [];
+        if (rr.length) { rows = rr; usedDate = dt; break; }
+      } catch(_) { continue; }
+    }
     if (!rows.length) {
       dv.innerHTML = `—<span class="kpi-u">EUR/MWh</span>`;
-      ds.textContent = j._error ? ('chyba: '+j._error) : 'zatím žádná uzavřená QH';
+      ds.textContent = 'OTE zatím nepublikoval';
       return;
     }
-    // posledni uzavrena QH = posledni radek s vwap
+    // posledni QH s vwap
     const last = rows[rows.length-1];
-    dv.innerHTML = `${Number(last.vwap).toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
-    let sub = `QH ${last.interval} · vol ${last.vol!=null?last.vol.toFixed(1):'?'} MWh`;
-    // srovnani s botem pro stejnou QH, pokud ji mam
+    const vwapVal = last.vwap != null ? last.vwap : last.price;
+    dv.innerHTML = `${Number(vwapVal).toFixed(1)}<span class="kpi-u">EUR/MWh</span>`;
+    let sub = `${usedDate===dstr(today)?'dnes':usedDate} QH ${last.interval}`;
     try {
-      const botRow = (window._lastVdtRows||[]).find(x => x.kontrakt?.type==='QH' && last.interval.startsWith(x.kontrakt.from));
+      const botRow = (window._lastVdtRows||[]).find(x => x.kontrakt?.type==='QH' && String(last.interval).startsWith(x.kontrakt.from));
       if (botRow && botRow.vwap!=null) {
-        const diff = Number(botRow.vwap) - Number(last.vwap);
+        const diff = Number(botRow.vwap) - Number(vwapVal);
         sub += ` · bot ${Number(botRow.vwap).toFixed(1)} (${diff>=0?'+':''}${diff.toFixed(1)})`;
       }
     } catch(_) {}
