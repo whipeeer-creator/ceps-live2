@@ -634,12 +634,14 @@ class Handler(BaseHTTPRequestHandler):
             ts = datetime.now().strftime("%Y%m%d-%H%M%S")
             safe_source = "".join(c for c in source if c.isalnum() or c in "._-")[:50]
             
-            # Memory store (last 100 messages per source)
+            # Memory store - klicovano podle source+type, aby se velke trades
+            # nemichaly s orderbookem (a nevytlacily ho z pameti).
             if "_INGEST_STORE" not in globals():
                 globals()["_INGEST_STORE"] = {}
             store = globals()["_INGEST_STORE"]
-            if safe_source not in store:
-                store[safe_source] = []
+            skey = f"{safe_source}::{data_type}" if data_type else safe_source
+            if skey not in store:
+                store[skey] = []
             
             record = {
                 "ts": ts,
@@ -649,9 +651,11 @@ class Handler(BaseHTTPRequestHandler):
                 "size": len(body),
                 "data": parsed_data if parsed_data is not None else (raw_text[:1000] if raw_text else "<binary>"),
             }
-            store[safe_source].append(record)
-            if len(store[safe_source]) > 100:
-                store[safe_source] = store[safe_source][-100:]  # keep last 100
+            store[skey].append(record)
+            # Drz jen MALO zaznamu - velke zdroje (trades 5MB) by pretekly RAM (512MB) -> 503/OOM.
+            _keep = 2 if data_type == "vdt_trades" else 10
+            if len(store[skey]) > _keep:
+                store[skey] = store[skey][-_keep:]
             
             # Zapis na disk VYPNUT - data jsou jen v pameti (store), dashboard cte odtud.
             # Duvod: ingest kazdou 0.5s zaplnoval /tmp (~1.3GB/h) a server padal (503).
@@ -730,21 +734,29 @@ class Handler(BaseHTTPRequestHandler):
             data_type = qs.get("type", [None])[0]
             limit = int(qs.get("limit", ["10"])[0])
             store = globals().get("_INGEST_STORE", {})
-            if source and source in store:
-                records = store[source]
+            # Klice jsou "source::type" (nebo jen "source"). Posbiraj zaznamy
+            # ze vsech klicu co patri tomuto source.
+            records = []
+            if source:
+                for skey, recs in store.items():
+                    base = skey.split("::", 1)[0]
+                    if base == source:
+                        records.extend(recs)
+            if records:
                 if data_type:
-                    records = [r for r in records if r["type"] == data_type]
+                    records = [r for r in records if r.get("type") == data_type]
+                records = sorted(records, key=lambda r: r.get("ts", ""))
                 self._json({"source": source, "records": records[-limit:]})
             else:
-                self._json({"error": "source not found", "available": list(store.keys())}, 404)
+                avail = sorted(set(k.split("::",1)[0] for k in store.keys()))
+                self._json({"error": "source not found", "available": avail}, 404)
             return
         
         # VDT orderbook - merged snapshot s cache
         if parsed.path == "/vdt/orderbook":
             store = globals().get("_INGEST_STORE", {})
             cache = globals().get("_VDT_OB_CACHE", {})
-            records = store.get("ote-com-bridge", [])
-            records = [r for r in records if r.get("type") == "vdt_orderbook"]
+            records = store.get("ote-com-bridge::vdt_orderbook", [])
             
             # Cache key = počet records + last ts
             latest_ts = records[-1].get("ts") if records else None
