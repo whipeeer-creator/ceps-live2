@@ -8,7 +8,7 @@ POZADAVKY (requirements.txt):
     (zadne extra knihovny - pouziva jen Python stdlib)
 """
 from http.server import HTTPServer, ThreadingHTTPServer, BaseHTTPRequestHandler
-import json, requests, xml.etree.ElementTree as ET, os, time, io, threading, re
+import json, requests, xml.etree.ElementTree as ET, os, time, io, threading
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime, timedelta, timezone
 # Pouzivame vlastni rychly XLSX streamer pres zipfile + iterparse
@@ -667,6 +667,18 @@ class Handler(BaseHTTPRequestHandler):
                     with open(fpath, "wb") as f:
                         f.write(body)
                 print(f"[INGEST] saved {len(body)} bytes from '{safe_source}' to {fpath}", flush=True)
+
+                # UKLID: smaz stare ingest soubory tohoto zdroje+typu, nech jen poslednich 5.
+                # Bez tohoto se /tmp zaplni (ingest kazdou 0.5s = ~1.3GB/h) a server spadne (503).
+                try:
+                    import glob as _glob
+                    prefix = f"/tmp/ingest_*_{safe_source}_{data_type}{file_ext}"
+                    files = sorted(_glob.glob(prefix))
+                    for old in files[:-5]:        # vsechny krome poslednich 5
+                        try: os.remove(old)
+                        except Exception: pass
+                except Exception as _ce:
+                    print(f"[INGEST] cleanup error: {_ce}", flush=True)
             except Exception as e:
                 print(f"[INGEST] file save error: {e}", flush=True)
             
@@ -1127,10 +1139,6 @@ class Handler(BaseHTTPRequestHandler):
         # ČEPS TXT download (reálná data) - pro ema.html backtest
         if parsed.path == "/ceps_txt":
             self._ceps_txt(qs); return
-        
-        # OTE oficialni VWAP (z XLSX VDT_15MIN) - pro porovnani s botem
-        if parsed.path == "/ote/vdt-official":
-            self._ote_vdt_official(qs); return
         
         # Staticke HTML soubory (hruska.html, kapacity.html, live_odchylky.html)
         if parsed.path in ("/hruska.html", "/kapacity.html", "/live_odchylky.html", "/ema.html", "/odhad.html", "/eisi.html", "/ceny.html", "/fanda.html", "/api_test.html", "/spread.html", "/regulace-vdt.html"):
@@ -4354,180 +4362,88 @@ class Handler(BaseHTTPRequestHandler):
             print(f"  -> /ote/vdt/range ERROR: {e}\n{traceback.format_exc()}", flush=True)
             self._json({"error": str(e), "data": []}, 502)
 
-    def _ote_vdt_official(self, qs):
-        """
-        Oficialni OTE VWAP z XLSX VDT_15MIN_<DD_MM_YYYY>_CZ.xlsx.
-        List "Výsledky VDT", data od radku 7. Sloupce:
-          0 Casovy interval | 1 Zobchodovane mnozstvi | 2 nakup | 3 prodej |
-          4 Vazeny prumer cen (VWAP) | 5 Min | 6 Max | 7 Posledni
-        Vraci {rows:[{interval, vwap, vol}], ...} - jen uzavrene QH.
-        """
-        date_str = qs.get("date", [None])[0]
-        if not date_str:
-            from datetime import datetime as _dt
-            date_str = _dt.now().strftime("%Y-%m-%d")
-        try:
-            from datetime import datetime as _dt
-            d = _dt.strptime(date_str, "%Y-%m-%d")
-            fname = f"VDT_15MIN_{d.day:02d}_{d.month:02d}_{d.year}_CZ.xlsx"
-            dl = (f"https://www.ote-cr.cz/pubweb/attachments/27/{d.year}/"
-                  f"month{d.month:02d}/day{d.day:02d}/{fname}")
-
-            # cache (dnesek 60s, historie 1h)
-            if not hasattr(self.__class__, '_otevdt_cache'):
-                self.__class__._otevdt_cache = {}
-            cache = self.__class__._otevdt_cache
-            now_ts = time.time()
-            is_today = date_str == _dt.now().strftime("%Y-%m-%d")
-            ttl = 60 if is_today else 3600
-            nocache = qs.get("nocache", ["0"])[0] in ("1", "true")
-            debug = qs.get("debug", ["0"])[0] in ("1", "true")
-            if date_str in cache and not nocache and not debug:
-                ts, cached = cache[date_str]
-                if now_ts - ts < ttl:
-                    self._json(cached); return
-
-            r0 = requests.get(dl, timeout=25, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "*/*",
-                "Referer": "https://www.ote-cr.cz/cs/kratkodobe-trhy/elektrina/vnitrodenni-trh",
-            })
-            if r0.status_code != 200:
-                self._json({"error": f"OTE HTTP {r0.status_code}", "url": dl, "rows": []}, 502); return
-            raw = r0.content
-
-            # precti list "Výsledky VDT" pomoci openpyxl (maly soubor)
-            from openpyxl import load_workbook
-            wb = load_workbook(io.BytesIO(raw), data_only=True, read_only=True)
-
-            if qs.get("debug", ["0"])[0] in ("1","true"):
-                dbg = {"sheets": wb.sheetnames, "bytes": len(raw)}
-                # ukaz prvnich 12 radku z kazdeho listu co ma "VDT"
-                for nm in wb.sheetnames:
-                    wsx = wb[nm]
-                    sample = []
-                    for i, rr in enumerate(wsx.iter_rows(min_row=1, max_row=12, values_only=True)):
-                        sample.append([str(c)[:18] if c is not None else None for c in rr[:8]])
-                    dbg[nm] = sample
-                self._json(dbg); return
-
-            ws = None
-            for name in wb.sheetnames:
-                if "sledky VDT" in name and "celkem" not in name.lower():
-                    ws = wb[name]; break
-            if ws is None:
-                ws = wb[wb.sheetnames[0]]
-
-            rows = []
-            for r in ws.iter_rows(min_row=7, values_only=True):
-                if not r or len(r) < 6 or r[1] is None:
-                    continue
-                interval = str(r[1]).strip()              # sl.1 = Casovy interval
-                if not re.match(r"^\d{1,2}:\d{2}", interval):
-                    continue
-                try:
-                    vol  = float(r[2]) if r[2] not in (None, "") else None   # sl.2 = Zobchodovane mnozstvi
-                    vwap = float(r[5]) if r[5] not in (None, "") else None   # sl.5 = Vazeny prumer cen
-                except (ValueError, TypeError):
-                    continue
-                if vwap is None:
-                    continue
-                rows.append({"interval": interval, "vwap": vwap, "vol": vol})
-
-            result = {"date": date_str, "source": fname, "rows": rows, "count": len(rows)}
-            if rows:  # neukladat prazdny vysledek do cache
-                cache[date_str] = (now_ts, result)
-            print(f"  -> /ote/vdt-official {date_str}: {len(rows)} QH", flush=True)
-            self._json(result)
-        except Exception as e:
-            import traceback
-            print(f"  -> /ote/vdt-official ERROR: {e}\n{traceback.format_exc()}", flush=True)
-            self._json({"error": str(e), "rows": []}, 502)
-
     def _ceps_txt(self, qs):
         """
-        ČEPS Odhadovaná cena odchylky přes SOAP API (call_ceps).
-        Dřív stahoval TXT z ceps.cz/download-data ale ta URL vrací 404.
-        Teď používá funkční SOAP endpoint stejně jako /api.
-        Returns JSON: {columns, rows:[{Estimated price [Kč/MWh], Date, Interval}], ...}
+        Download ČEPS TXT file with REAL settled prices (not API estimate).
+        Format: https://www.ceps.cz/download-data/?...
+        Returns JSON kompatibilní s /api?method=OdhadovanaCenaOdchylky:
+          {columns: ["Estimated price [Kč/MWh]", "Date", "Interval"], 
+           rows: [{Estimated...: "4216.16", Date: "29.05.2026", Interval: "00:00-00:15"}, ...]}
         """
+        import urllib.parse
         date_str = qs.get("date", [None])[0]
         if not date_str:
             self._json({"error": "missing date param"}, 400); return
-
+        
         try:
+            # Parse date YYYY-MM-DD → DD.MM.YYYY format expected by ČEPS
             from datetime import datetime as _dt
             d = _dt.strptime(date_str, "%Y-%m-%d")
             df_iso = f"{date_str}T00:00:00"
             dt_iso = f"{date_str}T23:59:59"
-
-            # CACHE (historicka data 10 min, dnesek 1 min)
-            if not hasattr(self.__class__, '_cepstxt_cache'):
-                self.__class__._cepstxt_cache = {}
-            cache = self.__class__._cepstxt_cache
-            now_ts = time.time()
-            is_today = date_str == _dt.now().strftime("%Y-%m-%d")
-            ttl = 60 if is_today else 600
-            _debug = qs.get("debug", ["0"])[0] in ("1", "true")
-            _nocache = qs.get("nocache", ["0"])[0] in ("1", "true")
-            if date_str in cache and not _debug and not _nocache:
-                ts, cached = cache[date_str]
-                if now_ts - ts < ttl:
-                    print(f"  -> /ceps_txt {date_str}: CACHED", flush=True)
-                    self._json(cached); return
-
+            
+            # ČEPS TXT download URL (z reverse-engineered z ceps.cz/cs/data)
             params = {
-                "dateFrom": df_iso,
-                "dateTo": dt_iso,
+                "method": "OdhadovanaCenaOdchylky",
+                "format": "TXT",
+                "version": "RT",  # real-time = reálná data
                 "agregation": "QH",
                 "function": "AVG",
+                "dateFrom": df_iso,
+                "dateTo": dt_iso,
             }
-            xml_text, status = call_ceps("OdhadovanaCenaOdchylky", params)
-            if status != 200:
-                if date_str in cache:
-                    self._json(cache[date_str][1]); return
-                self._json({"error": f"CEPS SOAP HTTP {status}", "rows": []}, 502); return
-
-            parsed = parse_ceps(xml_text)  # {columns, rows:[{Date, Interval, Estimated price...}]}
-
-            # DEBUG: &debug=1 vrati surovy SOAP + parsed strukturu
-            if _debug:
-                self._json({
-                    "raw_xml_first3000": xml_text[:3000],
-                    "parsed_columns": parsed.get("columns"),
-                    "parsed_rows_count": len(parsed.get("rows", [])),
-                    "parsed_rows_first3": parsed.get("rows", [])[:3],
-                    "status": status,
-                }); return
-
+            url = "https://www.ceps.cz/download-data/?" + urllib.parse.urlencode(params)
+            
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "text/plain,*/*;q=0.8",
+                "Referer": "https://www.ceps.cz/cs/data",
+            })
+            with urllib.request.urlopen(req, timeout=20) as r:
+                raw = r.read()
+            
+            # Auto-detect encoding (ČEPS používá utf-8 nebo cp1250)
+            text = None
+            for enc in ("utf-8", "cp1250", "iso-8859-2"):
+                try:
+                    text = raw.decode(enc)
+                    break
+                except UnicodeDecodeError:
+                    continue
+            if text is None:
+                text = raw.decode("utf-8", errors="replace")
+            
+            # Parse TXT formát:
+            #   Verze dat;Od;Do;Agregační funkce;Agregace;
+            #   reálná data;...
+            #   Datum;;Odhadovaná cena [Kč/MWh];
+            #   29.05.2026;00:00-00:15;4216.16;
+            lines = [l.strip() for l in text.split("\n") if l.strip()]
             rows = []
-            for r in parsed.get("rows", []):
-                interval = r.get("Interval") or ""
-                # Interval musí být HH:MM-HH:MM
-                if not re.match(r"^\d{2}:\d{2}-\d{2}:\d{2}$", interval):
+            for line in lines:
+                parts = [p.strip() for p in line.rstrip(";").split(";")]
+                # Datový řádek má 3 části: datum, interval, cena
+                if len(parts) != 3: continue
+                date_part, interval, price = parts
+                # Datum musí být DD.MM.YYYY
+                if not (len(date_part) == 10 and date_part[2] == '.' and date_part[5] == '.'):
                     continue
-                price = r.get("Estimated price [Kč/MWh]")
-                if price is None or price == "":
+                # Interval HH:MM-HH:MM
+                if not (len(interval) == 11 and interval[5] == '-'):
                     continue
-                # Datum z value13 (Date sloupec) → DD.MM.YYYY
-                raw_date = r.get("Date") or ""
-                dm = re.search(r"(\d{4})-(\d{2})-(\d{2})", raw_date)
-                date_part = f"{dm.group(3)}.{dm.group(2)}.{dm.group(1)}" if dm else date_str
                 rows.append({
-                    "Estimated price [Kč/MWh]": str(price),
+                    "Estimated price [Kč/MWh]": price,  # string, jako z API
                     "Date": date_part,
                     "Interval": interval,
                 })
-
-            result = {
+            
+            print(f"  -> /ceps_txt {date_str}: {len(rows)} QH", flush=True)
+            self._json({
                 "columns": ["Estimated price [Kč/MWh]", "Date", "Interval"],
                 "rows": rows,
-                "source": "ceps SOAP OdhadovanaCenaOdchylky",
+                "source": "ceps.cz TXT (real data)",
                 "date": date_str,
-            }
-            cache[date_str] = (now_ts, result)
-            print(f"  -> /ceps_txt {date_str}: {len(rows)} QH (SOAP)", flush=True)
-            self._json(result)
+            })
         except Exception as e:
             import traceback
             print(f"  -> /ceps_txt ERROR: {e}\n{traceback.format_exc()}", flush=True)
