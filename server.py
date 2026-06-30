@@ -1120,6 +1120,10 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/ote/vdt":
             self._ote_vdt(qs); return
         
+        # Alias - frontend (hory.html OTE VWAP KPI) vola /ote/vdt-official
+        if parsed.path == "/ote/vdt-official":
+            self._ote_vdt(qs); return
+        
         # OTE VDT range - VDT data za poslednich N dni (pro hruska.html)
         if parsed.path == "/ote/vdt/range":
             self._ote_vdt_range(qs); return
