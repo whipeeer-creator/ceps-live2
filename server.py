@@ -653,34 +653,10 @@ class Handler(BaseHTTPRequestHandler):
             if len(store[safe_source]) > 100:
                 store[safe_source] = store[safe_source][-100:]  # keep last 100
             
-            # File save (optional - /tmp survives only restart)
-            try:
-                file_ext = ".json" if parsed_data else (".csv" if raw_text else ".bin")
-                fpath = f"/tmp/ingest_{ts}_{safe_source}_{data_type}{file_ext}"
-                if parsed_data is not None:
-                    with open(fpath, "w") as f:
-                        json.dump(parsed_data, f, ensure_ascii=False, indent=2)
-                elif raw_text is not None:
-                    with open(fpath, "w") as f:
-                        f.write(raw_text)
-                else:
-                    with open(fpath, "wb") as f:
-                        f.write(body)
-                print(f"[INGEST] saved {len(body)} bytes from '{safe_source}' to {fpath}", flush=True)
-
-                # UKLID: smaz stare ingest soubory tohoto zdroje+typu, nech jen poslednich 5.
-                # Bez tohoto se /tmp zaplni (ingest kazdou 0.5s = ~1.3GB/h) a server spadne (503).
-                try:
-                    import glob as _glob
-                    prefix = f"/tmp/ingest_*_{safe_source}_{data_type}{file_ext}"
-                    files = sorted(_glob.glob(prefix))
-                    for old in files[:-5]:        # vsechny krome poslednich 5
-                        try: os.remove(old)
-                        except Exception: pass
-                except Exception as _ce:
-                    print(f"[INGEST] cleanup error: {_ce}", flush=True)
-            except Exception as e:
-                print(f"[INGEST] file save error: {e}", flush=True)
+            # Zapis na disk VYPNUT - data jsou jen v pameti (store), dashboard cte odtud.
+            # Duvod: ingest kazdou 0.5s zaplnoval /tmp (~1.3GB/h) a server padal (503).
+            # Soubory nikdo necetl, takze je proste neukladame.
+            pass
             
             # Optional webhook forward (Discord/Slack)
             webhook_url = os.environ.get("INGEST_WEBHOOK", "")
@@ -4604,6 +4580,19 @@ window.addEventListener('DOMContentLoaded', () => {
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8765))
     public_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
+
+    # Vycisti stare ingest soubory z /tmp pri startu (uvolni misto po starsi verzi
+    # ktera je ukladala kazdou 0.5s a zaplnila disk -> 503).
+    try:
+        import glob as _glob
+        _old = _glob.glob("/tmp/ingest_*")
+        for _f in _old:
+            try: os.remove(_f)
+            except Exception: pass
+        if _old:
+            print(f"[startup] smazano {len(_old)} starych /tmp/ingest souboru", flush=True)
+    except Exception as _e:
+        print(f"[startup] tmp cleanup fail: {_e}", flush=True)
 
     # Warmup: stahni dnesni Regelleistung data hned po startu
     def _warmup_regelleistung():
