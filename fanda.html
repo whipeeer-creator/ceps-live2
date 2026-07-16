@@ -228,25 +228,26 @@ async function loadData() {
 // (napr. "+02:00" nebo "Z"), pouzije se primo - konvertuje se jen bezzonovy format.
 function localHM(s, withDate) {
   const str = String(s).trim();
-  // Uz ma explicitni zonu (+HH:MM, -HH:MM, nebo Z na konci) -> Date ji respektuje primo.
-  const hasZone = /[zZ]$/.test(str) || /[+-]\d{2}:?\d{2}$/.test(str);
-  const iso = hasZone ? str.replace(' ', 'T') : str.replace(' ', 'T') + 'Z';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) {
+  // Fanda posila casy s FIXNIM offsetem -4h oproti tomu, co ma byt zobrazeno
+  // (napr. 22:00 od Fandy = 02:00 zobrazeno). Neni to UTC->CEST (+2h, meni se
+  // s letnim/zimnim casem) - je to pevny posun +4h vzdy, bez ohledu na DST.
+  const m = str.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  if (!m) {
     // Fallback - nepodarilo se parsovat jako datum, aspon vytahni HH:MM ze stringu
-    const m = str.match(/(\d{1,2}):(\d{2})/);
-    return m ? `${String(m[1]).padStart(2,'0')}:${m[2]}` : str;
+    const mm2 = str.match(/(\d{1,2}):(\d{2})/);
+    return mm2 ? `${String(mm2[1]).padStart(2,'0')}:${mm2[2]}` : str;
   }
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Prague', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
-  }).formatToParts(d);
-  const hh = parts.find(p => p.type === 'hour').value;
-  const mm = parts.find(p => p.type === 'minute').value;
-  if (!withDate) return `${hh}:${mm}`;
-  const dd = parts.find(p => p.type === 'day').value;
-  const mo = parts.find(p => p.type === 'month').value;
+  const [, y, mo, d, hh, mi] = m;
+  // Pocitej v UTC ms, at se spravne preklopi pres pulnoc/mesic/rok, pak pridej 4h.
+  const baseMs = Date.UTC(parseInt(y), parseInt(mo) - 1, parseInt(d), parseInt(hh), parseInt(mi));
+  const shifted = new Date(baseMs + 4 * 3600 * 1000);
+  const hhOut = String(shifted.getUTCHours()).padStart(2, '0');
+  const mmOut = String(shifted.getUTCMinutes()).padStart(2, '0');
+  if (!withDate) return `${hhOut}:${mmOut}`;
+  const ddOut = shifted.getUTCDate();
+  const moOut = shifted.getUTCMonth() + 1;
   // "D.M HH:MM" - kratsi tvar, den bez vedouci nuly (17.7 misto 17.07)
-  return `${parseInt(dd)}.${parseInt(mo)} ${hh}:${mm}`;
+  return `${ddOut}.${moOut} ${hhOut}:${mmOut}`;
 }
 
 // Zjisti, jestli dany seznam UTC timestampu po prevodu na mistni cas spada do VICE
@@ -257,11 +258,12 @@ function spansMultipleDays(tsList) {
   const days = new Set();
   for (const ts of tsList) {
     const str = String(ts).trim();
-    const hasZone = /[zZ]$/.test(str) || /[+-]\d{2}:?\d{2}$/.test(str);
-    const iso = hasZone ? str.replace(' ', 'T') : str.replace(' ', 'T') + 'Z';
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) continue;
-    const dstr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague' }).format(d);
+    const m = str.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    if (!m) continue;
+    const [, y, mo, d, hh, mi] = m;
+    const baseMs = Date.UTC(parseInt(y), parseInt(mo) - 1, parseInt(d), parseInt(hh), parseInt(mi));
+    const shifted = new Date(baseMs + 4 * 3600 * 1000);
+    const dstr = `${shifted.getUTCFullYear()}-${shifted.getUTCMonth()}-${shifted.getUTCDate()}`;
     days.add(dstr);
     if (days.size > 1) return true;
   }
