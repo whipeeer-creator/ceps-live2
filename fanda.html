@@ -415,12 +415,17 @@ function renderDataTable(lastRec, allRecords) {
     </svg>`;
   }
   
-  // Format hour label -> H1..H24 (H1 = 00-01, H2 = 01-02, ...)
+  // Format hour/QH label. Cele hodiny (min=00) -> H1..H24. Ctvrthodiny (min=15/30/45)
+  // -> zachovej cas "HH:MM", jinak by se 4 QH ve stejne hodine slily do jednoho H-labelu.
   function fmtHour(h) {
     const s = String(h);
-    // Formát "HH:MM" -> hodina + 1
     const mHM = s.match(/^(\d{1,2}):(\d{2})$/);
-    if (mHM) return `H${parseInt(mHM[1]) + 1}`;
+    if (mHM) {
+      const hh = parseInt(mHM[1]);
+      const mm = mHM[2];
+      if (mm === '00') return `H${hh + 1}`;
+      return `${String(hh).padStart(2,'0')}:${mm}`;
+    }
     // Číslo 1-24 (už 1-indexované)
     const num = parseInt(s.replace(/[^\d]/g, ''));
     if (isFinite(num) && num >= 1 && num <= 24) return `H${num}`;
@@ -484,33 +489,48 @@ function renderDataTable(lastRec, allRecords) {
     <span style="color:#999;">${formatHint} · ${allRecords.length} verzí historie</span>
   </div>`;
   
-  // TRANSPONOVANÁ TABULKA: řádky = hodiny, sloupce = země (in/out)
+  // TRANSPONOVANÁ TABULKA: řádky = časové úseky (hodiny NEBO QH), sloupce = klíče (země/price)
   const IGNORE_COLS = new Set(['intervals','interval','intervaly','date','ts','timestamp','time','datum','cas','updated','updated_at','update','updateat','last_update','lastupdate','modified']);
   const dataHourCols = colsArr.filter(c => c !== 'key' && !IGNORE_COLS.has(String(c).toLowerCase().trim()));
   const countryKeys = rows.map(r => r.key).filter(k => k != null);
 
-  // Pevný seznam 24 hodin H1..H24 (H1 = 00:00). Pro každou najdi odpovídající datový sloupec.
-  // Datové labely jsou typicky "HH:00" nebo číslo 1-24 -> zmapuj na hodinu 0-23.
-  function colToHour(c){
+  // Detekuj granularitu z datovych sloupcu: pokud najdeme minuty 15/30/45, je to QH (96/den),
+  // jinak hodinova data (24/den). Bez tohohle by 4 QH ve stejne hodine kolidovaly do 1 radku.
+  let isQH = false;
+  for (const c of dataHourCols) {
+    const m = String(c).match(/^(\d{1,2}):(\d{2})$/);
+    if (m && m[2] !== '00') { isQH = true; break; }
+  }
+
+  function colToSlot(c){
     const s = String(c);
     const mHM = s.match(/^(\d{1,2}):(\d{2})$/);
-    if (mHM) return parseInt(mHM[1]);            // "13:00" -> 13
+    if (mHM) {
+      const hh = parseInt(mHM[1]), mm = parseInt(mHM[2]);
+      return isQH ? (hh * 4 + Math.floor(mm / 15)) : hh;   // QH slot 0..95, nebo hodina 0..23
+    }
     const num = parseInt(s.replace(/[^\d]/g,''));
-    if (isFinite(num) && num >= 1 && num <= 24) return num - 1;  // 1-indexed -> 0-23
+    const maxSlot = isQH ? 96 : 24;
+    if (isFinite(num) && num >= 1 && num <= maxSlot) return num - 1;
     return null;
   }
-  const hourToCol = {};                          // 0..23 -> datový sloupec (label) pokud existuje
-  for (const c of dataHourCols){ const hr = colToHour(c); if (hr != null && !(hr in hourToCol)) hourToCol[hr] = c; }
-  // hourCols = vždy všech 24 (klíč = "H1".."H24"), pro timeline/select potřebujeme i mapování na data
-  const hourCols = [];
-  for (let hr=0; hr<24; hr++) hourCols.push(hourToCol[hr] != null ? hourToCol[hr] : `__H${hr+1}`);
+  const slotToCol = {};                          // slot -> datovy sloupec (label) pokud existuje
+  for (const c of dataHourCols){ const sl = colToSlot(c); if (sl != null && !(sl in slotToCol)) slotToCol[sl] = c; }
+  const totalSlots = isQH ? 96 : 24;
+  const slotCols = [];
+  for (let sl=0; sl<totalSlots; sl++) slotCols.push(slotToCol[sl] != null ? slotToCol[sl] : `__S${sl+1}`);
+  // Label pro radek: QH -> "HH:MM", hodinove -> "H1".."H24"
+  function slotLabel(sl){
+    if (isQH) { const hh = Math.floor(sl/4), mm = (sl%4)*15; return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`; }
+    return `H${sl+1}`;
+  }
   
   // colgroup pro fixni sirky sloupcu
   let cg = '<colgroup><col style="width:64px;min-width:64px;">';
   for (const key of countryKeys) cg += '<col style="width:80px;min-width:72px;">';
   cg += '</colgroup>';
   html += `<table style="font-family:'JetBrains Mono',monospace;font-size:11px;table-layout:fixed;width:100%;">${cg}<thead><tr>`;
-  html += '<th style="text-align:left;background:#ecf0f1;position:sticky;left:0;width:64px;padding:6px 8px;">Hodina</th>';
+  html += `<th style="text-align:left;background:#ecf0f1;position:sticky;left:0;width:64px;padding:6px 8px;">${isQH ? 'QH' : 'Hodina'}</th>`;
   for (const key of countryKeys) {
     const flag = flagFor(key);
     const name = nameFor(key) || String(key);
@@ -529,10 +549,10 @@ function renderDataTable(lastRec, allRecords) {
   const rowByKey = {};
   for (const r of rows) rowByKey[r.key] = r;
   
-  // Vždy všech 24 hodin H1..H24
-  for (let hr=0; hr<24; hr++) {
-    const dataCol = hourToCol[hr];               // label v datech nebo undefined
-    html += `<tr><td style="text-align:left;font-weight:600;background:#f8f9fa;position:sticky;left:0;padding:5px 8px;width:64px;">H${hr+1}</td>`;
+  // Vsechny casove sloty (24 hodin nebo 96 QH podle detekce)
+  for (let sl=0; sl<totalSlots; sl++) {
+    const dataCol = slotToCol[sl];               // label v datech nebo undefined
+    html += `<tr><td style="text-align:left;font-weight:600;background:#f8f9fa;position:sticky;left:0;padding:5px 8px;width:64px;">${slotLabel(sl)}</td>`;
     for (const key of countryKeys) {
       const v = dataCol != null ? rowByKey[key]?.[dataCol] : undefined;
       let cellHtml = '<span class="gray">—</span>';
@@ -555,12 +575,12 @@ function renderDataTable(lastRec, allRecords) {
   html += '<div style="margin-bottom:14px;">';
   html += '<label style="font-size:12px;color:#666;margin-right:8px;">Vyber hodinu:</label>';
   html += '<select id="hourSelect" onchange="renderTimeline()" style="padding:4px 8px;font-size:12px;">';
-  for (let hr=0; hr<24; hr++) {
-    const dataCol = hourToCol[hr];
+  for (let sl=0; sl<totalSlots; sl++) {
+    const dataCol = slotToCol[sl];
     if (dataCol != null) {
-      html += `<option value="${escapeHtml(dataCol)}">H${hr+1}</option>`;
+      html += `<option value="${escapeHtml(dataCol)}">${slotLabel(sl)}</option>`;
     } else {
-      html += `<option value="" disabled>H${hr+1} (bez dat)</option>`;
+      html += `<option value="" disabled>${slotLabel(sl)} (bez dat)</option>`;
     }
   }
   html += '</select>';
@@ -574,7 +594,7 @@ function renderDataTable(lastRec, allRecords) {
   window._fandaState = {
     allRecords: allRecords,
     countryKeys: countryKeys,
-    hourCols: hourCols,
+    hourCols: slotCols,
     FLAGS: FLAGS,
     NAMES_CZ: NAMES_CZ,
     countryOf: countryOf,
@@ -591,7 +611,7 @@ function renderDataTable(lastRec, allRecords) {
   const nowH = new Date().getHours();
   const sel = document.getElementById('hourSelect');
   if (sel) {
-    const targetCol = hourToCol[nowH];
+    const targetCol = slotToCol[isQH ? nowH * 4 : nowH];
     let picked = false;
     if (targetCol != null) {
       const opt = [...sel.options].find(o => o.value === String(targetCol));
