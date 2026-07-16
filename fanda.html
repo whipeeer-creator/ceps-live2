@@ -226,7 +226,7 @@ async function loadData() {
 // Zkonvertuje casovy string z Fandy (UTC, napr. "2026-07-16 22:00:00" bez zony)
 // na mistni cas (Europe/Prague) ve formatu "HH:MM". Pokud string uz zonu obsahuje
 // (napr. "+02:00" nebo "Z"), pouzije se primo - konvertuje se jen bezzonovy format.
-function localHM(s) {
+function localHM(s, withDate) {
   const str = String(s).trim();
   // Uz ma explicitni zonu (+HH:MM, -HH:MM, nebo Z na konci) -> Date ji respektuje primo.
   const hasZone = /[zZ]$/.test(str) || /[+-]\d{2}:?\d{2}$/.test(str);
@@ -238,11 +238,34 @@ function localHM(s) {
     return m ? `${String(m[1]).padStart(2,'0')}:${m[2]}` : str;
   }
   const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Europe/Prague', hour: '2-digit', minute: '2-digit', hour12: false
+    timeZone: 'Europe/Prague', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false
   }).formatToParts(d);
   const hh = parts.find(p => p.type === 'hour').value;
   const mm = parts.find(p => p.type === 'minute').value;
-  return `${hh}:${mm}`;
+  if (!withDate) return `${hh}:${mm}`;
+  const dd = parts.find(p => p.type === 'day').value;
+  const mo = parts.find(p => p.type === 'month').value;
+  // "D.M HH:MM" - kratsi tvar, den bez vedouci nuly (17.7 misto 17.07)
+  return `${parseInt(dd)}.${parseInt(mo)} ${hh}:${mm}`;
+}
+
+// Zjisti, jestli dany seznam UTC timestampu po prevodu na mistni cas spada do VICE
+// nez 1 kalendarniho dne. Pokud ano, je nutne pouzit label s datem (jinak by 01:00
+// z ruznych dnu kolidovaly - napr. 22:00-23:45 predchoziho dne se konvertuji na
+// 00:00-01:45 dalsiho dne).
+function spansMultipleDays(tsList) {
+  const days = new Set();
+  for (const ts of tsList) {
+    const str = String(ts).trim();
+    const hasZone = /[zZ]$/.test(str) || /[+-]\d{2}:?\d{2}$/.test(str);
+    const iso = hasZone ? str.replace(' ', 'T') : str.replace(' ', 'T') + 'Z';
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) continue;
+    const dstr = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Prague' }).format(d);
+    days.add(dstr);
+    if (days.size > 1) return true;
+  }
+  return false;
 }
 
 function escapeHtml(str) {
@@ -277,7 +300,7 @@ function renderDataTable(lastRec, allRecords) {
       // Fanda posila casy v UTC (napr. "2026-07-16 22:00:00", bez zony).
       // Zkonvertuj na mistni cas (Europe/Prague) pred extrakci HH:MM labelu,
       // jinak by tabulka ukazovala UTC hodiny misto mistnich.
-      const hourLabels = intervals.map(s => localHM(s));
+      const hourLabels = intervals.map(s => localHM(s, spansMultipleDays(intervals)));
       rows = [];
       for (const k of Object.keys(data)) {
         const v = data[k];
@@ -290,6 +313,43 @@ function renderDataTable(lastRec, allRecords) {
         rows.push(row);
       }
       formatHint = `Fanda formát (${rows.length} keys × ${hourLabels.length} hodin)`;
+    }
+    // FANDA FORMAT (dict varianta): { price: { "2026-07-16 22:00:00": 173.81, ... }, ... }
+    // Kazdy top-level klic (napr. "price") ma jako hodnotu OBJEKT, kde klice jsou
+    // timestampy (ne pole s "intervals"). Detekuj podle: aspon jeden klic ma za hodnotu
+    // objekt (ne pole, ne primitivum) a jeho klice vypadaji jako datum/cas.
+    else if (Object.keys(data).some(k => {
+      const v = data[k];
+      if (typeof v !== 'object' || v === null || Array.isArray(v)) return false;
+      const innerKeys = Object.keys(v);
+      return innerKeys.length > 0 && /\d{1,4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}:\d{2}/.test(innerKeys[0]);
+    })) {
+      // Posbiraj vsechny unikatni timestampy napric vsemi klici, serazene chronologicky
+      const tsSet = new Set();
+      for (const k of Object.keys(data)) {
+        const v = data[k];
+        if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
+          Object.keys(v).forEach(ts => tsSet.add(ts));
+        }
+      }
+      const tsList = Array.from(tsSet).sort((a, b) => {
+        const da = new Date(a.replace(' ', 'T') + 'Z').getTime();
+        const db = new Date(b.replace(' ', 'T') + 'Z').getTime();
+        return (isNaN(da) ? 0 : da) - (isNaN(db) ? 0 : db);
+      });
+      const hourLabels = tsList.map(ts => localHM(ts, spansMultipleDays(tsList)));
+      rows = [];
+      for (const k of Object.keys(data)) {
+        const v = data[k];
+        if (typeof v !== 'object' || v === null || Array.isArray(v)) continue;
+        const row = { key: k };
+        tsList.forEach((ts, i) => {
+          const val = v[ts];
+          row[hourLabels[i]] = (typeof val === 'number') ? Math.round(val * 10) / 10 : val;
+        });
+        rows.push(row);
+      }
+      formatHint = `Fanda formát dict (${rows.length} keys × ${hourLabels.length} hodin)`;
     }
     // Format B: object with "rows" key
     else if (Array.isArray(data.rows)) {
@@ -671,7 +731,7 @@ window.renderTimeline = function() {
     let parsedRows = null;
     // Fanda formát: intervals + arrays
     if (data && Array.isArray(data.intervals) && data.intervals.length > 0) {
-      const hourLabels = data.intervals.map(s => localHM(s));
+      const hourLabels = data.intervals.map(s => localHM(s, spansMultipleDays(data.intervals)));
       parsedRows = [];
       for (const k of Object.keys(data)) {
         const v = data[k];
