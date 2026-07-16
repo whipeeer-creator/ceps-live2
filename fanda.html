@@ -223,6 +223,28 @@ async function loadData() {
   }
 }
 
+// Zkonvertuje casovy string z Fandy (UTC, napr. "2026-07-16 22:00:00" bez zony)
+// na mistni cas (Europe/Prague) ve formatu "HH:MM". Pokud string uz zonu obsahuje
+// (napr. "+02:00" nebo "Z"), pouzije se primo - konvertuje se jen bezzonovy format.
+function localHM(s) {
+  const str = String(s).trim();
+  // Uz ma explicitni zonu (+HH:MM, -HH:MM, nebo Z na konci) -> Date ji respektuje primo.
+  const hasZone = /[zZ]$/.test(str) || /[+-]\d{2}:?\d{2}$/.test(str);
+  const iso = hasZone ? str.replace(' ', 'T') : str.replace(' ', 'T') + 'Z';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) {
+    // Fallback - nepodarilo se parsovat jako datum, aspon vytahni HH:MM ze stringu
+    const m = str.match(/(\d{1,2}):(\d{2})/);
+    return m ? `${String(m[1]).padStart(2,'0')}:${m[2]}` : str;
+  }
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Prague', hour: '2-digit', minute: '2-digit', hour12: false
+  }).formatToParts(d);
+  const hh = parts.find(p => p.type === 'hour').value;
+  const mm = parts.find(p => p.type === 'minute').value;
+  return `${hh}:${mm}`;
+}
+
 function escapeHtml(str) {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -252,11 +274,10 @@ function renderDataTable(lastRec, allRecords) {
     // FANDA FORMÁT: { intervals: [ts1, ts2, ...], hub_xx_yy: [v1, v2, ...], updated: ... }
     if (Array.isArray(data.intervals) && data.intervals.length > 0) {
       const intervals = data.intervals;
-      // Hodina labels z intervalů: "2026-06-03 01:00:00+02:00" → "01:00"
-      const hourLabels = intervals.map(s => {
-        const m = String(s).match(/(\d{1,2}):(\d{2})/);
-        return m ? `${String(m[1]).padStart(2,'0')}:${m[2]}` : String(s);
-      });
+      // Fanda posila casy v UTC (napr. "2026-07-16 22:00:00", bez zony).
+      // Zkonvertuj na mistni cas (Europe/Prague) pred extrakci HH:MM labelu,
+      // jinak by tabulka ukazovala UTC hodiny misto mistnich.
+      const hourLabels = intervals.map(s => localHM(s));
       rows = [];
       for (const k of Object.keys(data)) {
         const v = data[k];
@@ -650,10 +671,7 @@ window.renderTimeline = function() {
     let parsedRows = null;
     // Fanda formát: intervals + arrays
     if (data && Array.isArray(data.intervals) && data.intervals.length > 0) {
-      const hourLabels = data.intervals.map(s => {
-        const m = String(s).match(/(\d{1,2}):(\d{2})/);
-        return m ? `${String(m[1]).padStart(2,'0')}:${m[2]}` : String(s);
-      });
+      const hourLabels = data.intervals.map(s => localHM(s));
       parsedRows = [];
       for (const k of Object.keys(data)) {
         const v = data[k];
