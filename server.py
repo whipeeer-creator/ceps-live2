@@ -719,14 +719,23 @@ class Handler(BaseHTTPRequestHandler):
         # Ingest read endpoints
         if parsed.path == "/ingest/list":
             store = globals().get("_INGEST_STORE", {})
+            # Agreguj podle BASE source (bez ::type), protoze store je klicovany
+            # "source::type" a frontend (fanda.html) ocekava cisty nazev source
+            # v dropdownu - jinak source=fanda::exaa_dayahead nejde spárovat v /ingest/data.
             summary = {}
-            for src, records in store.items():
-                summary[src] = {
-                    "count": len(records),
-                    "latest_ts": records[-1]["ts"] if records else None,
-                    "types": list(set(r["type"] for r in records))
-                }
-            self._json({"sources": summary, "total_sources": len(store)})
+            for skey, records in store.items():
+                base = skey.split("::", 1)[0]
+                if base not in summary:
+                    summary[base] = {"count": 0, "latest_ts": None, "types": set()}
+                summary[base]["count"] += len(records)
+                for r in records:
+                    summary[base]["types"].add(r.get("type"))
+                    ts = r.get("ts")
+                    if ts and (summary[base]["latest_ts"] is None or ts > summary[base]["latest_ts"]):
+                        summary[base]["latest_ts"] = ts
+            for base in summary:
+                summary[base]["types"] = sorted(t for t in summary[base]["types"] if t)
+            self._json({"sources": summary, "total_sources": len(summary)})
             return
         
         if parsed.path == "/ingest/data":
