@@ -657,10 +657,20 @@ class Handler(BaseHTTPRequestHandler):
             if len(store[skey]) > _keep:
                 store[skey] = store[skey][-_keep:]
             
-            # Zapis na disk VYPNUT - data jsou jen v pameti (store), dashboard cte odtud.
-            # Duvod: ingest kazdou 0.5s zaplnoval /tmp (~1.3GB/h) a server padal (503).
-            # Soubory nikdo necetl, takze je proste neukladame.
-            pass
+            # Zapis na disk - JEN pro mala, nizko-frekventni data (napr. fanda exaa_dayahead,
+            # ktere chodi jednou denne rucne). Vysoko-frekventni zdroje (orderbook kazdych
+            # 0.5s, trades 5MB) na disk NEUKLADAME - to drive zaplnovalo /tmp (~1.3GB/h) a
+            # padal server (503). Pamet (_INGEST_STORE) se ale mate restartem Renderu, takze
+            # jednorazova denni data by jinak zmizela pri kazdem deploy/restartu.
+            _PERSIST_TYPES = {"exaa_dayahead"}
+            if data_type in _PERSIST_TYPES and len(body) < 200_000:
+                try:
+                    os.makedirs("/tmp/ingest_persist", exist_ok=True)
+                    ppath = f"/tmp/ingest_persist/{safe_source}__{data_type}.json"
+                    with open(ppath, "w") as f:
+                        json.dump(record, f, ensure_ascii=False)
+                except Exception as _pe:
+                    print(f"[INGEST] persist error: {_pe}", flush=True)
             
             # Optional webhook forward (Discord/Slack)
             webhook_url = os.environ.get("INGEST_WEBHOOK", "")
@@ -4509,11 +4519,33 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8765))
     public_url = os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/")
 
+    # Znovu-nacti perzistentni data (fanda exaa_dayahead apod.) do pameti PRED
+    # smazanim /tmp/ingest_* - jinak by restart Renderu tato jednorazova denni
+    # data ztratil (store je jen v pameti).
+    try:
+        import glob as _glob2
+        for _pf in _glob2.glob("/tmp/ingest_persist/*.json"):
+            try:
+                with open(_pf) as f:
+                    _rec = json.load(f)
+                _base = os.path.basename(_pf).replace(".json", "")
+                _src, _typ = _base.rsplit("__", 1)
+                _skey = f"{_src}::{_typ}"
+                globals().setdefault("_INGEST_STORE", {})
+                globals()["_INGEST_STORE"].setdefault(_skey, [])
+                globals()["_INGEST_STORE"][_skey].append(_rec)
+                print(f"[startup] obnoveno z disku: {_skey}", flush=True)
+            except Exception as _re:
+                print(f"[startup] restore fail {_pf}: {_re}", flush=True)
+    except Exception as _e:
+        print(f"[startup] persist restore fail: {_e}", flush=True)
+
     # Vycisti stare ingest soubory z /tmp pri startu (uvolni misto po starsi verzi
-    # ktera je ukladala kazdou 0.5s a zaplnila disk -> 503).
+    # ktera je ukladala kazdou 0.5s a zaplnila disk -> 503). NEmaz /tmp/ingest_persist/*
+    # - to jsou zamerne perzistovana data (viz vyse).
     try:
         import glob as _glob
-        _old = _glob.glob("/tmp/ingest_*")
+        _old = [f for f in _glob.glob("/tmp/ingest_*") if "/ingest_persist" not in f]
         for _f in _old:
             try: os.remove(_f)
             except Exception: pass
