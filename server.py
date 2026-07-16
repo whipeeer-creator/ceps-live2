@@ -662,7 +662,7 @@ class Handler(BaseHTTPRequestHandler):
             # 0.5s, trades 5MB) na disk NEUKLADAME - to drive zaplnovalo /tmp (~1.3GB/h) a
             # padal server (503). Pamet (_INGEST_STORE) se ale mate restartem Renderu, takze
             # jednorazova denni data by jinak zmizela pri kazdem deploy/restartu.
-            _PERSIST_TYPES = {"exaa_dayahead"}
+            _PERSIST_TYPES = {"exaa_dayahead", "exaa_dayahead_qh"}
             if data_type in _PERSIST_TYPES and len(body) < 200_000:
                 try:
                     os.makedirs("/tmp/ingest_persist", exist_ok=True)
