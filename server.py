@@ -704,6 +704,19 @@ class Handler(BaseHTTPRequestHandler):
                 pass
 
     def do_GET(self):
+        # Vypinac stranky hory.html pres promennou prostredi HORY_OFF=1.
+        # Ostatni endpointy bezi dal, takze boti nejsou dotceni.
+        if os.environ.get("HORY_OFF") == "1" and \
+                self.path.split("?")[0].rstrip("/") in ("/hory.html", "/hory"):
+            body = "Stranka je docasne nedostupna.".encode("utf-8")
+            self.send_response(503)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Retry-After", "3600")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
         try:
             self._do_GET_inner()
         except (BrokenPipeError, ConnectionResetError):
