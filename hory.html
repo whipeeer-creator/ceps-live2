@@ -1343,17 +1343,28 @@ function drawCenaRE(canvas, d, d2, d3, d4, d5) {
       .sort((a,b) => a.min - b.min);
   }
 
+  // Prumeruje 15min body do hodin. Energy-charts vraci pro CZ i DE-LU
+  // 96 bodu po 15 min; drivejsi filtr minute===0 bral jen prvni ctvrthodinu.
+  function hodinovyPrumer(data) {
+    const byH = {};
+    (data || []).forEach(p => {
+      if (!Number.isFinite(p.price_eur)) return;
+      const h = Number.isFinite(p.hour) ? p.hour : null;
+      if (h === null) return;
+      (byH[h] = byH[h] || []).push(p.price_eur);
+    });
+    return Object.entries(byH)
+      .map(([h, v]) => ({ hour: +h, price_eur: v.reduce((a, b) => a + b, 0) / v.length }))
+      .sort((a, b) => a.hour - b.hour);
+  }
+
   // DA spot ceny (CZ, EUR/MWh, hodinová granularita)
-  // Energy-charts vrací 15min body, ale CZ DA je hodinový → filter na minute===0
+  // Energy-charts vraci 15min body pro CZ i DE-LU -> prumerujeme na hodiny
   let daPoints = [];
   if (d4 && d4.data && d4.data.length) {
-    daPoints = d4.data
-      .filter(p => p.minute === 0 || !Number.isFinite(p.minute))
-      .map(p => ({
-        min: p.hour * 60,
-        da: p.price_eur,
-      })).filter(p => Number.isFinite(p.min) && Number.isFinite(p.da))
-      .sort((a, b) => a.min - b.min);
+    daPoints = hodinovyPrumer(d4.data)
+      .map(p => ({ min: p.hour * 60, da: p.price_eur }))
+      .filter(p => Number.isFinite(p.min) && Number.isFinite(p.da));
   }
 
   // VDT (15min last cena - OTE uz vraci v EUR/MWh)
@@ -3117,7 +3128,7 @@ async function loadSpotTable(country, tableId) {
           if (rTom.ok) {
             const dTom = await rTom.json();
             if (dTom && !dTom.error && dTom.data) {
-              rowsTom = dTom.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+              rowsTom = hodinovyPrumer(dTom.data);
             }
           }
         } catch(e) {}
@@ -3132,11 +3143,11 @@ async function loadSpotTable(country, tableId) {
       if (!r.ok) return;
       const d = await r.json();
       if (d.error || !d.data || !d.data.length) return;
-      rows = d.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+      rows = hodinovyPrumer(d.data);
       if (rTom && rTom.ok) {
         const dTom = await rTom.json().catch(()=>null);
         if (dTom && !dTom.error && dTom.data) {
-          rowsTom = dTom.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+          rowsTom = hodinovyPrumer(dTom.data);
         }
       }
     }
@@ -4496,7 +4507,7 @@ async function loadSpotTable(country, tableId) {
           if (rTom.ok) {
             const dTom = await rTom.json();
             if (dTom && !dTom.error && dTom.data) {
-              rowsTom = dTom.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+              rowsTom = hodinovyPrumer(dTom.data);
             }
           }
         } catch(e) {}
@@ -4511,11 +4522,11 @@ async function loadSpotTable(country, tableId) {
       if (!r.ok) return;
       const d = await r.json();
       if (d.error || !d.data || !d.data.length) return;
-      rows = d.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+      rows = hodinovyPrumer(d.data);
       if (rTom && rTom.ok) {
         const dTom = await rTom.json().catch(()=>null);
         if (dTom && !dTom.error && dTom.data) {
-          rowsTom = dTom.data.filter(p => p.minute === 0).map(p => ({ hour: p.hour, price_eur: p.price_eur }));
+          rowsTom = hodinovyPrumer(dTom.data);
         }
       }
     }
@@ -4736,7 +4747,7 @@ async function loadSpotTomorrow() {
     } catch(e) {}
     // Fallback: pokud /ote/spot nedalo hodinové, vezmi minute=0 z 15min dat (nepřesné)
     if (Object.keys(priceByHour).length === 0) {
-      for (const p of d.data) if (p.minute === 0) priceByHour[p.hour] = p.price_eur;
+      hodinovyPrumer(d.data).forEach(r => { priceByHour[r.hour] = r.price_eur; });
     }
     
     const allVals = d.data.map(p => p.price_eur).filter(v => Number.isFinite(v));
